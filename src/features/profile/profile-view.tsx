@@ -144,7 +144,7 @@ export function ProfileView() {
                     {initials(admin.name)}
                   </span>
                   <div className="min-w-0">
-                    <h2 className="truncate font-display text-2xl leading-tight text-ink">
+                    <h2 className="truncate font-display text-xl leading-tight text-ink">
                       {admin.name}
                     </h2>
                     <p className="truncate text-sm text-ink-muted">

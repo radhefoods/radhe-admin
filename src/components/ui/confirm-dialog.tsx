@@ -105,7 +105,7 @@ export function ConfirmDialog({
           )}
         >
           <div className="flex flex-col gap-1.5">
-            <AlertPrimitive.Title className="font-display text-2xl leading-tight text-ink">
+            <AlertPrimitive.Title className="font-display text-lg leading-snug text-ink">
               {title}
             </AlertPrimitive.Title>
             <AlertPrimitive.Description asChild>

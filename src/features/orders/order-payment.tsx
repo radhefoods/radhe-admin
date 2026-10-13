@@ -737,7 +737,7 @@ export function OrderPaymentCard({
             <Money
               cents={active.amountDue}
               className={cn(
-                "font-display text-3xl leading-tight",
+                "font-display text-2xl leading-tight",
                 active.amountDue === 0 && "text-ink-subtle",
               )}
             />

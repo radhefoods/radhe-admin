@@ -37,7 +37,7 @@ function Figure({
   return (
     <div className="flex flex-col gap-0.5 rounded-lg border border-line px-4 py-3.5">
       <dt className="text-13 text-ink-muted">{label}</dt>
-      <dd className="font-display text-3xl leading-tight text-ink tabular">
+      <dd className="font-display text-2xl leading-tight text-ink tabular">
         {children}
       </dd>
       {hint ? <p className="text-13 text-ink-subtle">{hint}</p> : null}

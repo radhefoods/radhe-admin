@@ -2,7 +2,7 @@ import { cn } from "@/lib/cn";
 
 /**
  * The brand mark. The wordmark is navy and only works on light ground, so
- * the dark theme shows the feather alone with the name set in the serif
+ * the dark theme shows the feather alone with the name set in the panel's face
  * (the logo itself is never recoloured).
  */
 export function Logo({
@@ -31,7 +31,7 @@ export function Logo({
         <FeatherMark size={height} />
         <span
           className="font-display leading-none text-ink"
-          style={{ fontSize: Math.round(height * 0.74) }}
+          style={{ fontSize: Math.round(height * 0.62) }}
         >
           Radhe
         </span>

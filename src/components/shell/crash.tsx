@@ -33,7 +33,7 @@ export function Crash({
       )}
     >
       <div className="flex max-w-md flex-col gap-1.5">
-        <h1 className="font-display text-3xl text-ink">
+        <h1 className="font-display text-2xl text-ink">
           This page ran into a problem
         </h1>
         <p className="text-sm text-ink-muted">

@@ -46,7 +46,7 @@ export function PageHeader({
           </Link>
         ) : null}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          <h1 className="font-display text-[1.75rem] leading-tight text-ink sm:text-[2rem]">
+          <h1 className="font-display text-2xl leading-tight text-ink sm:text-[1.75rem]">
             {title}
           </h1>
           {badges}
@@ -94,7 +94,9 @@ export function SectionTitle({
       )}
     >
       <div className="min-w-0">
-        <h2 className="text-base font-semibold text-ink">{children}</h2>
+        <h2 className="text-base font-semibold tracking-[-0.01em] text-ink">
+          {children}
+        </h2>
         {description ? (
           <p className="mt-0.5 text-13 text-ink-muted">{description}</p>
         ) : null}

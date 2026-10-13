@@ -221,7 +221,7 @@ function AttentionStrip({ groups }: { groups: Group[] }) {
             </span>
             <span
               className={cn(
-                "font-display text-4xl leading-none tabular",
+                "font-display text-3xl leading-none tabular",
                 group.count > 0 ? "text-ink" : "text-ink-subtle",
               )}
             >

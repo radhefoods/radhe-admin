@@ -91,7 +91,7 @@ function Stat({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col">
       <dt className="text-xs text-ink-muted">{label}</dt>
-      <dd className="font-display text-3xl leading-tight text-ink tabular">
+      <dd className="font-display text-2xl leading-tight text-ink tabular">
         {children}
       </dd>
     </div>

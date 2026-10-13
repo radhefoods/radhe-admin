@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import type { ReactNode } from "react";
 import { Providers } from "@/components/providers";
 import { themeScript } from "@/components/shell/theme";
-import { instrumentSans, instrumentSerif } from "./fonts";
+import { inter } from "./fonts";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -35,7 +35,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${instrumentSans.variable} ${instrumentSerif.variable}`}
+      className={inter.variable}
       // The theme script sets `data-theme` before React starts.
       suppressHydrationWarning
     >

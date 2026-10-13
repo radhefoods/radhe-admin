@@ -78,7 +78,7 @@ export function DialogHeader({
     <div
       className={cn("flex flex-col gap-1.5 px-5 pt-5 pr-14 sm:px-6", className)}
     >
-      <DialogPrimitive.Title className="font-display text-2xl leading-tight text-ink">
+      <DialogPrimitive.Title className="font-display text-lg leading-snug text-ink">
         {title}
       </DialogPrimitive.Title>
       {description ? (

@@ -27,7 +27,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
           Pre-order · Deliver · Collect
         </p>
         <div className="relative max-w-[26rem]">
-          <p className="font-display text-5xl leading-[1.05] text-on-navy">
+          <p className="font-display text-4xl leading-[1.1] text-on-navy">
             Every cargo, from the first order to the last payment.
           </p>
           <ol className="mt-10 flex flex-col gap-4 text-sm text-on-navy-muted">

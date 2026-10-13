@@ -12,7 +12,7 @@ The back office of the Radhe Foods pre-order platform: the web application the s
 
 ## Requirements
 
-- Node.js 22.18 or newer (the mock API runs TypeScript directly)
+- Node.js 24 (the current LTS line; `.nvmrc` names it for nvm, fnm and the like). Older lines are not supported: the mock API runs TypeScript directly, and the test tools want 24.
 - npm
 
 ## Quick start

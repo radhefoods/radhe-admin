@@ -41,7 +41,7 @@ export function SignInView() {
   return (
     <div className="flex flex-col gap-7">
       <div className="flex flex-col gap-2">
-        <h1 className="font-display text-4xl leading-tight text-ink">
+        <h1 className="font-display text-[1.75rem] leading-tight text-ink">
           Sign in
         </h1>
         <p className="text-ink-muted">

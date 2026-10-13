@@ -178,14 +178,14 @@
   --color-paper: #ffffff;
 
   --font-sans:
-    var(--font-instrument-sans), "Segoe UI", system-ui, -apple-system,
-    "Helvetica Neue", Arial, sans-serif;
-  --font-display:
-    var(--font-instrument-serif), "Iowan Old Style", "Palatino Linotype",
-    Georgia, serif;
+    var(--font-inter), "Segoe UI", system-ui, -apple-system, "Helvetica Neue",
+    Arial, sans-serif;
   --font-mono:
     ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
 
+  /* The scale: 11 for small caps labels, 13 for table cells and hints, 14
+     for the interface, 16 for section titles; the larger sizes are set
+     with `font-display`. Line heights stay on the 4 px grid. */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
   --text-13: 0.8125rem;
@@ -321,8 +321,20 @@
     font-family: var(--font-sans);
     font-size: 0.875rem;
     line-height: 1.5;
+    font-optical-sizing: auto;
+    /* The l with a tail: an l and an I are told apart in codes and names. */
+    font-feature-settings: "cv05";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Headings and key figures hold a line on their own: a long title wraps
+     into even lines rather than leaving one word behind. */
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
   }
 
   /* One visible focus style everywhere, for keyboard users. */
@@ -375,16 +387,12 @@
   }
 }
 
-/* Page titles and key figures in the serif of the system. */
+/* Page titles and key figures: the same face, set heavier and tighter. The
+   size comes from the text utility next to it. */
 @utility font-display {
-  font-family: var(--font-display);
-  font-weight: 400;
-  letter-spacing: -0.01em;
-}
-
-/* The narrow cut of the sans, for long labels in tight columns. */
-@utility font-narrow {
-  font-stretch: 88%;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  letter-spacing: -0.022em;
 }
 
 /* Digits that line up in columns. */

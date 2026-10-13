@@ -386,7 +386,7 @@ export function RefundView() {
                 <Fact label="Amount">
                   <Money
                     cents={refund.amount}
-                    className="font-display text-3xl leading-tight"
+                    className="font-display text-2xl leading-tight"
                   />
                 </Fact>
                 <Fact label="Reason">{humanize(refund.reason)}</Fact>

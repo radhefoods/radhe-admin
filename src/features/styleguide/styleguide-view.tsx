@@ -215,8 +215,8 @@ export function StyleguideView() {
 
         <Part title="Type">
           <div className="flex flex-col gap-3">
-            <p className="font-display text-[2rem] leading-tight text-ink">
-              Page title in Instrument Serif
+            <p className="font-display text-[1.75rem] leading-tight text-ink">
+              Page title, 28 semibold, tight
             </p>
             <p className="text-base font-semibold text-ink">
               Section title, 16 semibold

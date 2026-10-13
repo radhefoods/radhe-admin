@@ -13,7 +13,7 @@
 //   MOCK_STRIPE     "on": Stripe counts as connected (default off, as in section 19)
 //   MOCK_WHATSAPP   "on": WhatsApp counts as configured (default off)
 //
-// Run with Node 22.18 or newer (it reads TypeScript directly); no build step.
+// Run with Node 24 or newer (it reads TypeScript directly); no build step.
 
 import { createServer, type IncomingMessage } from "node:http";
 import { Readable } from "node:stream";

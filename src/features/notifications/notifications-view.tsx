@@ -260,7 +260,7 @@ function StatusCounts({
               ) : (
                 <span
                   className={cn(
-                    "font-display text-3xl leading-none tabular",
+                    "font-display text-2xl leading-none tabular",
                     count > 0 ? "text-ink" : "text-ink-subtle",
                   )}
                 >

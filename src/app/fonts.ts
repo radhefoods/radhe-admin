@@ -1,19 +1,13 @@
-import { Instrument_Sans, Instrument_Serif } from "next/font/google";
+import { Inter } from "next/font/google";
 
-// Both families are downloaded when the panel is built and served from the
-// panel's own address: no request goes to Google when an admin works.
+// One family for everything, downloaded when the panel is built and served
+// from the panel's own address: no request goes to Google when an admin
+// works. The optical-size axis sets the cut by size on its own: open and
+// sturdy for 13 px table cells, tighter for titles and key figures.
 
-export const instrumentSans = Instrument_Sans({
+export const inter = Inter({
   subsets: ["latin"],
-  axes: ["wdth"],
+  axes: ["opsz"],
   display: "swap",
-  variable: "--font-instrument-sans",
-});
-
-export const instrumentSerif = Instrument_Serif({
-  subsets: ["latin"],
-  weight: "400",
-  style: ["normal", "italic"],
-  display: "swap",
-  variable: "--font-instrument-serif",
+  variable: "--font-inter",
 });
