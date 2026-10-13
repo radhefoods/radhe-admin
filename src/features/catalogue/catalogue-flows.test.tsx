@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { File as NodeFile } from "node:buffer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   Category,
@@ -9,10 +10,12 @@ import type {
   ProductSummary,
 } from "@/lib/api/types";
 import { installTestApi, type TestApi } from "@/test/api";
+import { png } from "@/test/png";
 import { renderPanel, testNavigation } from "@/test/render";
 import { CategoriesView } from "./categories-view";
 import { ImageManager } from "./image-manager";
 import type { SizeReader } from "./image-rules";
+import { ProductNewView } from "./product-new-view";
 import { ProductView } from "./product-view";
 import { ProductsView } from "./products-view";
 import { useProduct } from "./queries";
@@ -1221,5 +1224,217 @@ describe("the product a page is opened for", () => {
     expect(
       screen.queryByRole("link", { name: /Open in the shop/ }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("creating a product with pictures", () => {
+  const readSize: SizeReader = async () => ({ width: 640, height: 480 });
+  const picture = (name: string) =>
+    new File([new Uint8Array(png(640, 480))], name, { type: "image/png" });
+
+  /**
+   * The browser's upload (`XMLHttpRequest`, for its progress), routed to the
+   * mock API behind `fetch` like every other call of the panel; or failing,
+   * as it does when the API cannot be reached.
+   */
+  function installUpload(mode: "works" | "fails") {
+    class FakeUpload {
+      upload: { onprogress: ((event: ProgressEvent) => void) | null } = {
+        onprogress: null,
+      };
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onabort: (() => void) | null = null;
+      status = 0;
+      responseText = "";
+      withCredentials = false;
+      responseType = "";
+      private method = "GET";
+      private url = "";
+      private headers: Record<string, string> = {};
+      private response: Response | null = null;
+
+      open(method: string, url: string) {
+        this.method = method;
+        this.url = url;
+      }
+      setRequestHeader(name: string, value: string) {
+        this.headers[name] = value;
+      }
+      getResponseHeader(name: string) {
+        return this.response?.headers.get(name) ?? null;
+      }
+      abort() {
+        this.onabort?.();
+      }
+      send(body: FormData) {
+        void (async () => {
+          if (mode === "fails") {
+            this.onerror?.();
+            return;
+          }
+          const boundary = "----panel-test-upload";
+          const encoder = new TextEncoder();
+          const parts: Uint8Array[] = [];
+          for (const [name, value] of body.entries()) {
+            if (typeof value === "string") continue;
+            parts.push(
+              encoder.encode(
+                `--${boundary}\r\nContent-Disposition: form-data; name="${name}"; filename="${value.name}"\r\nContent-Type: ${value.type}\r\n\r\n`,
+              ),
+            );
+            parts.push(new Uint8Array(await value.arrayBuffer()));
+            parts.push(encoder.encode("\r\n"));
+          }
+          parts.push(encoder.encode(`--${boundary}--\r\n`));
+          const bytes = new Uint8Array(
+            parts.reduce((sum, part) => sum + part.length, 0),
+          );
+          let offset = 0;
+          for (const part of parts) {
+            bytes.set(part, offset);
+            offset += part.length;
+          }
+          // Node's multipart parser makes its files with the page's `File`
+          // (jsdom's here) and then does not recognise them: it gets Node's
+          // own class while the mock reads the request.
+          const pageFile = globalThis.File;
+          globalThis.File = NodeFile as unknown as typeof File;
+          let response: Response;
+          try {
+            response = await fetch(this.url, {
+              method: this.method,
+              headers: {
+                ...this.headers,
+                "Content-Type": `multipart/form-data; boundary=${boundary}`,
+              },
+              body: bytes,
+            });
+          } finally {
+            globalThis.File = pageFile;
+          }
+          this.response = response;
+          this.status = response.status;
+          this.responseText = await response.text();
+          this.onload?.();
+        })();
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", FakeUpload);
+  }
+
+  async function fillNewProduct(user: ReturnType<typeof renderPanel>["user"]) {
+    await screen.findByText("Create product", { selector: "button" });
+    await user.type(field("name.en"), "Moong Dal");
+    const select = document.querySelector<HTMLSelectElement>(
+      '[name="categoryId"]',
+    );
+    const option = select?.options[1];
+    if (!select || !option) throw new Error("No category to choose");
+    await user.selectOptions(select, option.value);
+    await user.type(field("packSize.value"), "500");
+    await user.type(field("regularPrice"), "3.49");
+    await user.type(field("vatRate"), "7");
+  }
+
+  const createdId = () => {
+    const last = testNavigation.history.at(-1) ?? "";
+    const match = /^\/catalogue\/products\/([0-9a-f]{24})$/.exec(last);
+    if (!match?.[1]) throw new Error(`Not on a product page: ${last}`);
+    return match[1];
+  };
+
+  it("creates the product first, then sends its pictures, and opens its page", async () => {
+    installUpload("works");
+    const { user } = renderPanel(<ProductNewView readSize={readSize} />, {
+      path: "/catalogue/products/new",
+    });
+    await fillNewProduct(user);
+    await user.upload(screen.getByLabelText("Choose pictures to upload"), [
+      picture("front.png"),
+      picture("back.png"),
+    ]);
+    const chosen = await screen.findByRole("list", {
+      name: "Pictures chosen for the new product",
+    });
+    expect(within(chosen).getAllByRole("listitem")).toHaveLength(2);
+    expect(writes()).toEqual([]);
+
+    await user.click(
+      screen.getByText("Create product", { selector: "button" }),
+    );
+    await waitFor(() => createdId());
+    const id = createdId();
+    await waitFor(() =>
+      expect(writes().map((call) => `${call.method} ${call.path}`)).toEqual([
+        "POST /v1/admin/products",
+        `POST /v1/admin/products/${id}/images`,
+      ]),
+    );
+    expect(record(id).images).toHaveLength(2);
+    expect(record(id).images[0]?.isPrimary).toBe(true);
+    expect(
+      await screen.findByText(
+        "2 pictures stored. It is a draft: set it active when it is ready.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the product when the upload fails, says so, and opens the page that takes the pictures", async () => {
+    installUpload("fails");
+    const { user } = renderPanel(<ProductNewView readSize={readSize} />, {
+      path: "/catalogue/products/new",
+    });
+    await fillNewProduct(user);
+    await user.upload(
+      screen.getByLabelText("Choose pictures to upload"),
+      picture("front.png"),
+    );
+    await screen.findByRole("list", {
+      name: "Pictures chosen for the new product",
+    });
+
+    await user.click(
+      screen.getByText("Create product", { selector: "button" }),
+    );
+    await waitFor(() => createdId());
+    const id = createdId();
+    expect(writes().map((call) => `${call.method} ${call.path}`)).toEqual([
+      "POST /v1/admin/products",
+    ]);
+    expect(record(id).images).toHaveLength(0);
+    // The toast: its title and, under it, what the API said.
+    expect(
+      (await screen.findAllByText(/created without its pictures/)).length,
+    ).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByText(/The API could not be reached/)).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("refuses a file that breaks a rule before the product exists and keeps the others", async () => {
+    const small: SizeReader = async (file) =>
+      file.name === "tiny.png"
+        ? { width: 120, height: 120 }
+        : { width: 640, height: 480 };
+    const { user } = renderPanel(<ProductNewView readSize={small} />, {
+      path: "/catalogue/products/new",
+    });
+    await screen.findByText("Create product", { selector: "button" });
+    await user.upload(screen.getByLabelText("Choose pictures to upload"), [
+      picture("tiny.png"),
+      picture("front.png"),
+    ]);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("One file cannot be uploaded");
+    expect(alert).toHaveTextContent(
+      "tiny.png: 120 × 120 px: each side needs at least 200 px.",
+    );
+    expect(alert).toHaveTextContent("1 other picture was added.");
+    const chosen = screen.getByRole("list", {
+      name: "Pictures chosen for the new product",
+    });
+    expect(within(chosen).getAllByRole("listitem")).toHaveLength(1);
+    expect(writes()).toEqual([]);
   });
 });

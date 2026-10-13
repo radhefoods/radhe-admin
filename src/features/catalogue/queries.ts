@@ -87,6 +87,49 @@ export function useCreateProduct() {
   });
 }
 
+export interface CreateWithImagesInput {
+  input: ProductInput;
+  /** The pictures chosen before the product existed; uploaded right after. */
+  files: File[];
+  onProgress?: (fraction: number) => void;
+}
+
+export interface CreateWithImagesResult {
+  product: ProductDetail;
+  /** `null` when every picture is stored; what the API said otherwise. */
+  upload: unknown;
+}
+
+/**
+ * Creates a product, then uploads its pictures: the API takes pictures only
+ * for a product that exists (8), so they are two requests. A refused upload
+ * does not undo the creation: the product is there, without pictures, and
+ * the result says so.
+ */
+export function useCreateProductWithImages() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      input,
+      files,
+      onProgress,
+    }: CreateWithImagesInput): Promise<CreateWithImagesResult> => {
+      const created = (await api.products.create(input)).product;
+      if (files.length === 0) return { product: created, upload: null };
+      try {
+        const withImages = (
+          await api.products.uploadImages(created.id, files, onProgress)
+        ).product;
+        return { product: withImages, upload: null };
+      } catch (error) {
+        return { product: created, upload: error };
+      }
+    },
+    onSuccess: ({ product }) => keepProduct(client, product),
+    meta: { invalidates: invalidation.catalog, silent: true },
+  });
+}
+
 export function useUpdateProduct(id: Id) {
   const client = useQueryClient();
   return useMutation({

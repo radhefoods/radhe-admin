@@ -169,6 +169,8 @@ export function ProductForm({
   onCreate,
   onUpdate,
   onCancel,
+  pictures,
+  alsoUnsaved = false,
 }: {
   /** Set when an existing product is changed. */
   product?: ProductDetail;
@@ -177,6 +179,10 @@ export function ProductForm({
   onCreate?: (input: ProductInput) => Promise<unknown>;
   onUpdate?: (patch: ProductPatch) => Promise<ProductDetail>;
   onCancel?: () => void;
+  /** For a new product: the pictures that go with it, as a part of the form. */
+  pictures?: ReactNode;
+  /** Something outside the fields would be lost on leaving (chosen pictures). */
+  alsoUnsaved?: boolean;
 }) {
   const creating = !product;
   const manage = useCan()("catalog.manage");
@@ -290,7 +296,9 @@ export function ProductForm({
 
   return (
     <form onSubmit={submit} noValidate className="flex min-w-0 flex-col gap-6">
-      <UnsavedGuard when={dirty && !form.formState.isSubmitSuccessful} />
+      <UnsavedGuard
+        when={(dirty || alsoUnsaved) && !form.formState.isSubmitSuccessful}
+      />
 
       <fieldset disabled={!manage} className="flex min-w-0 flex-col gap-6">
         <legend className="sr-only">
@@ -381,6 +389,8 @@ export function ProductForm({
             />
           </div>
         </Section>
+
+        {pictures}
 
         <Section
           id="price"

@@ -1,32 +1,8 @@
-import { crc32, deflateSync } from "node:zlib";
+import { png } from "../src/test/png";
 import { expect, signIn, test } from "./support";
 
 // What only a real browser can show: a file that travels to the API, with
 // the panel's own check in front of it.
-
-/** A plain PNG of one colour, made here so the repository holds no test pictures. */
-function png(width: number, height: number): Buffer {
-  const chunk = (type: string, data: Buffer) => {
-    const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
-    const length = Buffer.alloc(4);
-    length.writeUInt32BE(data.length);
-    const sum = Buffer.alloc(4);
-    sum.writeUInt32BE(crc32(body));
-    return Buffer.concat([length, body, sum]);
-  };
-  const header = Buffer.alloc(13);
-  header.writeUInt32BE(width, 0);
-  header.writeUInt32BE(height, 4);
-  header.set([8, 2, 0, 0, 0], 8); // 8 bits, RGB
-  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(width * 3, 0x9a)]);
-  const pixels = Buffer.concat(Array.from({ length: height }, () => row));
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk("IHDR", header),
-    chunk("IDAT", deflateSync(pixels)),
-    chunk("IEND", Buffer.alloc(0)),
-  ]);
-}
 
 test("a picture is uploaded to a product, and one that is too small is refused before it is sent", async ({
   page,
@@ -95,4 +71,47 @@ test("a product is taken out of the shop with one switch, and a read-only role c
   await expect(
     page.getByRole("row").filter({ hasText: "Urad Papad" }).getByRole("switch"),
   ).toBeDisabled();
+});
+
+test("a new product takes its pictures with it: created first, then the upload, then its page", async ({
+  page,
+}) => {
+  await signIn(page, "owner", "/catalogue/products/new");
+  const posts: string[] = [];
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      request.url().includes("/v1/admin/products")
+    ) {
+      posts.push(new URL(request.url()).pathname);
+    }
+  });
+
+  await page.locator('[name="name.en"]').fill("Moong Dal");
+  await page.locator('[name="categoryId"]').selectOption({ index: 1 });
+  await page.locator('[name="packSize.value"]').fill("500");
+  await page.locator('[name="regularPrice"]').fill("3.49");
+  await page.locator('[name="vatRate"]').fill("7");
+  await page.getByLabel("Choose pictures to upload").setInputFiles([
+    { name: "front.png", mimeType: "image/png", buffer: png(640, 480) },
+    { name: "back.png", mimeType: "image/png", buffer: png(640, 480) },
+  ]);
+  const chosen = page.getByRole("list", {
+    name: "Pictures chosen for the new product",
+  });
+  await expect(chosen.getByRole("listitem")).toHaveCount(2);
+  expect(posts).toEqual([]);
+
+  await page.getByRole("button", { name: "Create product" }).click();
+  await expect(page).toHaveURL(/\/catalogue\/products\/[0-9a-f]{24}$/);
+  await expect(page.getByText("2 pictures stored.")).toBeVisible();
+  const id = page.url().split("/").pop();
+  expect(posts).toEqual([
+    "/v1/admin/products",
+    `/v1/admin/products/${id}/images`,
+  ]);
+  const pictures = page.getByRole("region", { name: "Pictures" });
+  await expect(
+    pictures.getByRole("list", { name: /^Pictures of/ }).getByRole("listitem"),
+  ).toHaveCount(2);
 });
