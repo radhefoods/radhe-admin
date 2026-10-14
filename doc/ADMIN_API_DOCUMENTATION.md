@@ -14,7 +14,7 @@ For the Next.js Admin Panel. Generated from the implemented NestJS backend (`rad
 5. Settings
 6. Legal texts
 7. Categories
-8. Products and images
+8. Products and images (8.2: CSV import and Excel export of the catalogue)
 9. Cargos, their products, bulk order actions, cargo payments
 10. Orders
 11. Returns
@@ -1088,6 +1088,57 @@ Newest first, max 200. **Possible Errors:** `404 PRODUCT_NOT_FOUND`.
 ### `DELETE /v1/admin/products/{id}/images/{imageId}`
 
 **Purpose:** Delete an image (the first remaining one becomes main). **Permission:** `catalog.manage`. **Success Response (200):** `{ "product": { … } }`. **Possible Errors:** `404 PRODUCT_NOT_FOUND`, `404 IMAGE_NOT_FOUND`.
+
+### 8.2 Import and export of the catalogue (CSV, Excel)
+
+The panel reads a spreadsheet and sends its rows; the API checks them, previews what would happen, and writes them once the admin confirms. The export gives the same columns back, so a file can be edited and imported again. The columns, the rules and the flow for the panel are in `doc/CSV_IMPORT_EXPORT.md`; `doc/examples/categories-example.csv` and `doc/examples/products-example.csv` hold every column with sample rows.
+
+### `POST /v1/admin/catalog/import/preview`
+
+**Purpose:** What an import would do, row by row. Nothing is written.
+
+**Permission:** `catalog.manage`.
+
+**Request Body:** `{ "categories"?: Row[], "products"?: Row[], "existing"?: "skip" | "update" }`. A `Row` is one object per row of the file, the column names as keys, the cells as text (numbers and booleans are accepted too). At most 2,000 rows per type. `existing` says what happens to a row that matches a record: `skip` (default) leaves it alone, `update` changes the fields the row provides. Categories are matched by `slug_en` (or the slug the name would get), products by `sku` (or `slug_en`, or the slug name and pack size would get).
+
+**Success Response (200):**
+
+```json
+{
+  "categories": {
+    "summary": { "total": 3, "create": 2, "update": 0, "skip": 1, "unchanged": 0, "error": 0 },
+    "rows": [
+      { "row": 1, "key": "basmati", "name": "Basmati", "action": "create", "id": null, "changes": [], "problems": [] },
+      { "row": 2, "key": "rice-and-grains", "name": "Rice & Grains", "action": "skip", "id": "66f0…", "changes": [], "problems": [] },
+      { "row": 3, "key": "snacks", "name": "Snacks", "action": "error", "id": null, "changes": [], "problems": ["parent_slug: \"nowhere\" is neither an existing category nor a row of this file"] }
+    ],
+    "unknownColumns": []
+  },
+  "products": { "summary": { "…": "" }, "rows": [], "unknownColumns": ["colour"] },
+  "applied": false,
+  "stoppedAt": null
+}
+```
+
+`row` counts from 1 for the first data row. `action` ∈ `create`, `update` (`changes` names the fields), `skip`, `unchanged`, `error` (`problems` says what; the row is never written). `unknownColumns` lists headers the import ignores. Images, SKUs of existing products, cargo links and the price history are never changed by an import.
+
+**Possible Errors:** `400 VALIDATION_FAILED` (more than 2,000 rows, or a body that is not rows).
+
+### `POST /v1/admin/catalog/import`
+
+**Purpose:** Write the rows of the same body. Categories first, parents before children; then products, a main pack size before its other sizes, whatever the order of the file. A row may refer to a category or product another row creates.
+
+**Permission:** `catalog.manage`.
+
+**Success Response (200):** the preview shape with `"applied": true`, the ids of created records in `id`, and `"stoppedAt": null` or `{ "type": "categories" | "products", "row": 7 }`: the import stops at the first row that fails while writing; that row is `error` with the reason, the rows before it are written, the rows after it are `skip` with "Not written: the import stopped earlier." Importing the same file again is safe: what exists is matched and skipped or updated.
+
+### `GET /v1/admin/catalog/export?type=categories|products`
+
+**Purpose:** Every category or product as flat rows in the columns of the import.
+
+**Permission:** `catalog.read`.
+
+**Success Response (200):** `{ "type": "products", "columns": ["sku", "gtin", …], "rows": [ { "sku": "RF-00001", "regular_price": "19.99", "vat_rate": "7", "is_available": "yes", "tags": "vegan|new", … } ] }`. Every cell is a string in the writing of the import; categories in display order, products by SKU. The panel writes the `.xlsx` or `.csv` file. The rows import again as `unchanged`.
 
 ---
 
@@ -2243,6 +2294,7 @@ What the panel asked the backend for, and where it landed. Every item is impleme
 | 21 | Customers told when delivery days change | `delivery_rescheduled` email, `delivery_window` history entry (sections 9, 10, 14). |
 | 22 | Invitation email for a new admin | `sendInvitation` and `invitationSent` on `POST /admin-users`; needs `ADMIN_URL` on the server for the link (section 2). |
 | 19, 20 | Reports; audit log | Not built. After launch. |
+| — | CSV import and Excel export of categories and products (asked on 2026-10-14) | Section 8.2 and `doc/CSV_IMPORT_EXPORT.md`. |
 
 **Cursors changed shape.** A cursor is now an opaque string (still the ObjectId for the default sort). The panel must not parse it. Cursors saved from before this date still work for the default sort.
 

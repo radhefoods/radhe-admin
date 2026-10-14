@@ -97,7 +97,7 @@ function depthBelow(db: Db, id: string): number {
     : 1 + Math.max(...children.map((child) => depthBelow(db, child.id)));
 }
 
-function assertParent(
+export function assertParent(
   db: Db,
   parentId: string | null,
   moving?: CategoryRecord,
@@ -127,7 +127,7 @@ function assertParent(
   }
 }
 
-function assertCategorySlugFree(
+export function assertCategorySlugFree(
   db: Db,
   slug: { en: string; de?: string | null },
   exceptId?: string,
@@ -141,7 +141,7 @@ function assertCategorySlugFree(
     throw fail(409, "CATEGORY_SLUG_TAKEN", "Another category uses this slug.");
 }
 
-function lastPosition(db: Db, parentId: string | null): number {
+export function lastPosition(db: Db, parentId: string | null): number {
   const siblings = db.categories.filter((entry) => entry.parentId === parentId);
   return siblings.length === 0
     ? 0
@@ -150,7 +150,7 @@ function lastPosition(db: Db, parentId: string | null): number {
 
 // --- Products ---------------------------------------------------------------
 
-const PACK_UNITS = ["g", "kg", "ml", "l", "pcs"] as const;
+export const PACK_UNITS = ["g", "kg", "ml", "l", "pcs"] as const;
 const zPack = z.strictObject({
   value: z
     .number()
@@ -248,7 +248,7 @@ const imagePatch = z.strictObject({
   isPrimary: z.literal(true, "isPrimary may only be true").optional(),
 });
 
-type ProductInput = z.output<typeof updateProduct>;
+export type ProductInput = z.output<typeof updateProduct>;
 
 function productById(db: Db, id: string): ProductRecord {
   const product = db.products.find((entry) => entry.id === id);
@@ -257,7 +257,11 @@ function productById(db: Db, id: string): ProductRecord {
   return product;
 }
 
-function normalSku(db: Db, sku: string | undefined, exceptId?: string): string {
+export function normalSku(
+  db: Db,
+  sku: string | undefined,
+  exceptId?: string,
+): string {
   if (sku === undefined) {
     do {
       db.counters.sku += 1;
@@ -286,7 +290,7 @@ function normalSku(db: Db, sku: string | undefined, exceptId?: string): string {
   return upper;
 }
 
-function assertProductSlugFree(
+export function assertProductSlugFree(
   db: Db,
   slug: { en: string; de?: string | null },
   exceptId?: string,
@@ -301,7 +305,7 @@ function assertProductSlugFree(
 }
 
 /** The sale price that follows from the input, or the documented refusal. */
-function resolveSale(
+export function resolveSale(
   regularPrice: number,
   input: { salePrice?: number | null; discountPercent?: number | null },
   current: number | null,
@@ -341,7 +345,7 @@ function resolveSale(
   return sale;
 }
 
-function assertQuantities(min: number, max: number | null): void {
+export function assertQuantities(min: number, max: number | null): void {
   if (max !== null && max < min) {
     throw fail(
       400,
@@ -352,7 +356,7 @@ function assertQuantities(min: number, max: number | null): void {
 }
 
 /** Joins the pack sizes of another product, or leaves the group (`null`). */
-function applyVariantOf(
+export function applyVariantOf(
   db: Db,
   product: ProductRecord,
   variantOf: string | null,
@@ -394,7 +398,7 @@ function applyVariantOf(
   }
 }
 
-function logPrice(
+export function logPrice(
   db: Db,
   product: ProductRecord,
   adminId: string,
@@ -412,7 +416,10 @@ function logPrice(
   db.priceChanges.set(product.id, history.slice(0, 200));
 }
 
-function applyProductFields(product: ProductRecord, input: ProductInput): void {
+export function applyProductFields(
+  product: ProductRecord,
+  input: ProductInput,
+): void {
   if (input.gtin !== undefined) product.gtin = input.gtin;
   if (input.name !== undefined) product.name = input.name;
   if (input.subtitle !== undefined) product.subtitle = input.subtitle;

@@ -203,6 +203,68 @@ export interface ProductDetail extends ProductSummary {
   publishedAt: IsoDateTime | null;
 }
 
+// --- Import and export of the catalogue (8.2) ---------------------------------
+
+/** One row of a sheet: the header names as keys, the cells as the parser gives them. */
+export type ImportRow = Record<string, string | number | boolean>;
+export type ImportSheetType = "categories" | "products";
+/** What happens to a row that matches a record: left alone, or changed. */
+export type ImportExisting = "skip" | "update";
+export type ImportAction = "create" | "update" | "skip" | "unchanged" | "error";
+/** At most this many rows per sheet and request. */
+export const IMPORT_MAX_ROWS = 2000;
+
+export interface ImportBody {
+  categories?: ImportRow[];
+  products?: ImportRow[];
+  existing?: ImportExisting;
+}
+
+export interface ImportRowResult {
+  /** 1 for the first data row of the file. */
+  row: number;
+  key: string;
+  name: string;
+  action: ImportAction;
+  /** The record the row matched, or after an import the record it created. */
+  id: Id | null;
+  /** The fields an update changes. */
+  changes: string[];
+  /** Why the row is not written. */
+  problems: string[];
+}
+
+export interface ImportSummary {
+  total: number;
+  create: number;
+  update: number;
+  skip: number;
+  unchanged: number;
+  error: number;
+}
+
+export interface ImportSheetResult {
+  summary: ImportSummary;
+  rows: ImportRowResult[];
+  /** Headers of the file the import ignores. */
+  unknownColumns: string[];
+}
+
+export interface ImportResult {
+  categories?: ImportSheetResult;
+  products?: ImportSheetResult;
+  applied: boolean;
+  /** The row that failed while writing; the rows before it are written. */
+  stoppedAt: { type: ImportSheetType; row: number } | null;
+}
+
+/** Every cell a string in the writing of the import. */
+export interface ExportResult {
+  type: ImportSheetType;
+  columns: string[];
+  rows: Record<string, string>[];
+}
+
 export interface ProductQuery extends PageQuery {
   status?: ProductStatus;
   /** Sub-categories included. */

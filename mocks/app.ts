@@ -11,6 +11,7 @@ import { HttpError, fail, json, noContent, setPeople } from "./http.ts";
 import { placeholderSvg } from "./media.ts";
 import { registerCargos, runCargoCheck } from "./modules/cargos.ts";
 import { registerCatalog } from "./modules/catalog.ts";
+import { registerCatalogSheets } from "./modules/catalog-sheets.ts";
 import { registerCommunication } from "./modules/communication.ts";
 import { registerOrders } from "./modules/orders.ts";
 import { registerPayments, runPaymentJobs } from "./modules/payments.ts";
@@ -80,6 +81,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   registerTeam(router);
   registerShop(router);
   registerCatalog(router);
+  registerCatalogSheets(router);
   registerCargos(router);
   registerOrders(router);
   registerPayments(router);

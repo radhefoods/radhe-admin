@@ -7,7 +7,11 @@ import type {
   CategoryInput,
   CategoryOrderInput,
   DuplicateProductInput,
+  ExportResult,
   Id,
+  ImportBody,
+  ImportResult,
+  ImportSheetType,
   ImagePatch,
   ListResult,
   PageResult,
@@ -147,5 +151,25 @@ export function productsApi({ request, upload }: SessionTransport) {
       request<{ product: ProductDetail }>(`${base}/${id}/images/${imageId}`, {
         method: "DELETE",
       }),
+  };
+}
+
+/** 8.2: CSV import and Excel export of the catalogue. */
+export function catalogSheetsApi({ request }: SessionTransport) {
+  const base = "/v1/admin/catalog";
+  return {
+    /** What an import would do, row by row. Nothing is written. */
+    preview: (body: ImportBody, signal?: AbortSignal) =>
+      request<ImportResult>(`${base}/import/preview`, {
+        method: "POST",
+        body,
+        signal,
+      }),
+    /** Writes the rows; stops at the first row that fails while writing. */
+    run: (body: ImportBody) =>
+      request<ImportResult>(`${base}/import`, { method: "POST", body }),
+    /** Every category or product as flat rows in the columns of the import. */
+    export: (type: ImportSheetType, signal?: AbortSignal) =>
+      request<ExportResult>(`${base}/export`, { query: { type }, signal }),
   };
 }

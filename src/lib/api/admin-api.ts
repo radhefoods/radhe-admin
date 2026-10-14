@@ -1,6 +1,10 @@
 import { adminUsersApi, authApi, rolesApi } from "./endpoints/auth";
 import { cargosApi } from "./endpoints/cargos";
-import { categoriesApi, productsApi } from "./endpoints/catalog";
+import {
+  catalogSheetsApi,
+  categoriesApi,
+  productsApi,
+} from "./endpoints/catalog";
 import { announcementsApi, notificationsApi } from "./endpoints/communication";
 import {
   attentionApi,
@@ -27,6 +31,7 @@ export function createAdminApi(transport: SessionTransport) {
     legal: legalApi(transport),
     categories: categoriesApi(transport),
     products: productsApi(transport),
+    catalogSheets: catalogSheetsApi(transport),
     cargos: cargosApi(transport),
     orders: ordersApi(transport),
     returns: returnsApi(transport),
