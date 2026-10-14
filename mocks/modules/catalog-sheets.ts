@@ -136,7 +136,11 @@ function text(row: Row, column: string): string {
 /** Reads the typed cells of one row, collecting what is wrong with them. */
 class Cells {
   readonly problems: string[] = [];
-  constructor(private readonly row: Row) {}
+  private readonly row: Row;
+  // Node strips types only: no parameter properties here.
+  constructor(row: Row) {
+    this.row = row;
+  }
 
   text(column: string, max = 20000): string | undefined {
     const value = text(this.row, column);

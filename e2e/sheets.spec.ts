@@ -32,18 +32,23 @@ test("the template sheets import through preview and confirmation, and the expor
   const dialog = page.getByRole("alertdialog");
   await expect(dialog).toContainText("Import 11 rows?");
   await dialog.getByRole("button", { name: "Import" }).click();
-  await expect(page.getByRole("region", { name: "Products: result" })).toContainText(
-    "Created 5",
-  );
+  await expect(
+    page.getByRole("region", { name: "Products: result" }),
+  ).toContainText("Created 5");
 
   await page.goto("/catalogue/products?q=banana");
   await expect(
-    page.getByRole("table").getByRole("row").filter({ hasText: "Banana Chips" }),
+    page
+      .getByRole("table")
+      .getByRole("row")
+      .filter({ hasText: "Banana Chips" }),
   ).toHaveCount(1);
 
   await page.goto("/catalogue/import-export");
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "CSV" }).nth(1).click();
   const file = await download;
-  expect(file.suggestedFilename()).toMatch(/^radhe-products-\d{4}-\d{2}-\d{2}\.csv$/);
+  expect(file.suggestedFilename()).toMatch(
+    /^radhe-products-\d{4}-\d{2}-\d{2}\.csv$/,
+  );
 });
