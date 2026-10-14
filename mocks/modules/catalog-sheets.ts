@@ -810,6 +810,17 @@ function planProducts(
     }
 
     if (!record) {
+      // The slug a new product would get must be free (8): the preview
+      // says so; only a slug taken a moment ago stops the import itself.
+      const wouldBe =
+        slugEn ?? (name?.en && label ? slugify(`${name.en} ${label}`) : "");
+      const taken = wouldBe
+        ? db.products.find((entry) => entry.slug.en === wouldBe)
+        : undefined;
+      if (taken)
+        cells.problems.push(
+          `slug_en: "${wouldBe}" is used by product ${taken.sku} already`,
+        );
       for (const [column, present] of [
         ["name_en", Boolean(name?.en)],
         ["category_slug", plan.category !== undefined],

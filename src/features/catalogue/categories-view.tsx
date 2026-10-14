@@ -56,6 +56,7 @@ import {
   siblingsOf,
   type CategoryNode,
 } from "./category-tree";
+import { ImportExportButton } from "./import-export-dialog";
 import {
   useCategories,
   useDeleteCategory,
@@ -459,14 +460,17 @@ export function CategoriesView() {
         title="Categories"
         description="The tree of the shop, at most three levels deep. A product belongs to one category; the listing of a category includes the products of the categories below it."
         actions={
-          <ActionButton
-            permission="catalog.manage"
-            variant="primary"
-            icon={<Plus />}
-            onClick={() => setEdit({ mode: "create", parentId: null })}
-          >
-            New category
-          </ActionButton>
+          <>
+            <ImportExportButton type="categories" />
+            <ActionButton
+              permission="catalog.manage"
+              variant="primary"
+              icon={<Plus />}
+              onClick={() => setEdit({ mode: "create", parentId: null })}
+            >
+              New category
+            </ActionButton>
+          </>
         }
       />
       <PageBody className="gap-3">

@@ -1,52 +1,85 @@
-import path from "node:path";
 import { expect, signIn, test } from "./support";
 
-// The templates of the panel go through the whole import: chosen in the
-// browser, previewed, written; the new product then shows in the list.
+// A spreadsheet goes through the dialog on the list page: chosen, checked,
+// written; the new records show in the lists, and the export comes back
+// as a file.
 
-const templates = path.join(process.cwd(), "public", "templates");
+const csv = (name: string, lines: string[]) => ({
+  name,
+  mimeType: "text/csv",
+  buffer: Buffer.from(lines.join("\n"), "utf8"),
+});
 
-test("the template sheets import through preview and confirmation, and the export comes back as a file", async ({
+test("categories and products are imported from the list pages, and products are exported", async ({
   page,
 }) => {
-  await signIn(page, "owner", "/catalogue/import-export");
-
+  await signIn(page, "owner", "/catalogue/categories");
+  await page.getByRole("button", { name: "Import & export" }).click();
+  let dialog = page.getByRole("dialog", {
+    name: "Import and export categories",
+  });
+  await dialog
+    .getByLabel("Choose a .csv or .xlsx file")
+    .setInputFiles(
+      csv("categories.csv", [
+        "slug_en,name_en,name_de",
+        "e2e-sprouts,Sprouts (test),Sprossen (Test)",
+      ]),
+    );
+  await expect(
+    dialog.getByRole("region", { name: "Categories: preview" }),
+  ).toContainText("Create 1");
+  await dialog.getByRole("button", { name: /^Import: create 1/ }).click();
   await page
-    .getByLabel(/^Categories sheet/)
-    .setInputFiles(path.join(templates, "categories-example.csv"));
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Import" })
+    .click();
+  await expect(
+    dialog.getByRole("region", { name: "Categories: result" }),
+  ).toContainText("Created 1");
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("Sprouts (test)")).toBeVisible();
+
+  await page.goto("/catalogue/products");
+  await page.getByRole("button", { name: "Import & export" }).click();
+  dialog = page.getByRole("dialog", { name: "Import and export products" });
+  await dialog
+    .getByLabel("Choose a .csv or .xlsx file")
+    .setInputFiles(
+      csv("products.csv", [
+        "sku,name_en,category_slug,pack_value,pack_unit,regular_price,vat_rate,status",
+        "RF-E2E-1,Sprouted Moong (test),e2e-sprouts,500,g,2.49,7,active",
+      ]),
+    );
+  await expect(
+    dialog.getByRole("region", { name: "Products: preview" }),
+  ).toContainText("Create 1");
+  await dialog.getByRole("button", { name: /^Import: create 1/ }).click();
   await page
-    .getByLabel(/^Products sheet/)
-    .setInputFiles(path.join(templates, "products-example.csv"));
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Import" })
+    .click();
   await expect(
-    page.getByText(/categories-example\.csv: 6 rows, 15 columns/),
-  ).toBeVisible();
+    dialog.getByRole("region", { name: "Products: result" }),
+  ).toContainText("Created 1");
+  await page.keyboard.press("Escape");
 
-  await page.getByRole("button", { name: "Preview", exact: true }).click();
-  const products = page.getByRole("region", { name: "Products: preview" });
-  await expect(products).toContainText("Create 5");
-  await expect(
-    page.getByRole("region", { name: "Categories: preview" }),
-  ).toContainText("Create 6");
-
-  await page.getByRole("button", { name: "Import", exact: true }).click();
-  const dialog = page.getByRole("alertdialog");
-  await expect(dialog).toContainText("Import 11 rows?");
-  await dialog.getByRole("button", { name: "Import" }).click();
-  await expect(
-    page.getByRole("region", { name: "Products: result" }),
-  ).toContainText("Created 5");
-
-  await page.goto("/catalogue/products?q=banana");
+  await page.goto("/catalogue/products?q=RF-E2E-1");
   await expect(
     page
       .getByRole("table")
       .getByRole("row")
-      .filter({ hasText: "Banana Chips" }),
+      .filter({ hasText: "Sprouted Moong (test)" }),
   ).toHaveCount(1);
 
-  await page.goto("/catalogue/import-export");
+  await page.getByRole("button", { name: "Import & export" }).click();
+  dialog = page.getByRole("dialog", { name: "Import and export products" });
+  await dialog.getByRole("tab", { name: "Export" }).click();
+  await dialog.getByRole("radio", { name: /CSV/ }).click();
   const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "CSV" }).nth(1).click();
+  await dialog
+    .getByRole("button", { name: "Download products as CSV" })
+    .click();
   const file = await download;
   expect(file.suggestedFilename()).toMatch(
     /^radhe-products-\d{4}-\d{2}-\d{2}\.csv$/,

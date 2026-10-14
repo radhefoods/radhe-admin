@@ -48,6 +48,7 @@ import { param, useUrlState } from "@/lib/hooks/use-url-state";
 import { routes, withQuery } from "@/lib/routes";
 import { PRODUCT_STATUS, statusOptions } from "@/lib/status";
 import { PRODUCT_STATUSES } from "./product-schema";
+import { ImportExportButton } from "./import-export-dialog";
 import { useCategories, useProducts, useSetAvailable } from "./queries";
 
 const PAGE_SIZE = 25;
@@ -406,7 +407,12 @@ export function ProductsView() {
       <PageHeader
         title="Products"
         description="Every pack size is a product of its own, with its article number, price and pictures. The pack sizes of one article are linked, and one of them is shown in the shop's listings."
-        actions={newProduct}
+        actions={
+          <>
+            <ImportExportButton type="products" />
+            {newProduct}
+          </>
+        }
       />
       <PageBody className="gap-3">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
