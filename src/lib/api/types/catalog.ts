@@ -176,6 +176,12 @@ export interface ProductSeo {
 }
 
 export interface ProductDetail extends ProductSummary {
+  /** Whether `DELETE` would succeed now; the reason when it would not. */
+  deletable?: boolean;
+  notDeletableReason?: {
+    code: "PRODUCT_IS_ACTIVE" | "PRODUCT_IN_USE";
+    message: string;
+  } | null;
   gtin: string | null;
   subtitle: TranslatedOptional | null;
   shortDescription: TranslatedOptional | null;

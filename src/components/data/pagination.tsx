@@ -71,11 +71,13 @@ export function Pagination({
 }
 
 /**
- * The end of a list the API pages by cursor (0.8): such a list has no
- * total, so the panel says how many rows it shows and offers the next page.
+ * The end of a list the API pages by cursor (0.8): the page carries no
+ * total, so the panel says how many rows it shows, how many there are
+ * (`GET …/count`, when known) and offers the next page.
  */
 export function LoadMore({
   shown,
+  total,
   noun,
   hasMore,
   loading,
@@ -83,6 +85,8 @@ export function LoadMore({
   className,
 }: {
   shown: number;
+  /** How many rows match the filters in all; unknown while it loads. */
+  total?: number;
   noun: string;
   hasMore: boolean;
   loading: boolean;
@@ -90,6 +94,7 @@ export function LoadMore({
   className?: string;
 }) {
   if (shown === 0) return null;
+  const counted = typeof total === "number" && total >= shown;
   return (
     <div
       className={cn(
@@ -99,7 +104,9 @@ export function LoadMore({
     >
       <p className="tabular" aria-live="polite">
         {hasMore
-          ? `Showing the newest ${plural(shown, noun)}`
+          ? counted
+            ? `Showing ${shown.toLocaleString("en")} of ${plural(total, noun)}`
+            : `Showing ${plural(shown, noun)}`
           : `${plural(shown, noun)}, that is all`}
       </p>
       {hasMore ? (

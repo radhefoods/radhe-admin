@@ -25,6 +25,8 @@ import {
   idParam,
   json,
   newId,
+  sortedCursorPage,
+  validationFailed,
   zCents,
   zNote,
 } from "../http.ts";
@@ -677,16 +679,29 @@ export function registerPayments(router: Router): void {
   // --- Refunds --------------------------------------------------------------
   const refunds = "/v1/admin/refunds";
 
-  router.get(refunds, { permission: "payments.read" }, (ctx) => {
+  const filteredRefunds = (ctx: { db: Db; query: URLSearchParams }) => {
     const status = enumParam(ctx.query, "status", REFUND_STATUSES);
     const orderNumber = ctx.query.get("orderNumber")?.trim().toUpperCase();
-    const rows = ctx.db.refunds.filter(
+    return ctx.db.refunds.filter(
       (refund) =>
         (!status || refund.status === status) &&
         (!orderNumber || refund.orderNumber === orderNumber),
     );
-    return json(cursorPage(rows, ctx.query));
-  });
+  };
+
+  router.get(`${refunds}/count`, { permission: "payments.read" }, (ctx) =>
+    json({ total: filteredRefunds(ctx).length }),
+  );
+
+  router.get(refunds, { permission: "payments.read" }, (ctx) =>
+    json(
+      sortedCursorPage(filteredRefunds(ctx), ctx.query, {
+        createdAt: (refund) => refund.createdAt,
+        amount: (refund) => refund.amount,
+        status: (refund) => refund.status,
+      }),
+    ),
+  );
 
   router.get(`${refunds}/:id`, { permission: "payments.read" }, (ctx) =>
     json({ refund: refundById(ctx.db, ctx.params.id ?? "") }),
@@ -813,11 +828,26 @@ export function registerPayments(router: Router): void {
     ] as const);
     const customerId = idParam(ctx.query, "customerId");
     const orderNumber = ctx.query.get("orderNumber")?.trim().toUpperCase();
+    // One document by its number, or the beginning of a number (13).
+    const number = ctx.query.get("number")?.trim().toUpperCase();
+    if (number && !/^(INV|CN)-\d{4}-\d{6}$/.test(number)) {
+      throw validationFailed([
+        {
+          field: "number",
+          problems: ["number must look like INV-2026-000123 or CN-2026-000007"],
+        },
+      ]);
+    }
+    const prefix = number
+      ? undefined
+      : ctx.query.get("q")?.trim().toUpperCase();
     const rows = ctx.db.invoices.filter(
       (invoice) =>
         (!type || invoice.type === type) &&
         (!customerId || invoice.customerId === customerId) &&
-        (!orderNumber || invoice.orderNumber === orderNumber),
+        (!orderNumber || invoice.orderNumber === orderNumber) &&
+        (!number || invoice.number === number) &&
+        (!prefix || invoice.number.startsWith(prefix)),
     );
     const result = cursorPage(rows, ctx.query);
     return json({ ...result, items: result.items.map(invoiceSummary) });

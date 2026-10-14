@@ -1,11 +1,14 @@
 "use client";
 
 import { ShoppingBag, X } from "lucide-react";
+import { useState } from "react";
 import { DataTable } from "@/components/data/data-table";
 import {
   FilterBar,
   FilterSelect,
   SearchField,
+  SortSelect,
+  type SortOption,
 } from "@/components/data/filter-bar";
 import { LoadMore } from "@/components/data/pagination";
 import { EmptyState } from "@/components/ui/surface";
@@ -14,8 +17,12 @@ import {
   DELIVERY_METHODS,
   ORDER_STATUSES,
   PAYMENT_STATUSES,
+  type Id,
+  type OrderQuery,
+  type OrderSortField,
   type OrderStatus,
   type PaymentStatus,
+  type SortParam,
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
 import { DELIVERY_METHOD_LABEL } from "@/lib/format/names";
@@ -23,29 +30,19 @@ import { param, useUrlState } from "@/lib/hooks/use-url-state";
 import { routes } from "@/lib/routes";
 import { ORDER_STATUS, PAYMENT_STATUS, statusOptions } from "@/lib/status";
 import { OrderCard, orderColumns } from "./order-columns";
-import { useOrders } from "./queries";
+import { OrdersBulkBar } from "./orders-bulk";
+import { useOrderCount, useOrders } from "./queries";
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-const ORDER_NUMBER = /^(?:rf[\s-]?|#)?(\d{3,9})$/i;
-
-/**
- * What the search field means for the API (documentation, 10): an order is
- * found by its exact number or by the customer's full email. There is no
- * search by name or by a part of either.
- */
-export function readOrderSearch(text: string): {
-  orderNumber?: string;
-  email?: string;
-  understood: boolean;
-} {
-  const value = text.trim();
-  if (value === "") return { understood: true };
-  const number = ORDER_NUMBER.exec(value);
-  if (number) return { orderNumber: `RF-${number[1]}`, understood: true };
-  if (EMAIL.test(value))
-    return { email: value.toLowerCase(), understood: true };
-  return { understood: false };
-}
+/** The orders of the list the API offers (10). */
+export const ORDER_SORTS: readonly SortOption<SortParam<OrderSortField>>[] = [
+  { value: "createdAt:desc", label: "Newest first" },
+  { value: "createdAt:asc", label: "Oldest first" },
+  { value: "total:desc", label: "Highest bill first" },
+  { value: "total:asc", label: "Lowest bill first" },
+  { value: "status:asc", label: "By status" },
+  { value: "paymentStatus:asc", label: "By payment status" },
+];
+const SORT_VALUES = ORDER_SORTS.map((option) => option.value);
 
 const columns = orderColumns();
 
@@ -59,17 +56,19 @@ export interface OrdersListProps {
 
 /**
  * The list of orders with exactly the filters of the API: cargo, status,
- * payment status, delivery method, and the search by number or email. The
- * filters live in the address, so a view can be bookmarked and linked to.
+ * payment status, delivery method, the search by words of the number, the
+ * customer's name, email or phone (`q`), and the sort. The filters live in
+ * the address, so a view can be bookmarked and linked to.
  */
 export function OrdersList({
   fixed,
   hide = [],
-  caption = "Orders, newest first",
+  caption = "Orders",
 }: OrdersListProps) {
   const can = useCan();
   const [state, setState, clear] = useUrlState({
-    q: param.text(254),
+    q: param.text(100),
+    sort: param.oneOf(SORT_VALUES),
     cargoId: param.id(),
     customerId: param.id(),
     status: param.oneOf(ORDER_STATUSES),
@@ -78,22 +77,27 @@ export function OrdersList({
     // Links from other pages name the order directly.
     orderNumber: param.text(20),
   });
-  const search = readOrderSearch(state.q || state.orderNumber);
-  const query = {
+  const q = state.q.trim() || undefined;
+  const query: Omit<OrderQuery, "cursor" | "limit"> = {
     cargoId: state.cargoId,
     customerId: state.customerId,
     status: fixed?.status ?? state.status,
     paymentStatus: fixed?.paymentStatus ?? state.paymentStatus,
     deliveryMethod: state.deliveryMethod,
-    orderNumber: search.orderNumber,
-    email: search.email,
+    orderNumber: q ? undefined : state.orderNumber.trim() || undefined,
+    q,
+    sort: state.sort,
   };
-  const orders = useOrders(query, search.understood);
+  const orders = useOrders(query);
+  const count = useOrderCount(query);
+  // The orders ticked for an action on all of them at once (10).
+  const [selected, setSelected] = useState<Set<Id>>(new Set());
+  const manage = can("orders.manage");
   const cargos = useCargoChoices(can("cargos.read")).data;
   const rows = orders.data?.pages.flatMap((page) => page.items);
   const cargo = cargos?.items.find((entry) => entry.id === state.cargoId);
   const filtered = Boolean(
-    state.q ||
+    q ||
     state.orderNumber ||
     state.cargoId ||
     state.customerId ||
@@ -101,15 +105,18 @@ export function OrdersList({
     state.paymentStatus ||
     state.deliveryMethod,
   );
+  const sortLabel =
+    ORDER_SORTS.find((option) => option.value === state.sort)?.label ??
+    "newest first";
 
   return (
     <div className="flex flex-col gap-3">
-      <FilterBar active={filtered} onClear={clear}>
+      <FilterBar active={filtered || Boolean(state.sort)} onClear={clear}>
         <SearchField
-          label="Find an order"
-          placeholder="RF-1084 or the customer's email"
+          label="Find orders"
+          placeholder="Order number, customer name, email or phone"
           value={state.q || state.orderNumber}
-          onChange={(q) => setState({ q, orderNumber: "" })}
+          onChange={(value) => setState({ q: value, orderNumber: "" })}
         />
         {cargos ? (
           <FilterSelect
@@ -152,6 +159,11 @@ export function OrdersList({
           }))}
           onChange={(deliveryMethod) => setState({ deliveryMethod })}
         />
+        <SortSelect
+          value={state.sort}
+          options={ORDER_SORTS}
+          onChange={(sort) => setState({ sort })}
+        />
         {state.customerId ? (
           <Chip
             label="One customer"
@@ -160,54 +172,60 @@ export function OrdersList({
         ) : null}
       </FilterBar>
 
-      {!search.understood ? (
-        <div className="rounded-lg border border-line">
+      {manage ? (
+        <OrdersBulkBar
+          orders={rows ?? []}
+          selected={selected}
+          onClear={() => setSelected(new Set())}
+        />
+      ) : null}
+
+      <DataTable
+        caption={`${caption}, ${sortLabel.toLowerCase()}${cargo ? `, cargo ${cargo.code}` : ""}`}
+        columns={columns}
+        data={rows}
+        getRowId={(order) => order.id}
+        selection={
+          manage
+            ? {
+                selected,
+                onChange: setSelected,
+                label: (order) => `Choose ${order.orderNumber}`,
+              }
+            : undefined
+        }
+        refreshing={
+          orders.isFetching && !orders.isFetchingNextPage && Boolean(rows)
+        }
+        error={orders.error}
+        onRetry={() => void orders.refetch()}
+        rowHref={(order) => routes.order(order.id)}
+        card={(order) => <OrderCard order={order} />}
+        empty={
           <EmptyState
             icon={<ShoppingBag />}
-            title="This is neither an order number nor an email"
+            title={filtered ? "No order matches" : "No orders yet"}
           >
-            The API finds an order by its exact number (RF-1084) or by the
-            customer&apos;s full email address. It has no search by name.
+            {query.orderNumber
+              ? `There is no order ${query.orderNumber}.`
+              : q
+                ? `Nothing matches "${q}". The search looks at the order number and at the customer's name, email and phone; every word must begin one of them.`
+                : filtered
+                  ? "Change the filters or clear them."
+                  : "Orders appear here as soon as customers confirm a pre-order in an open cargo."}
           </EmptyState>
-        </div>
-      ) : (
-        <DataTable
-          caption={cargo ? `${caption}, cargo ${cargo.code}` : caption}
-          columns={columns}
-          data={rows}
-          getRowId={(order) => order.id}
-          refreshing={
-            orders.isFetching && !orders.isFetchingNextPage && Boolean(rows)
-          }
-          error={orders.error}
-          onRetry={() => void orders.refetch()}
-          rowHref={(order) => routes.order(order.id)}
-          card={(order) => <OrderCard order={order} />}
-          empty={
-            <EmptyState
-              icon={<ShoppingBag />}
-              title={filtered ? "No order matches" : "No orders yet"}
-            >
-              {search.orderNumber
-                ? `There is no order ${search.orderNumber}.`
-                : search.email
-                  ? `No customer with the email ${search.email} has ordered.`
-                  : filtered
-                    ? "Change the filters or clear them."
-                    : "Orders appear here as soon as customers confirm a pre-order in an open cargo."}
-            </EmptyState>
-          }
-          footer={
-            <LoadMore
-              shown={rows?.length ?? 0}
-              noun="order"
-              hasMore={orders.hasNextPage}
-              loading={orders.isFetchingNextPage}
-              onLoadMore={() => void orders.fetchNextPage()}
-            />
-          }
-        />
-      )}
+        }
+        footer={
+          <LoadMore
+            shown={rows?.length ?? 0}
+            total={count.data?.total}
+            noun="order"
+            hasMore={orders.hasNextPage}
+            loading={orders.isFetchingNextPage}
+            onLoadMore={() => void orders.fetchNextPage()}
+          />
+        }
+      />
     </div>
   );
 }

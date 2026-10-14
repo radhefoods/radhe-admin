@@ -84,9 +84,24 @@ export function shopUrl(product: Pick<ProductDetail, "slug">): string {
 export type Removal =
   "delete" | "active" | "in_use" | "in_use_archived" | "archive";
 
-/** What "Delete" leads to: an active product is never deleted (`PRODUCT_IS_ACTIVE`). */
-export function removalFor(product: Pick<ProductDetail, "status">): Removal {
-  return product.status === "active" ? "active" : "delete";
+/**
+ * What "Delete" leads to. The product says whether it can be deleted and
+ * why not (8): an active one is never deleted, one that was in a cargo is
+ * explained and archived instead, without asking the API first.
+ */
+export function removalFor(
+  product: Pick<ProductDetail, "status" | "deletable" | "notDeletableReason">,
+): Removal {
+  if (product.status === "active") return "active";
+  if (product.deletable === false) {
+    if (product.notDeletableReason?.code === "PRODUCT_IN_USE") {
+      return product.status === "archived" ? "in_use_archived" : "in_use";
+    }
+    if (product.notDeletableReason?.code === "PRODUCT_IS_ACTIVE") {
+      return "active";
+    }
+  }
+  return "delete";
 }
 
 /**

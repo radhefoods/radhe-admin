@@ -26,7 +26,7 @@ import {
 import { formatMoney } from "@/lib/format/money";
 import { plural } from "@/lib/format/names";
 import { useNow } from "@/lib/hooks/use-now";
-import { routes, withQuery } from "@/lib/routes";
+import { routes } from "@/lib/routes";
 import { OrderingDecisionDialog } from "./ordering-decision-dialog";
 import { useCustomerOrdering } from "./queries";
 import { DECISION_TONE, cannotOrderText, decisionTitle } from "./schemas";
@@ -37,9 +37,7 @@ const overdueColumns: Column<OverduePayment>[] = [
     header: "Order",
     cell: ({ row }) => (
       <Link
-        href={withQuery(routes.orders, {
-          orderNumber: row.original.orderNumber,
-        })}
+        href={routes.order(row.original.orderId)}
         className="font-semibold whitespace-nowrap text-accent-text hover:underline"
       >
         {row.original.orderNumber}
@@ -50,7 +48,12 @@ const overdueColumns: Column<OverduePayment>[] = [
     id: "invoice",
     header: "Invoice",
     cell: ({ row }) => (
-      <span className="tabular">{row.original.invoiceNumber}</span>
+      <Link
+        href={routes.invoice(row.original.invoiceId)}
+        className="tabular hover:underline"
+      >
+        {row.original.invoiceNumber}
+      </Link>
     ),
     meta: { from: "sm" },
   },
@@ -162,8 +165,11 @@ export function CustomerOrdering({ customer }: { customer: Customer }) {
                     data.ordering.override.mode ? (
                     <p className="text-ink-muted">
                       “{customer.orderingOverride.reason}” ·{" "}
-                      {adminName(customer.orderingOverride.adminId)},{" "}
-                      {formatDateTime(customer.orderingOverride.at)}
+                      {adminName(
+                        customer.orderingOverride.adminId,
+                        customer.orderingOverride.admin,
+                      )}
+                      , {formatDateTime(customer.orderingOverride.at)}
                     </p>
                   ) : null}
                 </div>
@@ -252,7 +258,7 @@ export function CustomerOrdering({ customer }: { customer: Customer }) {
                         ) : null}
                       </>
                     ),
-                    by: adminName(entry.adminId),
+                    by: adminName(entry.adminId, entry.admin),
                     note: entry.reason,
                     tone: DECISION_TONE[entry.action],
                   }))}

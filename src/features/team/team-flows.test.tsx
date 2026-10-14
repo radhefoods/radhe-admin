@@ -85,14 +85,57 @@ describe("the team list", () => {
 });
 
 describe("inviting an admin", () => {
-  it("creates the account and shows the password to hand over", async () => {
+  it("emails the invitation by default and says so", async () => {
     const viewer = roleByKey("viewer");
     const { user } = renderPanel(<TeamView />);
     await user.click(
       await screen.findByRole("button", { name: "Invite an admin" }),
     );
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("No email is sent")).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("switch", { name: "Email the invitation" }),
+    ).toBeChecked();
+    await user.type(
+      within(dialog).getByRole("textbox", { name: /Name/ }),
+      "Arjun Mehta",
+    );
+    await user.type(
+      within(dialog).getByRole("textbox", { name: /Email/ }),
+      "arjun@radhefoods.de",
+    );
+    await user.selectOptions(
+      await within(dialog).findByRole("combobox", { name: /Role/ }),
+      await within(dialog).findByRole("option", { name: "Viewer" }),
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "Invite the admin" }),
+    );
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]?.body).toMatchObject({
+      email: "arjun@radhefoods.de",
+      roleId: viewer.id,
+      sendInvitation: true,
+    });
+    expect(
+      (await screen.findAllByText("Invitation emailed to arjun@radhefoods.de"))
+        .length,
+    ).toBeGreaterThan(0);
+    // No password to hand over: the email carries it.
+    expect(
+      screen.queryByRole("dialog", { name: "Arjun Mehta is invited" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("creates the account and shows the password to hand over when no email is wanted", async () => {
+    const viewer = roleByKey("viewer");
+    const { user } = renderPanel(<TeamView />);
+    await user.click(
+      await screen.findByRole("button", { name: "Invite an admin" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("switch", { name: "Email the invitation" }),
+    );
     expect(dialog).toHaveTextContent(/sets up the authenticator app/);
     expect(dialog).toHaveTextContent(/must then choose an own password/);
 
@@ -130,6 +173,7 @@ describe("inviting an admin", () => {
         name: "Arjun Mehta",
         roleId: viewer.id,
         temporaryPassword: generated,
+        sendInvitation: false,
       },
     });
     const created = adminByEmail("arjun@radhefoods.de");

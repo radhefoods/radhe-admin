@@ -75,6 +75,7 @@ const createAdmin = z.strictObject({
   name: z.string().min(1).max(120),
   temporaryPassword,
   roleId: zId,
+  sendInvitation: z.boolean().optional(),
 });
 const updateAdmin = z.strictObject({
   name: z.string().min(1).max(120).optional(),
@@ -91,7 +92,7 @@ const createRole = z.strictObject({
 });
 const updateRole = z.strictObject({
   name: z.string().min(1).max(80).optional(),
-  description: z.string().max(300).optional(),
+  description: z.string().max(300).nullable().optional(),
   permissions: z.array(z.string()).max(200).optional(),
 });
 
@@ -136,7 +137,14 @@ export function registerTeam(router: Router): void {
       updatedAt: iso(ctx.now),
     };
     ctx.db.admins.push(admin);
-    return json({ admin: adminView(ctx.db, admin, false) }, 201);
+    // The mock sends no mail: it reports what the API would (2).
+    return json(
+      {
+        admin: adminView(ctx.db, admin, false),
+        invitationSent: input.sendInvitation !== false,
+      },
+      201,
+    );
   });
 
   router.get(`${users}/:id`, { permission: "admin_users.read" }, (ctx) =>

@@ -1,6 +1,14 @@
 // Section 4: customers.
 
-import type { Cents, CursorQuery, Id, IsoDateTime, Locale } from "./common";
+import type {
+  AdminRef,
+  Cents,
+  CursorQuery,
+  Id,
+  IsoDateTime,
+  Locale,
+  SortParam,
+} from "./common";
 
 export type CustomerStatus = "active" | "blocked";
 export type SignupMethod = "email_otp" | "google";
@@ -36,6 +44,7 @@ export interface OrderingOverride {
   mode: OrderingMode;
   reason: string;
   adminId: Id;
+  admin?: AdminRef | null;
   at: IsoDateTime;
   until: IsoDateTime | null;
 }
@@ -44,6 +53,7 @@ export interface OrderingHistoryEntry {
   action: OrderingAction;
   reason: string;
   adminId: Id;
+  admin?: AdminRef | null;
   at: IsoDateTime;
   until: IsoDateTime | null;
 }
@@ -71,17 +81,26 @@ export interface Customer {
   orderingHistory: OrderingHistoryEntry[];
 }
 
+export const CUSTOMER_SORT_FIELDS = ["createdAt", "email", "status"] as const;
+export type CustomerSortField = (typeof CUSTOMER_SORT_FIELDS)[number];
+
 export interface CustomerQuery extends CursorQuery {
   status?: CustomerStatus;
   /** Beginning of the email address, 2 to 254 characters. */
   email?: string;
+  /** Words of the name, the email or the phone (1–100). */
+  q?: string;
+  /** Default `createdAt:desc`. */
+  sort?: SortParam<CustomerSortField>;
 }
 
 export type CannotOrderReason =
   "account_blocked" | "ordering_blocked" | "payment_overdue";
 
 export interface OverduePayment {
+  orderId: Id;
   orderNumber: string;
+  invoiceId: Id;
   invoiceNumber: string;
   amountDue: Cents;
   deadlineAt: IsoDateTime;

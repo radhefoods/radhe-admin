@@ -30,8 +30,66 @@ export function fail(
   return new HttpError(status, code, message, details);
 }
 
+/** Who an id names (0.9): set by the app for the database it runs on. */
+export interface People {
+  admin: (id: string) => { id: string; name: string } | null;
+  customer: (
+    id: string,
+  ) => { id: string; name: string | null; email: string } | null;
+}
+
+let people: People | null = null;
+
+export function setPeople(resolver: People | null): void {
+  people = resolver;
+}
+
+const BY_ADMIN_KEYS = [
+  "createdBy",
+  "updatedBy",
+  "cancelledBy",
+  "activatedBy",
+  "recordedBy",
+] as const;
+
+/**
+ * Names next to ids (0.9), added while the answer is built, as the API
+ * does: `admin` next to `adminId` (and next to `by` of a cargo history
+ * entry), `createdByAdmin` and the like next to `createdBy` …, `customer`
+ * next to `customerId`. Walks the whole answer; never overwrites a key.
+ */
+function withPeople(value: unknown): unknown {
+  if (!people) return value;
+  if (Array.isArray(value)) return value.map(withPeople);
+  if (value === null || typeof value !== "object") return value;
+  const source = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(source))
+    out[key] = withPeople(entry);
+  const lookupAdmin = (id: unknown) =>
+    typeof id === "string" ? people!.admin(id) : null;
+  if ("adminId" in out && !("admin" in out))
+    out.admin = lookupAdmin(out.adminId);
+  if ("by" in out && "source" in out && !("admin" in out)) {
+    out.admin = lookupAdmin(out.by);
+  }
+  for (const key of BY_ADMIN_KEYS) {
+    if (key in out && !(`${key}Admin` in out)) {
+      out[`${key}Admin`] = lookupAdmin(out[key]);
+    }
+  }
+  if (
+    "customerId" in out &&
+    !("customer" in out) &&
+    typeof out.customerId === "string"
+  ) {
+    out.customer = people.customer(out.customerId);
+  }
+  return out;
+}
+
 export function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
+  return new Response(JSON.stringify(withPeople(data)), {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8" },
   });
@@ -139,19 +197,141 @@ export const zTranslatedOptional = (max: number) =>
     de: z.string().max(max).nullish(),
   });
 
-/** Query values: `?limit=25&cursor=…` (0.8). */
+/** Query values: `?limit=25&cursor=…` (0.8). The cursor is opaque. */
 export function cursorQuery(query: URLSearchParams): {
   limit: number;
   cursor: string | null;
 } {
   const limit = intParam(query, "limit", 25, 1, 100);
   const cursor = query.get("cursor");
-  if (cursor !== null && !OBJECT_ID.test(cursor)) {
+  if (cursor !== null && cursor === "") {
     throw validationFailed([
-      { field: "cursor", problems: ["cursor must be a mongodb id"] },
+      { field: "cursor", problems: ["cursor must not be empty"] },
     ]);
   }
   return { limit, cursor };
+}
+
+/**
+ * `q` of a list (4, 10): every word of the search must begin a word of the
+ * record. A record's words are its texts split at spaces, and again at
+ * `@`, `.`, `-`, `_` and `+`, so that `schmidt` finds anna.schmidt@…, and
+ * `4915` finds +4915…; the whole texts count as words too, so that
+ * `anna@exam` and `RF-10` find their record.
+ */
+export function wordsMatch(
+  q: string | undefined,
+  texts: (string | null | undefined)[],
+): boolean {
+  if (!q) return true;
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const haystack = texts
+    .filter((text): text is string => Boolean(text))
+    .flatMap((text) => {
+      const lower = text.toLowerCase();
+      const tokens = lower.split(/\s+/);
+      return [...tokens, ...tokens.flatMap((token) => token.split(/[@.\-_+]/))];
+    })
+    .filter(Boolean);
+  return words.every((word) =>
+    haystack.some((candidate) => candidate.startsWith(word)),
+  );
+}
+
+/** `q` as the API takes it: 1 to 100 characters, or nothing. */
+export function searchParam(query: URLSearchParams): string | undefined {
+  const raw = query.get("q")?.trim();
+  if (!raw) return undefined;
+  if (raw.length > 100) {
+    throw validationFailed([
+      {
+        field: "q",
+        problems: ["q must be shorter than or equal to 100 characters"],
+      },
+    ]);
+  }
+  return raw;
+}
+
+/** The value of `sort`, checked against the fields of the list (0.8). */
+export function sortParam<F extends string>(
+  query: URLSearchParams,
+  fields: readonly F[],
+): { field: F; direction: "asc" | "desc"; value: string } {
+  const raw = query.get("sort") ?? "createdAt:desc";
+  const [field, direction] = raw.split(":");
+  if (
+    !field ||
+    !(fields as readonly string[]).includes(field) ||
+    (direction !== "asc" && direction !== "desc")
+  ) {
+    throw fail(400, "VALIDATION_FAILED", "The request contains invalid data.", [
+      {
+        field: "sort",
+        problems: [
+          `sort must be one of ${fields.join(", ")}, with :asc or :desc`,
+        ],
+        allowed: fields,
+      },
+    ]);
+  }
+  return { field: field as F, direction, value: `${field}:${direction}` };
+}
+
+const encodeCursor = (value: unknown): string =>
+  Buffer.from(JSON.stringify(value)).toString("base64url");
+const decodeCursor = (cursor: string): unknown => {
+  try {
+    return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * One page of a sorted list (0.8): `sort` names the field, ties and the
+ * default go newest first by id. The cursor carries the sort it was made
+ * for; with another sort it is refused.
+ */
+export function sortedCursorPage<T extends { id: string }, F extends string>(
+  rows: T[],
+  query: URLSearchParams,
+  keys: Record<F, (row: T) => string | number>,
+): { items: T[]; nextCursor: string | null } {
+  const { limit, cursor } = cursorQuery(query);
+  const sort = sortParam(query, Object.keys(keys) as F[]);
+  const key = keys[sort.field];
+  const sign = sort.direction === "asc" ? 1 : -1;
+  const sorted = [...rows].sort((a, b) => {
+    const [ka, kb] = [key(a), key(b)];
+    if (ka !== kb) return (ka < kb ? -1 : 1) * sign;
+    return a.id < b.id ? 1 : -1;
+  });
+  let start = 0;
+  if (cursor !== null) {
+    const parsed = decodeCursor(cursor) as { s?: string; id?: string } | null;
+    const at = parsed?.id
+      ? sorted.findIndex((row) => row.id === parsed.id)
+      : -1;
+    if (!parsed || parsed.s !== sort.value || at < 0) {
+      throw validationFailed([
+        {
+          field: "cursor",
+          problems: ["cursor does not belong to this list and sort"],
+        },
+      ]);
+    }
+    start = at + 1;
+  }
+  const items = sorted.slice(start, start + limit);
+  const last = items[items.length - 1];
+  return {
+    items,
+    nextCursor:
+      sorted.length > start + limit && last
+        ? encodeCursor({ s: sort.value, id: last.id })
+        : null,
+  };
 }
 
 export function pageQuery(

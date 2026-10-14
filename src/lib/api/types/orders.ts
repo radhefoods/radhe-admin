@@ -1,12 +1,14 @@
 // Section 10: orders.
 
 import type {
+  AdminRef,
   CalendarDay,
   Cents,
   CursorQuery,
   Id,
   IsoDateTime,
   Locale,
+  SortParam,
   Translated,
   VatRate,
 } from "./common";
@@ -67,6 +69,8 @@ export interface OrderCustomer {
   firstName?: string;
   lastName?: string;
   phone?: string;
+  /** On a summary: the full name, or `null` when none was given (0.9). */
+  name?: string | null;
 }
 
 export interface OrderDelivery {
@@ -145,6 +149,7 @@ export interface OrderAdjustment {
   reason: AdjustmentReason;
   note: string | null;
   adminId: Id;
+  admin?: AdminRef | null;
   at: IsoDateTime;
 }
 
@@ -169,6 +174,7 @@ export interface OrderCancellation {
   text: string | null;
   by: Actor;
   adminId: Id | null;
+  admin?: AdminRef | null;
   at: IsoDateTime;
 }
 
@@ -185,12 +191,14 @@ export interface OrderConsent {
  * `reminders_resumed`, `reminder_sent`, `payment_failed`.
  */
 export interface OrderHistoryEntry {
-  field: "order" | "payment" | "cargo" | "delivery";
+  /** `delivery_window`: the promised days changed with the cargo; `from` and `to` are `start/end` days. */
+  field: "order" | "payment" | "cargo" | "delivery" | "delivery_window";
   from: string | null;
   to: string;
   at: IsoDateTime;
   by: Actor;
   adminId: Id | null;
+  admin?: AdminRef | null;
   note: string | null;
 }
 
@@ -215,6 +223,14 @@ export interface OrderDetail extends OrderSummary {
   updatedAt: IsoDateTime;
 }
 
+export const ORDER_SORT_FIELDS = [
+  "createdAt",
+  "total",
+  "status",
+  "paymentStatus",
+] as const;
+export type OrderSortField = (typeof ORDER_SORT_FIELDS)[number];
+
 export interface OrderQuery extends CursorQuery {
   cargoId?: Id;
   status?: OrderStatus;
@@ -225,6 +241,49 @@ export interface OrderQuery extends CursorQuery {
   /** `RF-1084` */
   orderNumber?: string;
   deliveryMethod?: DeliveryMethod;
+  /** Words of the order number, the customer's name, email or phone (1–100). */
+  q?: string;
+  /** Default `createdAt:desc`; `total` is the final bill. */
+  sort?: SortParam<OrderSortField>;
+}
+
+// --- Chosen orders at once (10: POST /orders/bulk/…) -------------------------
+
+export type BulkChosenStatus = "preparing" | "dispatched" | "delivered";
+
+export interface BulkChosenStatusInput {
+  /** 1 to 500. */
+  orderIds: Id[];
+  status: BulkChosenStatus;
+  note?: string;
+}
+
+export interface BulkChosenMethodInput {
+  /** 1 to 500. */
+  orderIds: Id[];
+  method: DeliveryMethod;
+  note?: string;
+}
+
+/** Every order is answered: changed, or why not. */
+export interface BulkOrderResult {
+  orderId: Id;
+  /** `null` when the order was not found. */
+  orderNumber: string | null;
+  changed: boolean;
+  reason: string | null;
+}
+
+export interface BulkChosenStatusResult {
+  status: BulkChosenStatus;
+  changed: number;
+  results: BulkOrderResult[];
+}
+
+export interface BulkChosenMethodResult {
+  method: DeliveryMethod;
+  changed: number;
+  results: BulkOrderResult[];
 }
 
 export interface OrderCargoSummary {

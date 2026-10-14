@@ -10,13 +10,15 @@ import type {
 import type { Db } from "../db.ts";
 import { companyMissing } from "../domain.ts";
 import {
-  cursorPage,
   enumParam,
   fail,
   json,
   newId,
   noContent,
+  searchParam,
+  sortedCursorPage,
   validationFailed,
+  wordsMatch,
   zCents,
   zTranslated,
 } from "../http.ts";
@@ -44,7 +46,9 @@ function orderingOf(db: Db, customer: Customer, now: number): CustomerOrdering {
         order.payment,
     )
     .map((order) => ({
+      orderId: order.id,
       orderNumber: order.orderNumber,
+      invoiceId: order.payment!.invoice.id,
       invoiceNumber: order.payment!.invoice.number,
       amountDue: order.payment!.amountDue,
       deadlineAt: order.payment!.deadline,
@@ -125,7 +129,7 @@ const createLegal = z.strictObject({
 const updateLegal = z.strictObject({
   title: zTranslated(160).optional(),
   content: legalContent.optional(),
-  note: z.string().max(1000).optional(),
+  note: z.string().max(1000).nullable().optional(),
 });
 
 function legalById(db: Db, id: string): LegalDocument {
@@ -152,12 +156,13 @@ export function registerShop(router: Router): void {
   // --- Customers ------------------------------------------------------------
   const customers = "/v1/admin/customers";
 
-  router.get(customers, { permission: "customers.read" }, (ctx) => {
+  const filteredCustomers = (ctx: { db: Db; query: URLSearchParams }) => {
     const status = enumParam(ctx.query, "status", [
       "active",
       "blocked",
     ] as const);
     const email = ctx.query.get("email")?.trim().toLowerCase();
+    const q = searchParam(ctx.query);
     if (
       email !== undefined &&
       email !== "" &&
@@ -170,13 +175,31 @@ export function registerShop(router: Router): void {
         },
       ]);
     }
-    const rows = ctx.db.customers.filter(
+    return ctx.db.customers.filter(
       (customer) =>
         (!status || customer.status === status) &&
-        (!email || customer.email.startsWith(email)),
+        (!email || customer.email.startsWith(email)) &&
+        wordsMatch(q, [
+          `${customer.firstName ?? ""} ${customer.lastName ?? ""}`,
+          customer.email,
+          customer.phone,
+        ]),
     );
-    return json(cursorPage(rows, ctx.query));
-  });
+  };
+
+  router.get(`${customers}/count`, { permission: "customers.read" }, (ctx) =>
+    json({ total: filteredCustomers(ctx).length }),
+  );
+
+  router.get(customers, { permission: "customers.read" }, (ctx) =>
+    json(
+      sortedCursorPage(filteredCustomers(ctx), ctx.query, {
+        createdAt: (customer) => customer.createdAt,
+        email: (customer) => customer.email,
+        status: (customer) => customer.status,
+      }),
+    ),
+  );
 
   router.get(`${customers}/:id`, { permission: "customers.read" }, (ctx) =>
     json({ customer: customerById(ctx.db, ctx.params.id ?? "") }),
@@ -254,7 +277,18 @@ export function registerShop(router: Router): void {
   });
 
   router.get(settings, { permission: "settings.read" }, (ctx) =>
-    json({ ...ctx.db.settings, company: company(ctx.db) }),
+    json({
+      ...ctx.db.settings,
+      company: company(ctx.db),
+      payments: {
+        ...ctx.db.settings.payments,
+        stripeConnected: ctx.db.config.stripe,
+      },
+      integrations: {
+        stripeConnected: ctx.db.config.stripe,
+        whatsappConfigured: ctx.db.config.whatsapp,
+      },
+    }),
   );
 
   router.put(

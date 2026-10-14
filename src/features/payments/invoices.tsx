@@ -154,26 +154,57 @@ const columns: Column<InvoiceSummary>[] = [
   },
 ];
 
+/**
+ * What the search field means for the API (13): an order number finds the
+ * documents of that order; a document number (`INV-2026-000123`,
+ * `CN-2026-000007`) finds that document; the beginning of one, from its
+ * prefix on, finds every document it begins.
+ */
+export function readInvoiceSearch(text: string): {
+  orderNumber?: string;
+  number?: string;
+  q?: string;
+  understood: boolean;
+} {
+  const value = text.trim();
+  if (value === "") return { understood: true };
+  const order = ORDER_NUMBER.exec(value);
+  if (order) return { orderNumber: `RF-${order[1]}`, understood: true };
+  const document = /^(inv|cn)[\s-]?(\d{4})[\s-]?(\d{6})$/i.exec(value);
+  if (document) {
+    return {
+      number: `${document[1]!.toUpperCase()}-${document[2]}-${document[3]}`,
+      understood: true,
+    };
+  }
+  if (/^(inv|cn)(-|$)/i.test(value)) {
+    return { q: value.toUpperCase(), understood: true };
+  }
+  return { understood: false };
+}
+
 export function InvoicesView() {
   const [state, setState, clear] = useUrlState({
     type: param.oneOf(TYPES),
-    q: param.text(20),
+    q: param.text(24),
     orderNumber: param.text(20),
     customerId: param.id(),
   });
   const text = state.q || state.orderNumber;
-  const number = ORDER_NUMBER.exec(text.trim());
-  const understood = text.trim() === "" || number !== null;
+  const search = readInvoiceSearch(text);
+  const understood = search.understood;
   const query = {
     type: state.type,
-    orderNumber: number ? `RF-${number[1]}` : undefined,
+    orderNumber: search.orderNumber,
+    number: search.number,
+    q: search.q,
     customerId: state.customerId,
   };
   const invoices = useInfiniteQuery({
     queryKey: queryKeys.invoices.list(query),
     queryFn: ({ pageParam, signal }) =>
       api.invoices.list({ ...query, limit: 25, cursor: pageParam }, signal),
-    initialPageParam: undefined as Id | undefined,
+    initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     enabled: understood,
   });
@@ -190,8 +221,8 @@ export function InvoicesView() {
         <div className="flex flex-col gap-3">
           <FilterBar active={filtered} onClear={clear}>
             <SearchField
-              label="Documents of an order"
-              placeholder="Order number, RF-1084"
+              label="Find documents"
+              placeholder="RF-1084, INV-2026-000123 or CN-2026-…"
               value={text}
               onChange={(q) => setState({ q, orderNumber: "" })}
             />

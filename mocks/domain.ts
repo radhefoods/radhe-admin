@@ -184,8 +184,23 @@ export function productSummary(db: Db, product: ProductRecord): ProductSummary {
 }
 
 export function productDetail(db: Db, product: ProductRecord): ProductDetail {
+  // Whether `DELETE` would succeed now (8), with the reason of a refusal.
+  const notDeletableReason =
+    product.status === "active"
+      ? {
+          code: "PRODUCT_IS_ACTIVE" as const,
+          message: "Archive the product before deleting it.",
+        }
+      : db.cargoProducts.some((entry) => entry.productId === product.id)
+        ? {
+            code: "PRODUCT_IN_USE" as const,
+            message: "The product was part of a cargo and cannot be deleted.",
+          }
+        : null;
   return {
     ...productSummary(db, product),
+    deletable: notDeletableReason === null,
+    notDeletableReason,
     gtin: product.gtin,
     subtitle: product.subtitle,
     shortDescription: product.shortDescription,
@@ -415,7 +430,14 @@ export function orderSummary(order: OrderRecord): OrderSummary {
     status: order.status,
     paymentStatus: order.paymentStatus,
     placedAt: order.placedAt,
-    customer: order.customer,
+    // The summary names the customer (0.9).
+    customer: {
+      ...order.customer,
+      name:
+        [order.customer.firstName, order.customer.lastName]
+          .filter((part) => part && part.trim() !== "")
+          .join(" ") || null,
+    },
     cargo: order.cargo,
     total: order.totals.total,
     finalTotal: order.finalTotals.total,
@@ -458,7 +480,7 @@ export function orderDetail(db: Db, order: OrderRecord): OrderDetail {
 export function pushHistory(
   order: OrderRecord,
   entry: {
-    field: "order" | "payment" | "cargo" | "delivery";
+    field: "order" | "payment" | "cargo" | "delivery" | "delivery_window";
     from: string | null;
     to: string;
     by?: "customer" | "admin" | "system";
@@ -531,6 +553,10 @@ const SUBJECT: Record<NotificationType, [string, string]> = {
   order_moved: [
     "New delivery days for order {n}",
     "Neue Liefertage für Bestellung {n}",
+  ],
+  delivery_rescheduled: [
+    "The delivery of order {n} has new days",
+    "Die Lieferung von Bestellung {n} hat neue Tage",
   ],
   order_dispatched: [
     "Your order {n} is on its way",

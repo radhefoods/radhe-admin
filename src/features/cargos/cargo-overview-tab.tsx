@@ -332,7 +332,7 @@ export function CargoOverviewTab() {
                     by:
                       entry.source === "schedule"
                         ? "By the schedule"
-                        : adminName(entry.by),
+                        : adminName(entry.by, entry.admin),
                     note: entry.note,
                   }))}
               />

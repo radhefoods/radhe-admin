@@ -18,6 +18,7 @@ import {
   idParam,
   json,
   newId,
+  sortedCursorPage,
   zId,
   zNote,
   zTranslated,
@@ -181,7 +182,7 @@ function emailHtml(
 export function registerCommunication(router: Router): void {
   const notifications = "/v1/admin/notifications";
 
-  router.get(notifications, { permission: "notifications.read" }, (ctx) => {
+  const filteredNotifications = (ctx: { db: Db; query: URLSearchParams }) => {
     const status = enumParam(ctx.query, "status", STATUSES);
     const type = enumParam(ctx.query, "type", TYPES);
     const channel = enumParam(ctx.query, "channel", CHANNELS);
@@ -189,7 +190,7 @@ export function registerCommunication(router: Router): void {
     const orderId = idParam(ctx.query, "orderId");
     const announcementId = idParam(ctx.query, "announcementId");
     const orderNumber = ctx.query.get("orderNumber")?.trim().toUpperCase();
-    const rows = ctx.db.notifications.filter(
+    return ctx.db.notifications.filter(
       (entry) =>
         (!status || entry.status === status) &&
         (!type || entry.type === type) &&
@@ -199,7 +200,22 @@ export function registerCommunication(router: Router): void {
         (!announcementId || entry.announcementId === announcementId) &&
         (!orderNumber || entry.orderNumber === orderNumber),
     );
-    const result = cursorPage(rows, ctx.query);
+  };
+
+  router.get(
+    `${notifications}/count`,
+    { permission: "notifications.read" },
+    (ctx) => json({ total: filteredNotifications(ctx).length }),
+  );
+
+  router.get(notifications, { permission: "notifications.read" }, (ctx) => {
+    const rows = filteredNotifications(ctx);
+    const result = sortedCursorPage(rows, ctx.query, {
+      createdAt: (entry) => entry.createdAt,
+      status: (entry) => entry.status,
+      type: (entry) => entry.type,
+      channel: (entry) => entry.channel,
+    });
     return json({ ...result, items: result.items.map(withoutData) });
   });
 
@@ -414,7 +430,15 @@ export function registerCommunication(router: Router): void {
         (!productId || entry.productId === productId) &&
         (!cargoId || entry.cargoId === cargoId),
     );
-    return json(cursorPage(rows, ctx.query));
+    const result = cursorPage(rows, ctx.query);
+    // Each item carries its progress, counted for the page (15).
+    return json({
+      ...result,
+      items: result.items.map((entry) => ({
+        ...entry,
+        progress: progressOf(ctx.db, entry.id),
+      })),
+    });
   });
 
   const announcementById = (db: Db, id: string): Announcement => {

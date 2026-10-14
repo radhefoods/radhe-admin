@@ -158,6 +158,57 @@ export interface UploadFailure {
   title: string;
   /** What to do about it, or what the API said in numbers. */
   detail: string | null;
+  /** Every file the API refused, each with its reason (`details.files`). */
+  refused?: { name: string; problem: string }[];
+}
+
+interface RefusedFile {
+  name: string;
+  code: string;
+  bytes?: number;
+  width?: number;
+  height?: number;
+}
+
+/** The reason of one refused file, from its code and numbers. */
+function refusedProblem(file: RefusedFile): string {
+  switch (file.code) {
+    case "IMAGE_FORMAT_NOT_ALLOWED":
+      return "Not a JPEG, PNG or WebP picture.";
+    case "IMAGE_DIMENSIONS_INVALID":
+      return typeof file.width === "number" && typeof file.height === "number"
+        ? `${file.width} × ${file.height} px: each side needs at least ${IMAGE_RULES.minSidePx} px, and at most 40 megapixels.`
+        : `Each side needs at least ${IMAGE_RULES.minSidePx} px, and at most 40 megapixels.`;
+    case "IMAGE_INVALID":
+      return "The file cannot be read as a picture.";
+    case "FILE_TOO_LARGE":
+      return `${typeof file.bytes === "number" ? `${formatBytes(file.bytes)}: ` : ""}larger than ${formatBytes(IMAGE_RULES.maxBytes)}.`;
+    default:
+      return humanizeCode(file.code);
+  }
+}
+
+const humanizeCode = (code: string) =>
+  code
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/^./, (c) => c.toUpperCase());
+
+/** The refused files the API names (`details.files`, 8), when it does. */
+function refusedFiles(error: unknown): UploadFailure["refused"] {
+  const details = (error as { details?: { files?: unknown } } | null)?.details;
+  const files = details?.files;
+  if (!Array.isArray(files)) return undefined;
+  const refused = files
+    .filter(
+      (file): file is RefusedFile =>
+        typeof file === "object" &&
+        file !== null &&
+        typeof (file as RefusedFile).name === "string" &&
+        typeof (file as RefusedFile).code === "string",
+    )
+    .map((file) => ({ name: file.name, problem: refusedProblem(file) }));
+  return refused.length > 0 ? refused : undefined;
 }
 
 /**
@@ -171,6 +222,14 @@ export function uploadFailure(error: unknown, count: number): UploadFailure {
     count > 1
       ? "None of the pictures was stored: an upload is all or nothing."
       : null;
+  const refused = refusedFiles(error);
+  if (refused && refused.length > 1) {
+    return {
+      title: `${refused.length} files cannot be uploaded`,
+      detail: nothingStored ?? "Nothing was stored.",
+      refused,
+    };
+  }
 
   if (hasErrorCode(error, "UPLOAD_ABORTED")) {
     return { title: "The upload was stopped", detail: "Nothing was stored." };

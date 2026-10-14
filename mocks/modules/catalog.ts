@@ -13,6 +13,7 @@ import {
   productSummary,
 } from "../domain.ts";
 import {
+  HttpError,
   boolParam,
   enumParam,
   fail,
@@ -974,9 +975,41 @@ export function registerCatalog(router: Router): void {
           },
         );
       }
-      // All or nothing: every file is checked before one is stored.
+      // All or nothing: every file is checked before one is stored, and
+      // the error names every refused file (8).
       const read = [];
-      for (const file of files) read.push(await readImage(file));
+      const refused: Record<string, unknown>[] = [];
+      let first: HttpError | null = null;
+      for (const file of files) {
+        try {
+          read.push(await readImage(file));
+        } catch (error) {
+          if (!(error instanceof HttpError)) throw error;
+          first ??= error;
+          const measured = (error.details ?? {}) as {
+            width?: number;
+            height?: number;
+          };
+          refused.push({
+            name: file.name,
+            code: error.code,
+            bytes: file.size,
+            ...(typeof measured.width === "number"
+              ? { width: measured.width, height: measured.height }
+              : {}),
+          });
+        }
+      }
+      if (first) {
+        const details =
+          typeof first.details === "object" && first.details !== null
+            ? (first.details as Record<string, unknown>)
+            : {};
+        throw fail(first.status, first.code, first.message, {
+          ...details,
+          files: refused,
+        });
+      }
       for (const image of read)
         product.images.push(storeImage(ctx.db, image, ctx.now));
       ensurePrimary(product);

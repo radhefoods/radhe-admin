@@ -443,21 +443,19 @@ describe("deleting and archiving a product", () => {
     );
   });
 
-  it("explains a product that was part of a cargo and offers to archive it", async () => {
+  it("explains a product that was part of a cargo and offers to archive it, without asking the API", async () => {
     const dal = product("Toor Dal 1 kg");
-    // A draft again, but cargos still refer to it.
+    // A draft again, but cargos still refer to it: the product says so.
     record(dal.id).status = "draft";
     const { user, unhandled } = renderProduct(dal.id);
-    const dialog = await chooseDelete(user);
-    await user.click(
-      within(dialog).getByRole("button", { name: "Delete the product" }),
-    );
+    await chooseDelete(user);
 
     const refusal = await screen.findByRole("heading", {
       name: "Toor Dal 1 kg cannot be deleted",
     });
     expect(refusal).toBeInTheDocument();
     expect(screen.getByText(/It was part of a cargo/)).toBeInTheDocument();
+    expect(writes().some((call) => call.method === "DELETE")).toBe(false);
     expect(api.mock.db().products.some((entry) => entry.id === dal.id)).toBe(
       true,
     );
@@ -474,10 +472,12 @@ describe("deleting and archiving a product", () => {
     const dal = product("Toor Dal 1 kg");
     record(dal.id).status = "archived";
     const { user } = renderProduct(dal.id);
-    const dialog = await chooseDelete(user);
     await user.click(
-      within(dialog).getByRole("button", { name: "Delete the product" }),
+      await screen.findByRole("button", {
+        name: "More actions for this product",
+      }),
     );
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
 
     expect(
       await screen.findByText(/It is archived already/),

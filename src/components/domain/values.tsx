@@ -6,7 +6,7 @@ import { useState, type ReactNode } from "react";
 import { Tooltip } from "@/components/ui/menu";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
-import type { Cents, Id, IsoDateTime } from "@/lib/api/types";
+import type { AdminRef, Cents, Id, IsoDateTime } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { cn } from "@/lib/cn";
 import {
@@ -74,28 +74,40 @@ export function DateTime({
 }
 
 /**
- * The names of the admins by id. Records of the API carry an admin's id
- * only; the names come from the team list, which needs its own permission.
+ * The names of the admins. Records of the API carry the admin next to the
+ * id (0.9); where an answer has none, the name comes from the team list,
+ * which needs its own permission, or the id stands in.
  */
-export function useAdminNames(): (id: Id | null | undefined) => string {
-  const { can, admin } = useAuth();
+export function useAdminNames(): (
+  id: Id | null | undefined,
+  admin?: AdminRef | null,
+) => string {
+  const { can, admin: me } = useAuth();
   const { data } = useQuery({
     queryKey: queryKeys.adminUsers.list(),
     queryFn: ({ signal }) => api.adminUsers.list(signal),
     enabled: can("admin_users.read"),
     staleTime: 5 * 60_000,
   });
-  return (id) => {
+  return (id, admin) => {
+    if (admin?.name) return admin.name;
     if (!id) return "—";
-    if (id === admin?.id) return admin.name;
+    if (id === me?.id) return me.name;
     const found = data?.items.find((entry) => entry.id === id);
     return found?.name ?? `Admin ${shortId(id)}`;
   };
 }
 
-/** Who did something: "Nisha Patel", or "Admin …a1b2c3" without the permission. */
-export function AdminName({ id }: { id: Id | null | undefined }) {
-  return <>{useAdminNames()(id)}</>;
+/** Who did something: "Nisha Patel", or "Admin …a1b2c3" when no name is known. */
+export function AdminName({
+  id,
+  admin,
+}: {
+  id: Id | null | undefined;
+  /** The person next to the id, as the API gives it (0.9). */
+  admin?: AdminRef | null;
+}) {
+  return <>{useAdminNames()(id, admin)}</>;
 }
 
 /** Copies a value (an order number, a secret) and says so. */

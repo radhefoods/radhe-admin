@@ -21,12 +21,14 @@ import {
   reserve,
 } from "../domain.ts";
 import {
-  cursorPage,
   enumParam,
   fail,
   idParam,
   json,
+  searchParam,
+  sortedCursorPage,
   validationFailed,
+  wordsMatch,
   zId,
   zNote,
 } from "../http.ts";
@@ -137,7 +139,8 @@ const decisionBody = z.strictObject({
 export function registerOrders(router: Router): void {
   const base = "/v1/admin/orders";
 
-  router.get(base, { permission: "orders.read" }, (ctx) => {
+  /** The filters of the list and of `/count` (10). */
+  const filteredOrders = (ctx: { db: Db; query: URLSearchParams }) => {
     const cargoId = idParam(ctx.query, "cargoId");
     const customerId = idParam(ctx.query, "customerId");
     const status = enumParam(ctx.query, "status", ORDER_STATUSES);
@@ -149,12 +152,13 @@ export function registerOrders(router: Router): void {
     const deliveryMethod = enumParam(ctx.query, "deliveryMethod", METHODS);
     const orderNumber = ctx.query.get("orderNumber")?.trim().toUpperCase();
     const email = ctx.query.get("email")?.trim().toLowerCase();
+    const q = searchParam(ctx.query);
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw validationFailed([
         { field: "email", problems: ["email must be an email"] },
       ]);
     }
-    const rows = ctx.db.orders.filter(
+    return ctx.db.orders.filter(
       (order) =>
         (!cargoId || order.cargo.id === cargoId) &&
         (!customerId || order.customer.id === customerId) &&
@@ -162,9 +166,147 @@ export function registerOrders(router: Router): void {
         (!paymentStatus || order.paymentStatus === paymentStatus) &&
         (!deliveryMethod || order.delivery.method === deliveryMethod) &&
         (!orderNumber || order.orderNumber === orderNumber) &&
-        (!email || order.customer.email === email),
+        (!email || order.customer.email === email) &&
+        wordsMatch(q, [
+          order.orderNumber,
+          `${order.customer.firstName ?? ""} ${order.customer.lastName ?? ""}`,
+          order.customer.email,
+          order.customer.phone,
+        ]),
     );
-    const result = cursorPage(rows, ctx.query);
+  };
+
+  router.get(`${base}/count`, { permission: "orders.read" }, (ctx) =>
+    json({ total: filteredOrders(ctx).length }),
+  );
+
+  // --- Chosen orders at once (10) -------------------------------------------
+
+  const chosen = z.array(zId).min(1).max(500);
+  const BULK_FROM: Record<"preparing" | "dispatched" | "delivered", string[]> =
+    {
+      preparing: ["confirmed"],
+      dispatched: ["confirmed", "preparing"],
+      delivered: ["dispatched"],
+    };
+
+  router.post(
+    `${base}/bulk/status`,
+    { permission: "orders.manage" },
+    async (ctx) => {
+      const input = await ctx.body(
+        z.strictObject({
+          orderIds: chosen,
+          status: z.enum(["preparing", "dispatched", "delivered"]),
+          note: zNote(500),
+        }),
+      );
+      const results = input.orderIds.map((orderId) => {
+        const order = ctx.db.orders.find((entry) => entry.id === orderId);
+        if (!order) {
+          return {
+            orderId,
+            orderNumber: null,
+            changed: false,
+            reason: "Order not found.",
+          };
+        }
+        if (!BULK_FROM[input.status].includes(order.status)) {
+          return {
+            orderId,
+            orderNumber: order.orderNumber,
+            changed: false,
+            reason: `An order that is "${order.status}" cannot be set to "${input.status}".`,
+          };
+        }
+        setOrderStatus(
+          ctx.db,
+          order,
+          input.status,
+          { adminId: ctx.admin.id, note: input.note },
+          ctx.now,
+        );
+        return {
+          orderId,
+          orderNumber: order.orderNumber,
+          changed: true,
+          reason: null,
+        };
+      });
+      return json({
+        status: input.status,
+        changed: results.filter((entry) => entry.changed).length,
+        results,
+      });
+    },
+  );
+
+  router.post(
+    `${base}/bulk/delivery-method`,
+    { permission: "orders.manage" },
+    async (ctx) => {
+      const input = await ctx.body(
+        z.strictObject({
+          orderIds: chosen,
+          method: z.enum(["radhe_delivery", "dhl", "hermes"]),
+          note: zNote(500),
+        }),
+      );
+      const results = input.orderIds.map((orderId) => {
+        const order = ctx.db.orders.find((entry) => entry.id === orderId);
+        if (!order) {
+          return {
+            orderId,
+            orderNumber: null,
+            changed: false,
+            reason: "Order not found.",
+          };
+        }
+        if (["delivered", "cancelled", "returned"].includes(order.status)) {
+          return {
+            orderId,
+            orderNumber: order.orderNumber,
+            changed: false,
+            reason: `An order that is "${order.status}" cannot change its delivery method.`,
+          };
+        }
+        if (order.delivery.method === input.method) {
+          return {
+            orderId,
+            orderNumber: order.orderNumber,
+            changed: false,
+            reason: `The order is delivered by "${input.method}" already.`,
+          };
+        }
+        setDeliveryMethod(
+          order,
+          input.method,
+          { adminId: ctx.admin.id, note: input.note },
+          ctx.now,
+        );
+        return {
+          orderId,
+          orderNumber: order.orderNumber,
+          changed: true,
+          reason: null,
+        };
+      });
+      return json({
+        method: input.method,
+        changed: results.filter((entry) => entry.changed).length,
+        results,
+      });
+    },
+  );
+
+  router.get(base, { permission: "orders.read" }, (ctx) => {
+    const rows = filteredOrders(ctx);
+    const result = sortedCursorPage(rows, ctx.query, {
+      createdAt: (order) => order.placedAt,
+      total: (order) => order.finalTotals.total,
+      status: (order) => order.status,
+      paymentStatus: (order) => order.paymentStatus,
+    });
     return json({ ...result, items: result.items.map(orderSummary) });
   });
 
@@ -478,18 +620,30 @@ export function registerOrders(router: Router): void {
   // --- Returns (11) ---------------------------------------------------------
   const returns = "/v1/admin/returns";
 
-  router.get(returns, { permission: "orders.read" }, (ctx) => {
+  const filteredReturns = (ctx: { db: Db; query: URLSearchParams }) => {
     const status = enumParam(ctx.query, "status", RETURN_STATUSES);
     const customerId = idParam(ctx.query, "customerId");
     const orderNumber = ctx.query.get("orderNumber")?.trim().toUpperCase();
-    const rows = ctx.db.returns.filter(
+    return ctx.db.returns.filter(
       (entry) =>
         (!status || entry.status === status) &&
         (!customerId || entry.customerId === customerId) &&
         (!orderNumber || entry.orderNumber === orderNumber),
     );
-    return json(cursorPage(rows, ctx.query));
-  });
+  };
+
+  router.get(`${returns}/count`, { permission: "orders.read" }, (ctx) =>
+    json({ total: filteredReturns(ctx).length }),
+  );
+
+  router.get(returns, { permission: "orders.read" }, (ctx) =>
+    json(
+      sortedCursorPage(filteredReturns(ctx), ctx.query, {
+        createdAt: (entry) => entry.requestedAt,
+        status: (entry) => entry.status,
+      }),
+    ),
+  );
 
   router.get(`${returns}/:id`, { permission: "orders.read" }, (ctx) =>
     json({ return: returnById(ctx.db, ctx.params.id ?? "") }),

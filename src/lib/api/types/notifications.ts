@@ -1,10 +1,13 @@
 // Sections 14 (notifications) and 15 (announcements).
 
 import type {
+  AdminRef,
   CursorQuery,
+  CustomerRef,
   Id,
   IsoDateTime,
   Locale,
+  SortParam,
   Translated,
   TranslatedOptional,
 } from "./common";
@@ -13,6 +16,7 @@ export const NOTIFICATION_TYPES = [
   "order_confirmed",
   "order_cancelled",
   "order_moved",
+  "delivery_rescheduled",
   "order_dispatched",
   "order_delivered",
   "delivery_failed",
@@ -58,6 +62,7 @@ export interface Notification {
   /** The email address or the WhatsApp number. */
   to: string;
   customerId: Id | null;
+  customer?: CustomerRef | null;
   orderId: Id | null;
   orderNumber: string | null;
   cargoId: Id | null;
@@ -88,6 +93,14 @@ export interface NotificationDetail extends Notification {
   data: Record<string, unknown>;
 }
 
+export const NOTIFICATION_SORT_FIELDS = [
+  "createdAt",
+  "status",
+  "type",
+  "channel",
+] as const;
+export type NotificationSortField = (typeof NOTIFICATION_SORT_FIELDS)[number];
+
 export interface NotificationQuery extends CursorQuery {
   status?: NotificationStatus;
   type?: NotificationType;
@@ -96,6 +109,8 @@ export interface NotificationQuery extends CursorQuery {
   orderId?: Id;
   orderNumber?: string;
   announcementId?: Id;
+  /** Default `createdAt:desc`. */
+  sort?: SortParam<NotificationSortField>;
 }
 
 export type NotificationCounts = Record<NotificationStatus, number>;
@@ -129,8 +144,13 @@ export interface Announcement {
   recipients: number;
   queued: number;
   createdBy: Id | null;
+  createdByAdmin?: AdminRef | null;
+  cancelledBy?: Id | null;
+  cancelledByAdmin?: AdminRef | null;
   cancelledAt: IsoDateTime | null;
   createdAt: IsoDateTime;
+  /** In the list: the same counts as the detail (15). */
+  progress?: AnnouncementProgress;
 }
 
 /** Counts per channel and status, always all keys. */

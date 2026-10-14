@@ -179,22 +179,11 @@ function RoleForm({
       return;
     }
 
-    if (role.description && values.description === "") {
-      form.setError(
-        "description",
-        {
-          type: "server",
-          message:
-            "A description cannot be removed once it is saved: the API keeps it. Write a new one instead.",
-        },
-        { shouldFocus: true },
-      );
-      return;
-    }
     const patch: UpdateRoleInput = {};
     if (values.name !== role.name) patch.name = values.name;
+    // An emptied description is removed: `null` clears it (3).
     if (values.description !== (role.description ?? ""))
-      patch.description = values.description;
+      patch.description = values.description || null;
     if (permissionsChanged) patch.permissions = permissions;
     if (Object.keys(patch).length === 0) {
       onClose();
@@ -339,8 +328,8 @@ function RoleForm({
           }
           description={
             <>
-              The new permissions apply at once to every admin with this role;
-              they may have to sign in again.
+              The new permissions apply to every admin with this role from their
+              next request on; nobody is signed out.
               {affected === null && !canReadTeam
                 ? " Your role does not show the team, so the panel cannot say who they are."
                 : ""}

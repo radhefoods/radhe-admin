@@ -8,6 +8,7 @@ import type {
   AnnouncementPreview,
   AnnouncementQuery,
   AnnouncementWithProgress,
+  CountResult,
   CursorResult,
   Id,
   Notification,
@@ -22,6 +23,11 @@ export function notificationsApi({ request }: SessionTransport) {
   return {
     list: (query: NotificationQuery = {}, signal?: AbortSignal) =>
       request<CursorResult<Notification>>(base, {
+        query: query as Query,
+        signal,
+      }),
+    count: (query: NotificationQuery = {}, signal?: AbortSignal) =>
+      request<CountResult>(`${base}/count`, {
         query: query as Query,
         signal,
       }),

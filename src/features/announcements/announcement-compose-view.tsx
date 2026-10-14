@@ -201,7 +201,8 @@ export function AnnouncementComposeView() {
               form={form}
               name="linkLabel"
               label="Button label"
-              hint="Optional. Without a label the button says “Visit the shop” and “Zum Shop”."
+              maxLength={160}
+              hint="Optional, at most 160 characters. Without a label the button says “Visit the shop” and “Zum Shop”."
             />
           </section>
 

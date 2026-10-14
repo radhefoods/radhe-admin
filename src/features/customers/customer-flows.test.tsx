@@ -214,9 +214,15 @@ describe("the ordering decision", () => {
     });
     for (const order of overdue) {
       const link = within(table).getByRole("link", { name: order.orderNumber });
-      expect(link).toHaveAttribute(
+      // Straight to the order and to its invoice: the ids come along (4).
+      expect(link).toHaveAttribute("href", `/orders/${order.id}`);
+      expect(
+        within(table).getByRole("link", {
+          name: order.payment?.invoice.number ?? "",
+        }),
+      ).toHaveAttribute(
         "href",
-        `/orders?orderNumber=${order.orderNumber}`,
+        `/payments/invoices/${order.payment?.invoice.id}`,
       );
       expect(
         within(table).getByText(formatMoney(order.payment?.amountDue ?? 0)),
@@ -465,44 +471,41 @@ describe("permissions", () => {
 });
 
 describe("the list of customers", () => {
-  it("searches by the beginning of the email, from two characters on", async () => {
+  it("searches by words of the name, the email or the phone, and says how many match", async () => {
     const target = plainCustomer();
     const prefix = target.email.slice(0, 6);
     const { user } = renderPanel(<CustomersView />, { path: "/customers" });
-
-    expect(
-      screen.getByText(/The search finds the beginning of the email address/),
-    ).toBeInTheDocument();
     await screen.findByRole("link", {
       name: name(customers()[customers().length - 1] as Customer),
     });
+    expect(
+      await screen.findByText(
+        new RegExp(
+          `of ${customers().length} customers|^${customers().length} customers, that is all`,
+        ),
+      ),
+    ).toBeInTheDocument();
     api.calls.length = 0;
 
-    const search = screen.getByRole("searchbox", {
-      name: "Search customers by the beginning of their email address",
-    });
-    await user.type(search, prefix.slice(0, 1));
-    expect(
-      await screen.findByText("Type at least 2 characters."),
-    ).toBeInTheDocument();
-    await user.type(search, prefix.slice(1));
+    const search = screen.getByRole("searchbox", { name: "Search customers" });
+    await user.type(search, prefix);
 
     await waitFor(() =>
       expect(testNavigation.location).toBe(
-        `/customers?email=${encodeURIComponent(prefix)}`,
+        `/customers?q=${encodeURIComponent(prefix)}`,
       ),
     );
     await waitFor(() =>
       expect(api.calls.map((call) => call.path)).toContain(
-        `/v1/admin/customers?email=${encodeURIComponent(prefix)}&limit=50`,
+        `/v1/admin/customers?q=${encodeURIComponent(prefix)}&limit=50`,
       ),
     );
-    // One character alone was never sent to the API.
-    expect(
-      api.calls.some((call) =>
-        call.path.includes(`email=${prefix.slice(0, 1)}&`),
+    // The count follows the same filters.
+    await waitFor(() =>
+      expect(api.calls.map((call) => call.path)).toContain(
+        `/v1/admin/customers/count?q=${encodeURIComponent(prefix)}`,
       ),
-    ).toBe(false);
+    );
     expect(
       await screen.findByRole("link", { name: name(target) }),
     ).toBeInTheDocument();
@@ -512,7 +515,7 @@ describe("the list of customers", () => {
     const { user } = renderPanel(<CustomersView />, { path: "/customers" });
     const more = await screen.findByRole("button", { name: "Load more" });
     expect(
-      screen.getByText("Showing the newest 50 customers"),
+      screen.getByText(/^Showing 50 of \d+ customers$/),
     ).toBeInTheDocument();
     await user.click(more);
     expect(
@@ -520,7 +523,10 @@ describe("the list of customers", () => {
     ).toBeInTheDocument();
     expect(
       api.calls.some((call) =>
-        /\/v1\/admin\/customers\?limit=50&cursor=[0-9a-f]{24}$/.test(call.path),
+        // The cursor is an opaque string (0.8).
+        /\/v1\/admin\/customers\?limit=50&cursor=[A-Za-z0-9_-]+$/.test(
+          call.path,
+        ),
       ),
     ).toBe(true);
   });

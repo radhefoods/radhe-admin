@@ -4,11 +4,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { OrderRecord } from "../../../mocks/db.ts";
 import { formatMoney } from "@/lib/format/money";
 import { installTestApi, type TestApi } from "@/test/api";
-import { renderPanel } from "@/test/render";
+import { renderPanel, testNavigation } from "@/test/render";
 import { billAfterCorrection } from "./order-dialogs";
 import { readRefund } from "./order-payment";
 import { OrderView, orderTimeline } from "./order-view";
-import { readOrderSearch } from "./orders-list";
+import { OrdersList } from "./orders-list";
 
 let api: TestApi;
 
@@ -604,27 +604,36 @@ describe("permissions on an order", () => {
 });
 
 describe("finding and reading orders", () => {
-  it("understands what the API can search for", () => {
-    expect(readOrderSearch("RF-1084")).toEqual({
-      orderNumber: "RF-1084",
-      understood: true,
-    });
-    expect(readOrderSearch(" rf1084 ")).toEqual({
-      orderNumber: "RF-1084",
-      understood: true,
-    });
-    expect(readOrderSearch("1084")).toEqual({
-      orderNumber: "RF-1084",
-      understood: true,
-    });
-    expect(readOrderSearch("Priya@Example.com")).toEqual({
-      email: "priya@example.com",
-      understood: true,
-    });
-    expect(readOrderSearch("")).toEqual({ understood: true });
-    // No search by name or by a part of an email: say so instead of showing nothing.
-    expect(readOrderSearch("priya").understood).toBe(false);
-    expect(readOrderSearch("priya@").understood).toBe(false);
+  it("sends what is typed as `q`, asks for the count with the same filters, and sorts", async () => {
+    const { user } = renderPanel(<OrdersList />, { path: "/orders" });
+    await screen.findAllByRole("link", { name: /^RF-\d{4}$/ });
+    api.calls.length = 0;
+
+    await user.type(
+      screen.getByRole("searchbox", { name: "Find orders" }),
+      "priya",
+    );
+    await waitFor(() =>
+      expect(api.calls.map((call) => call.path)).toContain(
+        "/v1/admin/orders?q=priya&limit=25",
+      ),
+    );
+    await waitFor(() =>
+      expect(api.calls.map((call) => call.path)).toContain(
+        "/v1/admin/orders/count?q=priya",
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Sort" }));
+    await user.click(
+      screen.getByRole("menuitem", { name: "Highest bill first" }),
+    );
+    await waitFor(() =>
+      expect(api.calls.map((call) => call.path)).toContain(
+        "/v1/admin/orders?q=priya&sort=total%3Adesc&limit=25",
+      ),
+    );
+    expect(testNavigation.location).toBe("/orders?q=priya&sort=total%3Adesc");
   });
 
   it("folds the daily reminders of the history into one line", () => {
@@ -662,5 +671,144 @@ describe("finding and reading orders", () => {
     ]);
     expect(timeline[2]?.by).toBe("daily since 14 Sep 2026");
     expect(timeline[2]?.at).toBe("2026-09-16T07:00:00.000Z");
+  });
+});
+
+describe("acting on chosen orders", () => {
+  /** The numbers of the orders on the page, as links. */
+  const visible = () =>
+    screen
+      .getAllByRole("link", { name: /^RF-\d{4}$/ })
+      .map((link) => link.textContent);
+
+  /** Two confirmed orders and one cancelled one among the rows shown. */
+  function pick() {
+    const shown = visible();
+    const orders = api.mock
+      .db()
+      .orders.filter((order) => shown.includes(order.orderNumber));
+    const confirmed = orders.filter((order) => order.status === "confirmed");
+    const cancelled = orders.find((order) => order.status === "cancelled");
+    if (confirmed.length < 2 || !cancelled)
+      throw new Error("The page lacks the orders this test needs");
+    return { confirmed: confirmed.slice(0, 2), cancelled };
+  }
+
+  it("ticks orders, sends their ids, and names the ones the API left as they are", async () => {
+    // Sorted by status, cancelled orders come first, then confirmed ones.
+    const { user } = renderPanel(<OrdersList />, {
+      path: "/orders?sort=status%3Aasc",
+    });
+    await screen.findAllByRole("link", { name: /^RF-\d{4}$/ });
+    const { confirmed, cancelled } = pick();
+    expect(
+      screen.queryByRole("region", { name: "Chosen orders" }),
+    ).not.toBeInTheDocument();
+
+    for (const order of [...confirmed, cancelled]) {
+      await user.click(
+        screen.getByRole("checkbox", { name: `Choose ${order.orderNumber}` }),
+      );
+    }
+    const bar = screen.getByRole("region", { name: "Chosen orders" });
+    expect(bar).toHaveTextContent("3 orders chosen");
+    api.calls.length = 0;
+
+    await user.click(
+      within(bar).getByRole("button", { name: "Mark preparing" }),
+    );
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Mark preparing: 3 orders?");
+    await user.type(
+      within(dialog).getByRole("textbox", { name: /Note for the history/ }),
+      "Packing started",
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "Mark preparing" }),
+    );
+
+    await waitFor(() => expect(changes()).toHaveLength(1));
+    expect(changes()[0]).toEqual({
+      method: "POST",
+      path: "/v1/admin/orders/bulk/status",
+      body: {
+        orderIds: [...confirmed, cancelled].map((order) => order.id),
+        status: "preparing",
+        note: "Packing started",
+      },
+    });
+    for (const order of confirmed) {
+      expect(fresh(order.id).status).toBe("preparing");
+    }
+    expect(fresh(cancelled.id).status).toBe("cancelled");
+
+    // What the API refused is listed with its reason, not hidden in a count.
+    const outcome = await screen.findByRole("dialog", {
+      name: "2 orders changed, 1 order not",
+    });
+    expect(outcome).toHaveTextContent(cancelled.orderNumber);
+    expect(outcome).toHaveTextContent(
+      'An order that is "cancelled" cannot be set to "preparing".',
+    );
+    await user.click(
+      within(outcome).getByRole("button", { name: "Understood" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("region", { name: "Chosen orders" }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("changes the delivery method of the chosen orders and clears the choice when all went through", async () => {
+    const { user } = renderPanel(<OrdersList />, {
+      path: "/orders?status=confirmed",
+    });
+    await screen.findAllByRole("link", { name: /^RF-\d{4}$/ });
+    const shown = visible();
+    const target = api.mock
+      .db()
+      .orders.find(
+        (order) =>
+          shown.includes(order.orderNumber) && order.delivery.method !== "dhl",
+      );
+    if (!target) throw new Error("No confirmed order without DHL on the page");
+    await user.click(
+      screen.getByRole("checkbox", { name: `Choose ${target.orderNumber}` }),
+    );
+    api.calls.length = 0;
+    await user.click(screen.getByRole("button", { name: "Delivery method" }));
+    const dialog = await screen.findByRole("alertdialog");
+    await user.selectOptions(
+      within(dialog).getByRole("combobox", { name: "Delivery method" }),
+      "dhl",
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "Change the method" }),
+    );
+    await waitFor(() => expect(changes()).toHaveLength(1));
+    expect(changes()[0]).toEqual({
+      method: "POST",
+      path: "/v1/admin/orders/bulk/delivery-method",
+      body: { orderIds: [target.id], method: "dhl" },
+    });
+    await waitFor(() => expect(fresh(target.id).delivery.method).toBe("dhl"));
+    expect(
+      (await screen.findAllByText("1 order changed")).length,
+    ).toBeGreaterThan(0);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("region", { name: "Chosen orders" }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("offers no choice to an admin who may only read", async () => {
+    renderPanel(<OrdersList />, {
+      path: "/orders",
+      permissions: ["orders.read", "cargos.read"],
+    });
+    await screen.findAllByRole("link", { name: /^RF-\d{4}$/ });
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
   });
 });

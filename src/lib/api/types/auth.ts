@@ -53,6 +53,8 @@ export interface CreateAdminInput {
   name: string;
   temporaryPassword: string;
   roleId: Id;
+  /** Default `true`: the new admin is emailed the password and the link. */
+  sendInvitation?: boolean;
 }
 
 export interface UpdateAdminInput {
@@ -82,6 +84,7 @@ export interface CreateRoleInput {
 
 export interface UpdateRoleInput {
   name?: string;
-  description?: string;
+  /** `null` removes the description. */
+  description?: string | null;
   permissions?: string[];
 }

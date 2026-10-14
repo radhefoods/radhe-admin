@@ -38,6 +38,7 @@ import { errorMessage } from "@/lib/api/error-text";
 import { hasErrorCode } from "@/lib/api/errors";
 import { queryKeys } from "@/lib/api/query-keys";
 import type {
+  AdminRef,
   OrderDetail,
   OrderHistoryEntry,
   SettableOrderStatus,
@@ -103,6 +104,14 @@ function describe(entry: OrderHistoryEntry): { title: string; tone: Tone } {
       tone: "planned",
     };
   }
+  if (entry.field === "delivery_window") {
+    // `from` and `to` are `start/end` calendar days.
+    const [start, end] = entry.to.split("/");
+    return {
+      title: `Delivery days changed to ${formatDayRange(start ?? entry.to, end ?? start ?? entry.to)}`,
+      tone: "planned",
+    };
+  }
   const method =
     DELIVERY_METHOD_LABEL[entry.to as keyof typeof DELIVERY_METHOD_LABEL];
   return {
@@ -117,7 +126,7 @@ function describe(entry: OrderHistoryEntry): { title: string; tone: Tone } {
  */
 export function orderTimeline(
   entries: OrderHistoryEntry[],
-  adminName: (id: string | null) => string,
+  adminName: (id: string | null, admin?: AdminRef | null) => string,
 ): TimelineEntry[] {
   const result: TimelineEntry[] = [];
   let run: { count: number; first: string } | null = null;
@@ -142,7 +151,7 @@ export function orderTimeline(
       tone,
       by:
         entry.by === "admin"
-          ? adminName(entry.adminId)
+          ? adminName(entry.adminId, entry.admin)
           : entry.by === "customer"
             ? "The customer"
             : "The system",
@@ -536,7 +545,7 @@ export function OrderView() {
             title={`Cancelled: ${humanize(data.cancellation.reason).toLowerCase()}`}
           >
             {data.cancellation.by === "admin"
-              ? `By ${adminName(data.cancellation.adminId)}`
+              ? `By ${adminName(data.cancellation.adminId, data.cancellation.admin)}`
               : data.cancellation.by === "customer"
                 ? "By the customer"
                 : "By the system"}{" "}

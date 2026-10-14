@@ -1,6 +1,11 @@
 "use client";
 
-import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+} from "@tanstack/react-query";
 import { HandCoins } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -10,6 +15,8 @@ import {
   FilterBar,
   FilterSelect,
   SearchField,
+  SortSelect,
+  type SortOption,
 } from "@/components/data/filter-bar";
 import { LoadMore } from "@/components/data/pagination";
 import {
@@ -44,7 +51,12 @@ import { api } from "@/lib/api/client";
 import { errorMessage } from "@/lib/api/error-text";
 import { hasErrorCode } from "@/lib/api/errors";
 import { invalidation, queryKeys } from "@/lib/api/query-keys";
-import { REFUND_STATUSES, type Id, type Refund } from "@/lib/api/types";
+import {
+  REFUND_STATUSES,
+  type Refund,
+  type RefundSortField,
+  type SortParam,
+} from "@/lib/api/types";
 import { berlinToDate, toLocalInput } from "@/lib/format/dates";
 import { formatMoney } from "@/lib/format/money";
 import { useNow } from "@/lib/hooks/use-now";
@@ -102,14 +114,21 @@ const columns: Column<Refund>[] = [
     id: "order",
     header: "Order",
     cell: ({ row }) => (
-      <Link
-        href={routes.order(row.original.orderId)}
-        className="hover:underline"
-      >
-        {row.original.orderNumber}
-      </Link>
+      <TwoLine
+        primary={
+          <Link
+            href={routes.order(row.original.orderId)}
+            className="hover:underline"
+          >
+            {row.original.orderNumber}
+          </Link>
+        }
+        secondary={
+          row.original.customer?.name ?? row.original.customer?.email ?? null
+        }
+      />
     ),
-    meta: { from: "sm", skeleton: "w-16" },
+    meta: { from: "sm", className: "max-w-48", skeleton: "w-16" },
   },
   {
     id: "amount",
@@ -121,29 +140,50 @@ const columns: Column<Refund>[] = [
   },
 ];
 
+/** The orders of the list the API offers (12.4). */
+const SORTS: readonly SortOption<SortParam<RefundSortField>>[] = [
+  { value: "createdAt:desc", label: "Newest first" },
+  { value: "createdAt:asc", label: "Oldest first" },
+  { value: "amount:desc", label: "Highest amount first" },
+  { value: "amount:asc", label: "Lowest amount first" },
+  { value: "status:asc", label: "By status" },
+];
+const SORT_VALUES = SORTS.map((option) => option.value);
+
 export function RefundsView() {
   const [state, setState, clear] = useUrlState({
     status: param.oneOf(REFUND_STATUSES),
     q: param.text(24),
     orderNumber: param.text(24),
+    sort: param.oneOf(SORT_VALUES),
   });
   const text = state.q || state.orderNumber;
   const number = ORDER_NUMBER.exec(text.trim());
   const understood = text.trim() === "" || number !== null;
-  const query = {
+  const filters = {
     status: state.status,
     orderNumber: number ? `RF-${number[1]}` : undefined,
   };
+  const query = { ...filters, sort: state.sort };
   const refunds = useInfiniteQuery({
     queryKey: queryKeys.refunds.list(query),
     queryFn: ({ pageParam, signal }) =>
       api.refunds.list({ ...query, limit: 25, cursor: pageParam }, signal),
-    initialPageParam: undefined as Id | undefined,
+    initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
+    enabled: understood,
+  });
+  const count = useQuery({
+    queryKey: queryKeys.refunds.count(filters),
+    queryFn: ({ signal }) => api.refunds.count(filters, signal),
+    placeholderData: keepPreviousData,
     enabled: understood,
   });
   const rows = refunds.data?.pages.flatMap((page) => page.items);
   const filtered = Boolean(state.status || text);
+  const sortLabel =
+    SORTS.find((option) => option.value === state.sort)?.label ??
+    "newest first";
 
   return (
     <RequirePermission permission="payments.read">
@@ -153,7 +193,7 @@ export function RefundsView() {
       />
       <PageBody>
         <div className="flex flex-col gap-3">
-          <FilterBar active={filtered} onClear={clear}>
+          <FilterBar active={filtered || Boolean(state.sort)} onClear={clear}>
             <SearchField
               label="Refunds of an order"
               placeholder="Order number, RF-1084"
@@ -166,9 +206,14 @@ export function RefundsView() {
               options={statusOptions(REFUND_STATUS)}
               onChange={(status) => setState({ status })}
             />
+            <SortSelect
+              value={state.sort}
+              options={SORTS}
+              onChange={(sort) => setState({ sort })}
+            />
           </FilterBar>
           <DataTable
-            caption="Refunds, newest first"
+            caption={`Refunds, ${sortLabel.toLowerCase()}`}
             columns={columns}
             data={understood ? rows : []}
             getRowId={(refund) => refund.id}
@@ -201,6 +246,7 @@ export function RefundsView() {
             footer={
               <LoadMore
                 shown={rows?.length ?? 0}
+                total={count.data?.total}
                 noun="refund"
                 hasMore={refunds.hasNextPage}
                 loading={refunds.isFetchingNextPage}
@@ -415,8 +461,11 @@ export function RefundView() {
                   </>
                 ) : null}
                 <Fact label="Decided by">
-                  <AdminName id={refund.createdBy} />,{" "}
-                  <DateTime value={refund.createdAt} />
+                  <AdminName
+                    id={refund.createdBy}
+                    admin={refund.createdByAdmin}
+                  />
+                  , <DateTime value={refund.createdAt} />
                 </Fact>
                 <Fact label="Completed">
                   <DateTime value={refund.completedAt} />
@@ -442,7 +491,7 @@ export function RefundView() {
                     tone: REFUND_STATUS[entry.to].tone,
                     by:
                       entry.by === "admin"
-                        ? adminName(entry.adminId)
+                        ? adminName(entry.adminId, entry.admin)
                         : "The system",
                     note: entry.note,
                   }))}

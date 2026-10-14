@@ -4,6 +4,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Controller } from "react-hook-form";
 import { z } from "zod";
+import { SwitchField } from "@/components/form/fields";
+import { Alert } from "@/components/ui/surface";
+import { notify } from "@/components/ui/toast";
 import {
   FormError,
   SelectField,
@@ -20,7 +23,6 @@ import {
   DialogFooter,
   DialogHeader,
 } from "@/components/ui/dialog";
-import { Alert } from "@/components/ui/surface";
 import {
   generateTemporaryPassword,
   temporaryPasswordSchema,
@@ -43,6 +45,8 @@ export const inviteSchema = z.object({
   name: zText(120, "Enter the name."),
   roleId: z.string().regex(/^[0-9a-f]{24}$/, "Choose a role."),
   temporaryPassword: temporaryPasswordSchema,
+  /** The API emails the password and the link to the panel (2). */
+  sendInvitation: z.boolean(),
 });
 
 function InviteForm({
@@ -63,12 +67,29 @@ function InviteForm({
       name: "",
       roleId: "",
       temporaryPassword: firstPassword,
+      sendInvitation: true,
     },
   });
 
   const { onSubmit, state, pending } = useSubmit(form, async (values) => {
     try {
-      const admin = await invite.mutateAsync(values);
+      const { admin, invitationSent } = await invite.mutateAsync(values);
+      if (invitationSent) {
+        notify.success(
+          `Invitation emailed to ${admin.email}`,
+          "It carries the temporary password and the link to the panel.",
+        );
+        onClose();
+        return;
+      }
+      // No email went out (not wanted, or it could not be sent): the
+      // password is handed over by hand.
+      if (values.sendInvitation) {
+        notify.info(
+          "The invitation email could not be sent",
+          "The account exists. Hand the temporary password over yourself.",
+        );
+      }
       onInvited({
         name: admin.name,
         email: admin.email,
@@ -167,6 +188,12 @@ function InviteForm({
           everyone) and must then choose an own password.
         </Alert>
         <FormError state={state} />
+        <SwitchField
+          form={form}
+          name="sendInvitation"
+          label="Email the invitation"
+          hint="The temporary password and the link to the panel go to the new admin's address. Off: you hand the password over yourself."
+        />
       </DialogBody>
       <DialogFooter>
         <Button variant="ghost" size="lg" onClick={onClose} disabled={pending}>
@@ -196,7 +223,7 @@ export function InviteDialog({
       <DialogContent>
         <DialogHeader
           title="Invite an admin"
-          description="Creates the account with a temporary password."
+          description="Creates the account with a temporary password, emailed to the new admin or handed over by you."
         />
         <InviteForm onClose={() => onOpenChange(false)} onInvited={onInvited} />
       </DialogContent>

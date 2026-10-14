@@ -6,6 +6,7 @@ import type {
   CompanyInput,
   CompanySettings,
   CreateLegalDocumentInput,
+  CountResult,
   CursorResult,
   Customer,
   CustomerCancellation,
@@ -29,6 +30,11 @@ export function customersApi({ request }: SessionTransport) {
   return {
     list: (query: CustomerQuery = {}, signal?: AbortSignal) =>
       request<CursorResult<Customer>>(base, { query: query as Query, signal }),
+    count: (query: CustomerQuery = {}, signal?: AbortSignal) =>
+      request<CountResult>(`${base}/count`, {
+        query: query as Query,
+        signal,
+      }),
     get: (id: Id, signal?: AbortSignal) =>
       request<{ customer: Customer }>(`${base}/${id}`, { signal }),
     setStatus: (id: Id, input: { status: CustomerStatus; reason?: string }) =>

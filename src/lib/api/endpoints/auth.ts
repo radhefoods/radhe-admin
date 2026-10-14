@@ -47,8 +47,12 @@ export function adminUsersApi({ request }: SessionTransport) {
       request<ListResult<AdminWithRole>>(base, { signal }),
     get: (id: Id, signal?: AbortSignal) =>
       request<{ admin: AdminWithRole }>(`${base}/${id}`, { signal }),
+    /** `invitationSent` is `false` when no email went out; the account exists either way. */
     create: (input: CreateAdminInput) =>
-      request<{ admin: Admin }>(base, { method: "POST", body: input }),
+      request<{ admin: Admin; invitationSent?: boolean }>(base, {
+        method: "POST",
+        body: input,
+      }),
     update: (id: Id, input: UpdateAdminInput) =>
       request<{ admin: Admin }>(`${base}/${id}`, {
         method: "PATCH",

@@ -4,7 +4,12 @@ import { Bell, Mail, MessageCircle, Play } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { DataTable, type Column } from "@/components/data/data-table";
-import { FilterBar, FilterSelect } from "@/components/data/filter-bar";
+import {
+  FilterBar,
+  FilterSelect,
+  SortSelect,
+  type SortOption,
+} from "@/components/data/filter-bar";
 import { LoadMore } from "@/components/data/pagination";
 import {
   ActionButton,
@@ -19,14 +24,16 @@ import { Alert, EmptyState, Skeleton } from "@/components/ui/surface";
 import { notify } from "@/components/ui/toast";
 import { errorMessage } from "@/lib/api/error-text";
 import {
+  type Notification,
   NOTIFICATION_CHANNELS,
   NOTIFICATION_STATUSES,
   NOTIFICATION_TYPES,
-  type Notification,
   type NotificationChannel,
   type NotificationRunResult,
+  type NotificationSortField,
   type NotificationStatus,
   type NotificationSummary,
+  type SortParam,
 } from "@/lib/api/types";
 import { cn } from "@/lib/cn";
 import { formatTime } from "@/lib/format/dates";
@@ -46,6 +53,7 @@ import {
 } from "./labels";
 import {
   useNotificationSummary,
+  useNotificationCount,
   useNotifications,
   useRecordName,
   useRunQueue,
@@ -275,6 +283,16 @@ function StatusCounts({
   );
 }
 
+/** The orders of the list the API offers (14). */
+const SORTS: readonly SortOption<SortParam<NotificationSortField>>[] = [
+  { value: "createdAt:desc", label: "Newest first" },
+  { value: "createdAt:asc", label: "Oldest first" },
+  { value: "status:asc", label: "By status" },
+  { value: "type:asc", label: "By type" },
+  { value: "channel:asc", label: "By channel" },
+];
+const SORT_VALUES = SORTS.map((option) => option.value);
+
 export function NotificationsView() {
   const [state, setState, clear] = useUrlState({
     status: param.oneOf(NOTIFICATION_STATUSES),
@@ -284,9 +302,10 @@ export function NotificationsView() {
     orderId: param.id(),
     orderNumber: param.text(20),
     announcementId: param.id(),
+    sort: param.oneOf(SORT_VALUES),
   });
   const orderNumber = state.orderNumber.toUpperCase() || undefined;
-  const messages = useNotifications({
+  const filters = {
     status: state.status,
     type: state.type,
     channel: state.channel,
@@ -294,7 +313,12 @@ export function NotificationsView() {
     orderId: state.orderId,
     orderNumber,
     announcementId: state.announcementId,
-  });
+  };
+  const messages = useNotifications({ ...filters, sort: state.sort });
+  const count = useNotificationCount(filters);
+  const sortLabel =
+    SORTS.find((option) => option.value === state.sort)?.label ??
+    "newest first";
   const summary = useNotificationSummary();
   const run = useRunQueue();
   const [lastRun, setLastRun] = useState<{
@@ -394,7 +418,7 @@ export function NotificationsView() {
         </WhatsappState>
 
         <div className="flex flex-col gap-3">
-          <FilterBar active={filtered} onClear={clear}>
+          <FilterBar active={filtered || Boolean(state.sort)} onClear={clear}>
             <FilterSelect
               label="Status"
               value={state.status}
@@ -441,10 +465,15 @@ export function NotificationsView() {
                 onRemove={() => setState({ announcementId: undefined })}
               />
             ) : null}
+            <SortSelect
+              value={state.sort}
+              options={SORTS}
+              onChange={(sort) => setState({ sort })}
+            />
           </FilterBar>
 
           <DataTable
-            caption="Messages to customers, newest first"
+            caption={`Messages to customers, ${sortLabel.toLowerCase()}`}
             columns={columns}
             data={rows}
             getRowId={(message) => message.id}
@@ -489,6 +518,7 @@ export function NotificationsView() {
                 ) : null}
                 <LoadMore
                   shown={rows?.length ?? 0}
+                  total={count.data?.total}
                   noun="message"
                   hasMore={messages.hasNextPage}
                   loading={messages.isFetchingNextPage}

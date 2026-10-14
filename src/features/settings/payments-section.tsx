@@ -3,8 +3,10 @@
 import { z } from "zod";
 import { UnitField } from "@/components/form/fields";
 import { SelectField, useSubmit, useZodForm } from "@/components/form/form";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardBody, CardHeader } from "@/components/ui/surface";
 import { notify } from "@/components/ui/toast";
-import type { PaymentSettings } from "@/lib/api/types";
+import type { PaymentSettings, Settings } from "@/lib/api/types";
 import { formatDuration } from "@/lib/format/dates";
 import { zInt } from "@/lib/validation";
 import { useFollowSaved, useSavePayments } from "./queries";
@@ -107,8 +109,62 @@ function PaymentsForm({ saved }: { saved: PaymentSettings }) {
   );
 }
 
+/** What the server is connected to (5): said here, before anyone tries. */
+function Integrations({
+  integrations,
+}: {
+  integrations: NonNullable<Settings["integrations"]>;
+}) {
+  const rows = [
+    {
+      name: "Online payment (Stripe)",
+      on: integrations.stripeConnected,
+      yes: "Connected: customers can pay online, and refunds can go through Stripe.",
+      no: "Not set up: customers pay by bank transfer or cash, and refunds are made by hand. The Stripe keys are set on the server.",
+    },
+    {
+      name: "WhatsApp",
+      on: integrations.whatsappConfigured,
+      yes: "Configured: customers who opted in get dispatch notes, payment requests and news on WhatsApp as well.",
+      no: "Not set up: every message goes by email only. The WhatsApp credentials are set on the server.",
+    },
+  ];
+  return (
+    <Card className="max-w-3xl">
+      <CardHeader
+        title="Connected services"
+        description="Set on the server, not here. The panel follows them."
+      />
+      <CardBody>
+        <dl className="flex flex-col gap-3">
+          {rows.map((row) => (
+            <div key={row.name} className="flex flex-col gap-1">
+              <dt className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink">
+                {row.name}
+                <Badge tone={row.on ? "success" : "neutral"}>
+                  {row.on ? "On" : "Off"}
+                </Badge>
+              </dt>
+              <dd className="text-13 text-ink-muted">
+                {row.on ? row.yes : row.no}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </CardBody>
+    </Card>
+  );
+}
+
 export function PaymentsSection() {
   const settings = useCurrentSettings();
   if (!settings) return null;
-  return <PaymentsForm saved={settings.payments} />;
+  return (
+    <div className="flex flex-col gap-6">
+      {settings.integrations ? (
+        <Integrations integrations={settings.integrations} />
+      ) : null}
+      <PaymentsForm saved={settings.payments} />
+    </div>
+  );
 }

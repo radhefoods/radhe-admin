@@ -1,12 +1,15 @@
 // Sections 12 (payments and refunds) and 13 (invoices and credit notes).
 
 import type {
+  AdminRef,
   CalendarDay,
   Cents,
   CursorQuery,
+  CustomerRef,
   Id,
   IsoDateTime,
   Locale,
+  SortParam,
   VatRate,
 } from "./common";
 import type { Actor, Totals } from "./orders";
@@ -36,6 +39,7 @@ export interface PaymentBlockActive {
   canActivate: false;
   activatedAt: IsoDateTime;
   activatedBy: Id | null;
+  activatedByAdmin?: AdminRef | null;
   deadlineDays: number;
   deadline: IsoDateTime;
   isOverdue: boolean;
@@ -57,6 +61,7 @@ export interface PaymentBlockActive {
   cash: {
     collectedAt: IsoDateTime;
     recordedBy: Id | null;
+    recordedByAdmin?: AdminRef | null;
     note: string | null;
   } | null;
   reminders: {
@@ -139,6 +144,7 @@ export interface RefundHistoryEntry {
   at: IsoDateTime;
   by: Actor;
   adminId: Id | null;
+  admin?: AdminRef | null;
   note: string | null;
 }
 
@@ -167,14 +173,22 @@ export interface Refund {
   } | null;
   note: string | null;
   createdBy: Id | null;
+  createdByAdmin?: AdminRef | null;
+  customerId?: Id;
+  customer?: CustomerRef | null;
   createdAt: IsoDateTime;
   completedAt: IsoDateTime | null;
   statusHistory: RefundHistoryEntry[];
 }
 
+export const REFUND_SORT_FIELDS = ["createdAt", "amount", "status"] as const;
+export type RefundSortField = (typeof REFUND_SORT_FIELDS)[number];
+
 export interface RefundQuery extends CursorQuery {
   status?: RefundStatus;
   orderNumber?: string;
+  /** Default `createdAt:desc`. */
+  sort?: SortParam<RefundSortField>;
 }
 
 export interface CreateRefundInput {
@@ -262,4 +276,8 @@ export interface InvoiceQuery extends CursorQuery {
   type?: InvoiceType;
   orderNumber?: string;
   customerId?: Id;
+  /** One document exactly: `INV-2026-000123` or `CN-2026-000007`, any case. */
+  number?: string;
+  /** The beginning of a number; ignored when `number` is given. */
+  q?: string;
 }

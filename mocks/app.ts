@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { authenticate, registerAuth, revokeSessions } from "./auth.ts";
 import type { Db } from "./db.ts";
-import { HttpError, fail, json, noContent } from "./http.ts";
+import { HttpError, fail, json, noContent, setPeople } from "./http.ts";
 import { placeholderSvg } from "./media.ts";
 import { registerCargos, runCargoCheck } from "./modules/cargos.ts";
 import { registerCatalog } from "./modules/catalog.ts";
@@ -58,6 +58,22 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   };
   const fresh = () => seed({ ...config, publicUrl, now: clock() });
   let db = fresh();
+
+  // Names next to ids (0.9), read from whatever database is current.
+  setPeople({
+    admin: (id) => {
+      const found = db.admins.find((admin) => admin.id === id);
+      return found ? { id: found.id, name: found.name } : null;
+    },
+    customer: (id) => {
+      const found = db.customers.find((customer) => customer.id === id);
+      if (!found) return null;
+      const name = [found.firstName, found.lastName]
+        .filter((part) => part && part.trim() !== "")
+        .join(" ");
+      return { id: found.id, name: name || null, email: found.email };
+    },
+  });
 
   const router = new Router();
   registerAuth(router);

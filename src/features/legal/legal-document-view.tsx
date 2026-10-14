@@ -122,8 +122,8 @@ export function toDraftPatch(
   ) {
     patch.content = toContent(values.content);
   }
-  if (values.note !== before.note && values.note !== "")
-    patch.note = values.note;
+  // An emptied note is removed: `null` clears it (6).
+  if (values.note !== (before.note ?? "")) patch.note = values.note || null;
   return patch;
 }
 
@@ -270,18 +270,6 @@ function DraftEditor({
 
   const { onSubmit, state, pending } = useSubmit(form, async (values) => {
     setRefused(null);
-    if (document.note && values.note === "") {
-      form.setError(
-        "note",
-        {
-          type: "server",
-          message:
-            "A note cannot be removed once it is saved: the API keeps it. Write a new note instead.",
-        },
-        { shouldFocus: true },
-      );
-      return;
-    }
     const patch = toDraftPatch(values, document);
     if (Object.keys(patch).length === 0) {
       form.reset(values);

@@ -40,6 +40,7 @@ export const queryKeys = {
   customers: {
     all: ["customers"] as const,
     list: (query: CustomerQuery) => ["customers", "list", query] as const,
+    count: (query: CustomerQuery) => ["customers", "count", query] as const,
     detail: (id: Id) => ["customers", "detail", id] as const,
     ordering: (id: Id) => ["customers", "ordering", id] as const,
   },
@@ -73,6 +74,7 @@ export const queryKeys = {
   orders: {
     all: ["orders"] as const,
     list: (query: OrderQuery) => ["orders", "list", query] as const,
+    count: (query: OrderQuery) => ["orders", "count", query] as const,
     /** Every order of a cargo, loaded page by page for bulk actions. */
     ofCargo: (cargoId: Id) => ["orders", "of-cargo", cargoId] as const,
     summary: (cargoId: Id) => ["orders", "summary", cargoId] as const,
@@ -82,11 +84,13 @@ export const queryKeys = {
   returns: {
     all: ["returns"] as const,
     list: (query: ReturnQuery) => ["returns", "list", query] as const,
+    count: (query: ReturnQuery) => ["returns", "count", query] as const,
     detail: (id: Id) => ["returns", "detail", id] as const,
   },
   refunds: {
     all: ["refunds"] as const,
     list: (query: RefundQuery) => ["refunds", "list", query] as const,
+    count: (query: RefundQuery) => ["refunds", "count", query] as const,
     detail: (id: Id) => ["refunds", "detail", id] as const,
   },
   invoices: {
@@ -98,6 +102,8 @@ export const queryKeys = {
     all: ["notifications"] as const,
     list: (query: NotificationQuery) =>
       ["notifications", "list", query] as const,
+    count: (query: NotificationQuery) =>
+      ["notifications", "count", query] as const,
     summary: () => ["notifications", "summary"] as const,
     detail: (id: Id) => ["notifications", "detail", id] as const,
   },

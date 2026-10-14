@@ -1,6 +1,6 @@
 # Radhe Foods – Admin API Documentation
 
-For the Next.js Admin Panel. Generated from the implemented NestJS backend (`radhe-api`) on 2026-09-30; every route, field, status and error below exists in the code as of this date. Customer-facing APIs are documented separately in `CUSTOMER_WEB_API_DOCUMENTATION.md`.
+For the Next.js Admin Panel. Generated from the implemented NestJS backend (`radhe-api`) on 2026-09-30 and brought up to date on 2026-10-14 (search, sorting and counts on the lists, names next to ids, bulk actions on chosen orders, and the answers of section 20); every route, field, status and error below exists in the code as of this date. Customer-facing APIs are documented separately in `CUSTOMER_WEB_API_DOCUMENTATION.md`.
 
 **What the admin panel manages:** the catalogue (categories, products with pack sizes and images), cargos (the pre-order cycles: order window, delivery days, products and limits per cargo), orders and their way to the customer, returns, payments after delivery (invoices, Stripe, cash, reminders, refunds, credit notes), customers, notifications to customers, announcements, settings, legal texts, admin users and roles.
 
@@ -39,7 +39,7 @@ For the Next.js Admin Panel. Generated from the implemented NestJS backend (`rad
 ### 0.2 Requests and responses
 
 - JSON bodies (`Content-Type: application/json`), except image uploads (`multipart/form-data`).
-- Validation is strict: **unknown fields are rejected** (`400 VALIDATION_FAILED`, "property X should not exist"). Strings are trimmed; an empty optional string counts as not provided. `null` is only accepted where documented (it clears the field).
+- Validation is strict: **unknown fields are rejected** (`400 VALIDATION_FAILED`, "property X should not exist"). Strings are trimmed; an empty optional string counts as not provided. `null` is only accepted where documented (it clears the field: `description` of a role, `note` of a legal text, `internalNotes` of a cargo, `salePrice` of a product, `trackingNumber` of an order).
 - No response envelope: each endpoint returns the documented object (`{ product }`, `{ items, page, … }`, …). `204` = empty body.
 - Optional header `X-Request-Id` (8–64 chars `[A-Za-z0-9_-]`); every response carries `x-request-id`. Show it on unexpected errors.
 - `POST` answers `201` when something was created, `200` otherwise (documented per endpoint).
@@ -102,8 +102,20 @@ Admin endpoints return **both** languages for translated fields (`{ "en": "...",
 ### 0.8 Pagination
 
 - **Page/limit** (products, cargos, cargo products): `?page=1&limit=24` → `{ items, page, limit, total, totalPages }` (`page` 1–500, `limit` 1–100).
-- **Cursor** (customers, orders, returns, refunds, invoices, notifications, announcements): `?limit=25&cursor=<nextCursor>` → `{ items, nextCursor }`, newest first, `nextCursor: null` on the last page (`limit` 1–100, default 25). Cursor lists have no `total`.
+- **Cursor** (customers, orders, returns, refunds, invoices, notifications, announcements): `?limit=25&cursor=<nextCursor>` → `{ items, nextCursor }`, newest first, `nextCursor: null` on the last page (`limit` 1–100, default 25). The cursor is an opaque string: pass it back unchanged, with the same filters and the same `sort`; a cursor of another sort answers `400 VALIDATION_FAILED`.
+- **Sorting** (customers, orders, returns, refunds, notifications): `?sort=<field>:<asc|desc>`, default `createdAt:desc`. The fields are listed per endpoint; an unknown field answers `400 VALIDATION_FAILED` with the allowed names in `details`.
+- **Counting** (the same five lists): `GET …/count` with the same filters as the list answers `{ "total": 42 }`. `limit`, `cursor` and `sort` are ignored. A list answer carries no `total`: call `/count` once when the number is shown.
 - Small lists (admin users, roles, categories, legal texts) are returned whole.
+
+### 0.9 Names next to ids
+
+Wherever a record carries the id of an admin or a customer, the answer carries the person as well, looked up when the answer is built:
+
+- next to `adminId`: `"admin": { "id", "name" } | null` (histories of orders, returns, refunds, cargos; adjustments and cancellations of orders; ordering decisions of customers);
+- next to `by` of a cargo history entry, `createdBy` / `updatedBy` of a cargo, `createdBy` / `cancelledBy` of an announcement, `createdBy` of a refund, `activatedBy` / `cash.recordedBy` of a payment: the same object under `admin`, `createdByAdmin`, `updatedByAdmin`, `cancelledByAdmin`, `activatedByAdmin`, `recordedByAdmin`;
+- next to `customerId` of a return, a refund or a notification: `"customer": { "id", "name": "Priya Shah" | null, "email" } | null`; the `customer` of an order summary carries `name` as well.
+
+`null` when there is no id, or no person with that id any more. The names come without a permission of their own: an admin who may read orders sees who handled them.
 
 ---
 
@@ -303,8 +315,9 @@ Accounts of the people who use the panel. Creating one sets a temporary password
 | `name` | string | yes | 1–120 |
 | `temporaryPassword` | string | yes | 12–128; must be changed at first login |
 | `roleId` | ObjectId | yes | |
+| `sendInvitation` | boolean | no | default `true`: the new admin is emailed the temporary password and the link to the panel (`ADMIN_URL` of the server); `false` when the inviting admin hands it over in person |
 
-**Success Response (201):** `{ "admin": { …admin object without role, "mustChangePassword": true… } }`
+**Success Response (201):** `{ "admin": { …admin object without role, "mustChangePassword": true… }, "invitationSent": true | false }`. `invitationSent` is `false` when `sendInvitation` was `false` or the email could not be sent; the account exists either way.
 
 **Possible Errors:** `404 ROLE_NOT_FOUND`, `409 ADMIN_EMAIL_TAKEN`, `400 VALIDATION_FAILED`.
 
@@ -339,6 +352,8 @@ Accounts of the people who use the panel. Creating one sets a temporary password
 **Purpose:** Remove the authenticator of an admin who lost it (they enrol again at next login); signs them out everywhere.
 
 **Permission:** `admin_users.manage`. **Success Response:** `204`. **Possible Errors:** `404 ADMIN_NOT_FOUND`.
+
+**A sole owner who lost the authenticator** has nobody left to call this route. On the server: `npm run reset:mfa -- owner@radhefoods.de` removes the authenticator of that admin and ends every session; the owner signs in with the password and enrols again. The panel shows this as the way out when the only admin with `admin_users.manage` is locked out.
 
 ---
 
@@ -400,7 +415,9 @@ A role may also contain `*` or `<resource>.*` (e.g. `orders.*`); these are accep
 
 ### `PATCH /v1/admin/roles/{id}`
 
-**Permission:** `roles.manage`. **Request Body:** `{ "name"?, "description"?, "permissions"? }`. **Success Response (200):** `{ "role": { … } }`.
+**Permission:** `roles.manage`. **Request Body:** `{ "name"?, "description"?: string | null, "permissions"? }`. `description: null` removes the description. **Success Response (200):** `{ "role": { … } }`.
+
+A change of `permissions` applies to the very next request of every admin with the role: the guard reads the session and the role on each request, nobody is signed out and nobody has to sign in again. (Giving an admin another role, or disabling the account, does end their sessions: `PATCH /v1/admin/admin-users/{id}`.)
 
 **Possible Errors:** `404 ROLE_NOT_FOUND`, `403 ROLE_IS_SYSTEM` (`super_admin` cannot be edited), `400 ROLE_PERMISSION_UNKNOWN`.
 
@@ -449,7 +466,7 @@ Read customer accounts, block/unblock, and decide whether a customer may place o
 }
 ```
 
-`status` ∈ `active`, `blocked`; `signupMethod` ∈ `email_otp`, `google`. `orderingOverride` is `null` or `{ "mode": "blocked" | "allowed", "reason", "adminId", "at", "until": ISO | null }`; `orderingHistory[]` entries are `{ "action": "block" | "allow" | "clear", "reason", "adminId", "at", "until" }`.
+`status` ∈ `active`, `blocked`; `signupMethod` ∈ `email_otp`, `google`. `orderingOverride` is `null` or `{ "mode": "blocked" | "allowed", "reason", "adminId", "admin": { id, name } | null, "at", "until": ISO | null }`; `orderingHistory[]` entries are `{ "action": "block" | "allow" | "clear", "reason", "adminId", "admin", "at", "until" }`.
 
 ### `GET /v1/admin/customers`
 
@@ -463,10 +480,16 @@ Read customer accounts, block/unblock, and decide whether a customer may place o
 | ----- | ---- | -------- | ----------- |
 | `status` | `active` \| `blocked` | no | |
 | `email` | string, 2–254 | no | Beginning of the email address. |
+| `q` | string 1–100 | no | Words of the name, the email or the phone; every word must begin a word of the customer (`schmi`, `anna@`, `4915`). |
+| `sort` | `createdAt` \| `email` \| `status`, with `:asc` or `:desc` | no | Default `createdAt:desc`. |
 | `limit` | int 1–100 | no | Default 25. |
-| `cursor` | ObjectId | no | `nextCursor` of the previous page. |
+| `cursor` | string | no | `nextCursor` of the previous page. |
 
 **Success Response (200):** `{ "items": [ …admin customer objects… ], "nextCursor": "66f0…" }`
+
+### `GET /v1/admin/customers/count`
+
+**Permission:** `customers.read`. **Parameters:** `status`, `email`, `q` as above. **Success Response (200):** `{ "total": 148 }`.
 
 ### `GET /v1/admin/customers/{id}`
 
@@ -497,11 +520,11 @@ Read customer accounts, block/unblock, and decide whether a customer may place o
     "reason": "payment_overdue",
     "override": null,
     "overdue": [
-      { "orderNumber": "RF-1084", "invoiceNumber": "INV-2026-000123", "amountDue": 3193, "deadlineAt": "2026-09-20T21:59:59.000Z" }
+      { "orderId": "66f0…", "orderNumber": "RF-1084", "invoiceId": "66f2…", "invoiceNumber": "INV-2026-000123", "amountDue": 3193, "deadlineAt": "2026-09-20T21:59:59.000Z" }
     ]
   },
   "history": [
-    { "action": "allow", "reason": "Promised to pay Friday", "adminId": "66f1…", "at": "2026-09-30T09:00:00.000Z", "until": "2026-10-07T09:00:00.000Z" }
+    { "action": "allow", "reason": "Promised to pay Friday", "adminId": "66f1…", "admin": { "id": "66f1…", "name": "Vrushabh" }, "at": "2026-09-30T09:00:00.000Z", "until": "2026-10-07T09:00:00.000Z" }
   ]
 }
 ```
@@ -538,7 +561,7 @@ The business rules the admin can change. `GET` returns all of them; each `PUT` r
 
 **Permission:** `settings.read`.
 
-**Success Response (200):**
+**Success Response (200):** the settings below plus `"integrations": { "stripeConnected": boolean, "whatsappConfigured": boolean }` (whether the server has Stripe keys and WhatsApp credentials; `payments.stripeConnected` repeats the Stripe flag). Say "online payment is not set up" and disable the WhatsApp channel before an admin tries, instead of waiting for `503 PAYMENTS_NOT_CONFIGURED`.
 
 ```json
 {
@@ -683,7 +706,7 @@ Terms, pre-order terms and privacy policy, in versions. Customers accept the cur
 
 ### `PATCH /v1/admin/legal-documents/{id}`
 
-**Purpose:** Change a draft. **Permission:** `legal.manage`. **Request Body:** `{ "title"?, "content"?, "note"? }`. **Success Response (200):** `{ "document": { … } }`. **Possible Errors:** `404 LEGAL_DOCUMENT_NOT_FOUND`, `409 LEGAL_DOCUMENT_PUBLISHED`.
+**Purpose:** Change a draft. **Permission:** `legal.manage`. **Request Body:** `{ "title"?, "content"?, "note"?: string | null }`; `note: null` removes the note. **Success Response (200):** `{ "document": { … } }`. **Possible Errors:** `404 LEGAL_DOCUMENT_NOT_FOUND`, `409 LEGAL_DOCUMENT_PUBLISHED`.
 
 ### `POST /v1/admin/legal-documents/{id}/publish`
 
@@ -781,7 +804,7 @@ A tree of at most three levels. Products belong to one category; store listings 
 
 ### `PUT /v1/admin/categories/order`
 
-**Purpose:** Set the order of the categories of one parent (drag and drop).
+**Purpose:** Set the order of the categories of one parent (drag and drop). The order is kept per parent: the list must contain exactly the children of `parentId`, and nothing moves between parents here. To put a category under another parent, `PATCH /v1/admin/categories/{id}` with `parentId`, then order the new siblings.
 
 **Permission:** `catalog.manage`.
 
@@ -979,7 +1002,7 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
 | `discountPercent` | int or `null` | no | 1–99; alternative to `salePrice` (not both) |
 | `vatRate` | int | yes | 0–10000 (700 = 7 %, 1900 = 19 %) |
 | `status` | `draft` \| `active` \| `archived` | no | default `draft`; `active` sets `publishedAt` once |
-| `isAvailable`, `isFeatured` | boolean | no | |
+| `isAvailable`, `isFeatured` | boolean | no | `isAvailable: false` keeps an active product in the shop but marks it as not orderable (shown as "sold out"; it cannot be put in a cart, and it is left out of the orderable products of a cargo). `isFeatured` marks the product for the featured block of the shop (`GET /v1/store/products?featured=true`); it changes nothing else. |
 | `sortOrder` | int 0–1 000 000 | no | |
 | `minOrderQuantity`, `maxOrderQuantity` | int 1–10000 (`max` nullable) | no | max ≥ min |
 | `storageType` | `ambient` \| `chilled` \| `frozen` | no | |
@@ -994,7 +1017,7 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
 
 ### `GET /v1/admin/products/{id}`
 
-**Permission:** `catalog.read`. **Success Response (200):** `{ "product": { …detail… } }`. **Possible Errors:** `404 PRODUCT_NOT_FOUND`.
+**Permission:** `catalog.read`. **Success Response (200):** `{ "product": { …detail…, "deletable": boolean, "notDeletableReason": null | { "code": "PRODUCT_IS_ACTIVE" | "PRODUCT_IN_USE", "message" } } }`. `deletable` says whether `DELETE` would succeed now; show the delete button accordingly. **Possible Errors:** `404 PRODUCT_NOT_FOUND`.
 
 ### `PATCH /v1/admin/products/{id}`
 
@@ -1038,7 +1061,7 @@ Newest first, max 200. **Possible Errors:** `404 PRODUCT_NOT_FOUND`.
 
 ### `POST /v1/admin/products/{id}/images`
 
-**Purpose:** Upload one or more images (JPEG, PNG, WebP). The first image of a product becomes its main image. All-or-nothing: if one file is refused, nothing is stored.
+**Purpose:** Upload one or more images (JPEG, PNG, WebP). The first image of a product becomes its main image. All-or-nothing: if one file is refused, nothing is stored, and the error names every refused file.
 
 **Permission:** `catalog.manage`.
 
@@ -1046,7 +1069,7 @@ Newest first, max 200. **Possible Errors:** `404 PRODUCT_NOT_FOUND`.
 
 **Success Response (201):** `{ "product": { … } }`
 
-**Possible Errors:** `400 IMAGE_REQUIRED`, `400 IMAGE_LIMIT_REACHED` (`details: { maximum: 12, remaining }`), `400 IMAGE_FORMAT_NOT_ALLOWED`, `400 IMAGE_DIMENSIONS_INVALID`, `400 IMAGE_INVALID`, `413 FILE_TOO_LARGE`, `400 BAD_REQUEST` (more than 10 files or wrong field name), `503 STORAGE_UNAVAILABLE`, `404 PRODUCT_NOT_FOUND`.
+**Possible Errors:** `400 IMAGE_REQUIRED`, `400 IMAGE_LIMIT_REACHED` (`details: { maximum: 12, remaining }`), `400 IMAGE_FORMAT_NOT_ALLOWED`, `400 IMAGE_DIMENSIONS_INVALID`, `400 IMAGE_INVALID` — on these three the code and `details` are those of the first refused file, and `details.files` lists every refused file: `[ { "name": "photo-2.gif", "code": "IMAGE_FORMAT_NOT_ALLOWED", "bytes": 48213 }, { "name": "photo-3.jpg", "code": "IMAGE_DIMENSIONS_INVALID", "bytes": 9120, "width": 150, "height": 900 } ]` (`name` as the browser sent it) — `413 FILE_TOO_LARGE`, `400 BAD_REQUEST` (more than 10 files or wrong field name), `503 STORAGE_UNAVAILABLE`, `404 PRODUCT_NOT_FOUND`.
 
 ### `PUT /v1/admin/products/{id}/images/order`
 
@@ -1117,7 +1140,7 @@ Side effects: `delivering` dispatches the cargo's orders (status `dispatched`) a
 ```
 
 - `attention`: `null`, `opening_due` (scheduled, opening time reached), `closing_due` (taking orders, deadline passed), `window_missed` (scheduled, deadline passed). Highlight these.
-- **Detail** (`GET /{id}` and every transition) adds `"statusHistory": [ { "from": null, "to": "draft", "at": "…", "source": "admin" | "schedule", "by": "<adminId>" | null, "note": null } ]`.
+- **Detail** (`GET /{id}` and every transition) adds `"statusHistory": [ { "from": null, "to": "draft", "at": "…", "source": "admin" | "schedule", "by": "<adminId>" | null, "admin": { id, name } | null, "note": null } ]`, `createdByAdmin` and `updatedByAdmin` (`{ id, name } | null`).
 - Transition answers are `{ "changed": true|false, "cargo": { …detail… } }`; `changed: false` when the cargo already had that status.
 
 ### `GET /v1/admin/cargos`
@@ -1179,7 +1202,7 @@ Side effects: `delivering` dispatches the cargo's orders (status `dispatched`) a
 
 ### `PATCH /v1/admin/cargos/{id}`
 
-**Purpose:** Change names, messages, notes, times and delivery days (send only what changes; `internalNotes: null` clears). The opening time can change until ordering begins, the deadline until ordering ends, the delivery days until the cargo is finished.
+**Purpose:** Change names, messages, notes, times and delivery days (send only what changes; `internalNotes: null` clears). The opening time can change until ordering begins, the deadline until ordering ends, the delivery days until the cargo is finished. **New delivery days reach the orders:** every order of the cargo that has not left yet (`confirmed`, `preparing`, `delivery_failed`) gets the new `promisedStart`/`promisedEnd`, a `delivery_window` entry in its `statusHistory`, and its customer is emailed (`delivery_rescheduled`, section 14.1). Orders already dispatched or delivered keep their days. A draft has no orders.
 
 **Permission:** `cargos.manage`. **Request Body:** create fields minus `status`/`copyProductsFrom`, all optional. **Success Response (200):** `{ "cargo": { …detail… } }`.
 
@@ -1417,7 +1440,7 @@ returned, cancelled → (none)
   ],
   "totals": { "currency": "EUR", "subtotal": 2598, "deliveryFee": 499, "total": 3097, "netTotal": 2894, "vatTotal": 203, "vat": [ { "vatRate": 700, "gross": 3097, "net": 2894, "vat": 203 } ] },
   "finalTotals": { "…same shape…": "" },
-  "adjustments": [ { "productId": "66e9…", "sku": "ATTA-5KG", "from": 2, "to": 1, "reason": "damaged", "note": "box crushed", "adminId": "66d0…", "at": "…" } ],
+  "adjustments": [ { "productId": "66e9…", "sku": "ATTA-5KG", "from": 2, "to": 1, "reason": "damaged", "note": "box crushed", "adminId": "66d0…", "admin": { "id": "66d0…", "name": "Vrushabh" }, "at": "…" } ],
   "deliveryAddress": { "firstName": "Priya", "lastName": "Shah", "street": "Hauptstraße", "houseNumber": "12", "postalCode": "60311", "city": "Frankfurt am Main", "countryCode": "DE" },
   "note": null,
   "payment": { "…admin payment block (12.1)…": "" },
@@ -1427,17 +1450,19 @@ returned, cancelled → (none)
   "cancellation": null,
   "consent": { "acceptedAt": "…", "documents": [ { "type": "terms", "version": 3, "documentId": "66c0…" } ], "ip": "203.0.113.5", "userAgent": "Mozilla/5.0 …" },
   "statusHistory": [
-    { "field": "order", "from": null, "to": "confirmed", "at": "…", "by": "customer", "adminId": null, "note": null },
-    { "field": "order", "from": "confirmed", "to": "dispatched", "at": "…", "by": "admin", "adminId": "66d0…", "note": null },
-    { "field": "payment", "from": "not_enabled", "to": "due", "at": "…", "by": "admin", "adminId": "66d0…", "note": null }
+    { "field": "order", "from": null, "to": "confirmed", "at": "…", "by": "customer", "adminId": null, "admin": null, "note": null },
+    { "field": "order", "from": "confirmed", "to": "dispatched", "at": "…", "by": "admin", "adminId": "66d0…", "admin": { "id": "66d0…", "name": "Vrushabh" }, "note": null },
+    { "field": "payment", "from": "not_enabled", "to": "due", "at": "…", "by": "admin", "adminId": "66d0…", "admin": { "id": "66d0…", "name": "Vrushabh" }, "note": null },
+    { "field": "delivery_window", "from": "2026-10-22/2026-10-24", "to": "2026-10-25/2026-10-27", "at": "…", "by": "admin", "adminId": "66d0…", "admin": { "id": "66d0…", "name": "Vrushabh" }, "note": null }
   ],
   "updatedAt": "…"
 }
 ```
 
 - `deliveryAddress` keys `company`, `additionalLine`, `phone` are absent when unset.
-- `cancellation`: `null` or `{ reason, text, by: "customer" | "admin" | "system", adminId, at }`.
-- `statusHistory[].field` ∈ `order`, `payment`, `cargo`, `delivery`; `by` ∈ `customer`, `admin`, `system`. Payment entries use `to` values such as `due`, `overdue`, `paid`, `waived`, `refunded`, `credited`, `reminders_paused`, `reminders_resumed`, `reminder_sent`, `payment_failed`.
+- `cancellation`: `null` or `{ reason, text, by: "customer" | "admin" | "system", adminId, admin, at }`.
+- `payment` (12.1) carries `activatedByAdmin` and `cash.recordedByAdmin` (`{ id, name } | null`) next to the ids.
+- `statusHistory[].field` ∈ `order`, `payment`, `cargo`, `delivery`, `delivery_window` (the promised days changed with the cargo: `from`/`to` are `start/end` calendar days); `by` ∈ `customer`, `admin`, `system`. Payment entries use `to` values such as `due`, `overdue`, `paid`, `waived`, `refunded`, `credited`, `reminders_paused`, `reminders_resumed`, `reminder_sent`, `payment_failed`.
 
 ### `GET /v1/admin/orders`
 
@@ -1454,11 +1479,43 @@ returned, cancelled → (none)
 | `paymentStatus` | payment status | e.g. `overdue` |
 | `customerId` | ObjectId | |
 | `email` | email | the customer's email (unknown email → empty list) |
-| `orderNumber` | `RF-1084` | |
+| `orderNumber` | `RF-1084` | exactly one order |
 | `deliveryMethod` | `radhe_delivery` \| `dhl` \| `hermes` | |
+| `q` | string 1–100 | words of the order number, the customer's name, email or phone; every word must begin a word of the order (`RF-10`, `schmidt`, `anna@exam`, `49151`) |
+| `sort` | `createdAt` \| `total` \| `status` \| `paymentStatus`, with `:asc` or `:desc` | default `createdAt:desc`; `total` is the final bill |
 | `limit`, `cursor` | | cursor pagination |
 
-**Success Response (200):** `{ "items": [ …summaries… ], "nextCursor": "66f0…" | null }`
+**Success Response (200):** `{ "items": [ …summaries… ], "nextCursor": "66f0…" | null }`. The `customer` of a summary carries `name` (`"Priya Shah"` or `null`) next to the email and the names.
+
+### `GET /v1/admin/orders/count`
+
+**Permission:** `orders.read`. **Parameters:** the filters of the list (`cargoId`, `status`, `paymentStatus`, `customerId`, `email`, `orderNumber`, `deliveryMethod`, `q`). **Success Response (200):** `{ "total": 312 }` (`0` for an unknown email).
+
+### `POST /v1/admin/orders/bulk/status`
+
+**Purpose:** Chosen orders on to a status, with the rules of the cargo-wide request (`preparing` from confirmed, `dispatched` from confirmed/preparing, `delivered` from dispatched). Each affected customer is notified. Every order is answered.
+
+**Permission:** `orders.manage`. **Request Body:** `{ "orderIds": ObjectId[] (1–500), "status": "preparing" | "dispatched" | "delivered", "note"?: string (≤500) }`.
+
+**Success Response (200):**
+
+```json
+{
+  "status": "dispatched",
+  "changed": 2,
+  "results": [
+    { "orderId": "66f0…", "orderNumber": "RF-1084", "changed": true, "reason": null },
+    { "orderId": "66f1…", "orderNumber": "RF-1085", "changed": false, "reason": "An order that is \"cancelled\" cannot be set to \"dispatched\"." },
+    { "orderId": "66f2…", "orderNumber": null, "changed": false, "reason": "Order not found." }
+  ]
+}
+```
+
+### `POST /v1/admin/orders/bulk/delivery-method`
+
+**Purpose:** The delivery method of chosen orders (not delivered, cancelled or returned). Tracking numbers of orders whose method changes are removed. Every order is answered as above (`reason` also "The order is delivered by \"dhl\" already.").
+
+**Permission:** `orders.manage`. **Request Body:** `{ "orderIds": ObjectId[] (1–500), "method": "radhe_delivery" | "dhl" | "hermes", "note"?: string (≤500) }`. **Success Response (200):** `{ "method": "dhl", "changed": 3, "results": [ … ] }`.
 
 ### `GET /v1/admin/orders/summary?cargoId=…`
 
@@ -1562,16 +1619,20 @@ Reasons: `damaged`, `wrong_item`, `quality`, `not_as_described`, `changed_mind`,
   "decisionNote": "We will collect it with the next delivery.",
   "internalNote": null,
   "creditAmount": null,
-  "statusHistory": [ { "from": null, "to": "requested", "at": "…", "by": "customer", "adminId": null, "note": null } ],
+  "statusHistory": [ { "from": null, "to": "requested", "at": "…", "by": "customer", "adminId": null, "admin": null, "note": null } ],
   "updatedAt": "…"
 }
 ```
 
-`decisionNote` is what the customer reads; `internalNote` is not shown to the customer. `creditAmount` is set on completion.
+(plus `"customer": { "id", "name", "email" } | null` after `customerId`.) `decisionNote` is what the customer reads; `internalNote` is not shown to the customer. `creditAmount` is set on completion.
 
 ### `GET /v1/admin/returns`
 
-**Permission:** `orders.read`. **Parameters (query):** `status`, `orderNumber`, `customerId`, `limit`, `cursor`. **Success Response (200):** `{ "items": [ … ], "nextCursor" }` (`status=requested` = waiting for a decision).
+**Permission:** `orders.read`. **Parameters (query):** `status`, `orderNumber`, `customerId`, `sort` (`createdAt` | `status`, with `:asc`/`:desc`), `limit`, `cursor`. **Success Response (200):** `{ "items": [ … ], "nextCursor" }` (`status=requested` = waiting for a decision). Each return carries `customer: { id, name, email } | null` next to `customerId`, and `admin` next to `adminId` in its history.
+
+### `GET /v1/admin/returns/count`
+
+**Permission:** `orders.read`. **Parameters:** `status`, `orderNumber`, `customerId`. **Success Response (200):** `{ "total": 4 }`.
 
 ### `GET /v1/admin/returns/{id}`
 
@@ -1742,10 +1803,13 @@ After activation:
   "manual": null,
   "stripe": { "refundId": "re_…", "paymentIntentId": "pi_…", "stripeStatus": "pending", "failureReason": null },
   "note": null,
+  "customerId": "66e1…",
+  "customer": { "id": "66e1…", "name": "Priya Shah", "email": "priya@example.com" },
   "createdBy": "66f1…",
+  "createdByAdmin": { "id": "66f1…", "name": "Vrushabh" },
   "createdAt": "2026-09-29T09:00:00.000Z",
   "completedAt": null,
-  "statusHistory": [ { "from": null, "to": "pending", "at": "…", "by": "admin", "adminId": "66f1…", "note": null } ]
+  "statusHistory": [ { "from": null, "to": "pending", "at": "…", "by": "admin", "adminId": "66f1…", "admin": { "id": "66f1…", "name": "Vrushabh" }, "note": null } ]
 }
 ```
 
@@ -1753,7 +1817,11 @@ After activation:
 
 ### `GET /v1/admin/refunds`
 
-**Permission:** `payments.read`. **Parameters (query):** `status`, `orderNumber`, `limit`, `cursor`. **Success Response (200):** `{ "items": [ … ], "nextCursor" }`.
+**Permission:** `payments.read`. **Parameters (query):** `status`, `orderNumber`, `sort` (`createdAt` | `amount` | `status`, with `:asc`/`:desc`), `limit`, `cursor`. **Success Response (200):** `{ "items": [ … ], "nextCursor" }`.
+
+### `GET /v1/admin/refunds/count`
+
+**Permission:** `payments.read`. **Parameters:** `status`, `orderNumber`. **Success Response (200):** `{ "total": 2 }`.
 
 ### `GET /v1/admin/refunds/{id}`
 
@@ -1810,7 +1878,7 @@ Issued at activation (invoice) and after corrections/returns of an invoiced orde
 
 ### `GET /v1/admin/invoices`
 
-**Permission:** `payments.read`. **Parameters (query):** `type` (`invoice` \| `credit_note`), `orderNumber`, `customerId`, `limit`, `cursor`. **Success Response (200):** `{ "items": [ …summaries… ], "nextCursor" }`.
+**Permission:** `payments.read`. **Parameters (query):** `type` (`invoice` \| `credit_note`), `orderNumber`, `customerId`, `number` (one document exactly, `INV-2026-000123` or `CN-2026-000007`, any case), `q` (the beginning of a number, `INV-2026-0001`; ignored when `number` is given), `limit`, `cursor`. **Success Response (200):** `{ "items": [ …summaries… ], "nextCursor" }`. **Possible Errors:** `400 VALIDATION_FAILED` (`number` not of that form).
 
 ### `GET /v1/admin/invoices/{id}`
 
@@ -1833,6 +1901,7 @@ Every message to a customer (email, and WhatsApp when configured and opted in) i
 | `order_confirmed` | order placed | – |
 | `order_cancelled` | cancelled by customer or admin | – |
 | `order_moved` | moved to another cargo | – |
+| `delivery_rescheduled` | the delivery days of the cargo changed while the order waits for it (section 9, `PATCH /cargos/{id}`) | – |
 | `order_dispatched` | dispatched (single or with the cargo) | yes |
 | `order_delivered` | delivered | – |
 | `delivery_failed` | delivery failed | – |
@@ -1884,9 +1953,13 @@ Every message to a customer (email, and WhatsApp when configured and opted in) i
 
 **Permission:** `notifications.read`.
 
-**Parameters (query, all optional):** `status`, `type`, `channel`, `customerId`, `orderId`, `orderNumber`, `announcementId`, `limit`, `cursor`. `status=failed` is what needs attention.
+**Parameters (query, all optional):** `status`, `type`, `channel`, `customerId`, `orderId`, `orderNumber`, `announcementId`, `sort` (`createdAt` | `status` | `type` | `channel`, with `:asc`/`:desc`), `limit`, `cursor`. `status=failed` is what needs attention.
 
-**Success Response (200):** `{ "items": [ … ], "nextCursor" }`
+**Success Response (200):** `{ "items": [ … ], "nextCursor" }`. Each message carries `customer: { id, name, email } | null` next to `customerId`.
+
+### `GET /v1/admin/notifications/count`
+
+**Permission:** `notifications.read`. **Parameters:** the filters of the list. **Success Response (200):** `{ "total": 120 }`.
 
 ### `GET /v1/admin/notifications/summary`
 
@@ -1941,7 +2014,10 @@ News about a product or a cargo, written by the admin, sent to the customers who
   "recipients": 148,
   "queued": 171,
   "createdBy": "66f1…",
+  "createdByAdmin": { "id": "66f1…", "name": "Vrushabh" },
   "cancelledAt": null,
+  "cancelledBy": null,
+  "cancelledByAdmin": null,
   "createdAt": "2026-09-30T09:00:00.000Z"
 }
 ```
@@ -1971,7 +2047,7 @@ News about a product or a cargo, written by the admin, sent to the customers who
 | `subject` | `{ en (1–160), de? }` | yes | |
 | `message` | `{ en (1–2000), de? (≤2000) }` | yes | line breaks are kept in the email |
 | `link` | absolute URL ≤500 | no | the button; defaults to the product page (`<SHOP_URL>/products/<slug>`) or the shop |
-| `linkLabel` | `{ en, de? }` | no | button label; default "Visit the shop"/"Zum Shop" |
+| `linkLabel` | `{ en (1–160), de? (≤160) }` | no | button label; default "Visit the shop"/"Zum Shop" |
 | `productId`, `cargoId` | ObjectId | no | what the news is about (for the record and the lists) |
 | `channels` | `["email"]` and/or `["whatsapp"]` | no | default `["email"]` |
 
@@ -2004,7 +2080,7 @@ News about a product or a cargo, written by the admin, sent to the customers who
 
 ### `GET /v1/admin/announcements`
 
-**Permission:** `notifications.read`. **Parameters (query):** `productId`, `cargoId`, `limit`, `cursor`. **Success Response (200):** `{ "items": [ … ], "nextCursor" }`.
+**Permission:** `notifications.read`. **Parameters (query):** `productId`, `cargoId`, `limit`, `cursor`. **Success Response (200):** `{ "items": [ { …announcement…, "progress": { "email": { "queued", "sending", "sent", "failed", "skipped", "cancelled" }, "whatsapp": { … } } } ], "nextCursor" }` — the same `progress` object as the detail, counted for the whole page in one query.
 
 ### `GET /v1/admin/announcements/{id}`
 
@@ -2138,3 +2214,36 @@ Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 | WhatsApp (Cloud API of Meta) | Built behind an interface; off until credentials are configured. `whatsappEnabled: false` in the notification summary and the announcement preview. WhatsApp records for opted-in customers are stored as `skipped` ("WhatsApp is not configured.") and can be retried once it is on. | Show the `whatsappEnabled` flag; explain `skipped` WhatsApp records; disable the WhatsApp channel choice in announcements while it is off (the API accepts it and skips). |
 | Image storage on S3/CloudFront | Built; in development images are served by the API from a local folder (`/media/...` URLs). | Nothing: always use the URLs the API returns. |
 | Reports, account deletion/export, housekeeping | Not built (proposed for the next phase). | – |
+
+---
+
+## 20. Answers to the requests of the panel (2026-10-14)
+
+What the panel asked the backend for, and where it landed. Every item is implemented and tested unless marked otherwise.
+
+| # | Request | Answer |
+| --- | --- | --- |
+| 1 | MFA recovery for a sole super admin | `npm run reset:mfa -- <email>` on the server (section 2). No recovery codes. |
+| 2 | Free-text search over orders and customers | `q` on `GET /orders` and `GET /customers` (sections 10, 4). |
+| 3 | Sorting and totals on cursor lists | `sort=<field>:<asc|desc>` on orders, customers, returns, refunds, notifications, fields listed per endpoint; `GET …/count` with the same filters (section 0.8). No `total` in the page. |
+| 4 | Find an invoice or credit note by number | `number` (exact) and `q` (prefix) on `GET /invoices` (section 13). |
+| 5 | Names on records | `admin` / `customer` objects next to every id (section 0.9). Item 14 is therefore not needed. |
+| 6 | Bulk actions on a free selection | `POST /orders/bulk/status` and `/orders/bulk/delivery-method` with `orderIds[]`, per-order results (section 10). |
+| 7 | Announcement progress in the list | `progress` in every item of `GET /announcements` (section 15). |
+| 8 | Ids in a customer's ordering state | `orderId` and `invoiceId` in `overdue[]` (section 4, also `GET /v1/store/me/ordering`). |
+| 9 | Clearing optional texts | `description: null` on `PATCH /roles/{id}`, `note: null` on `PATCH /legal-documents/{id}` (sections 3, 6). |
+| 10 | Whether Stripe is connected | `integrations.stripeConnected` and `integrations.whatsappConfigured` in `GET /settings`, plus `payments.stripeConnected` (section 5). |
+| 11 | Whether a product can be deleted | `deletable` and `notDeletableReason` on `GET /products/{id}` (section 8). |
+| 12 | All refused files of an upload | `details.files[]` on the image errors (section 8). |
+| 13 | Stored discount percent | Existed already: `discountPercent` is stored and returned (section 8). |
+| 15 | `isAvailable` and `isFeatured` | Section 8, field table. |
+| 16 | Limit of an announcement's button label | 160 characters per language (section 15). |
+| 17 | Role permission changes and sessions | Apply on the next request, nobody is signed out (section 3). |
+| 18 | Category order across parents | Within one parent only, by design; move with `PATCH /categories/{id}` first (section 7). |
+| 21 | Customers told when delivery days change | `delivery_rescheduled` email, `delivery_window` history entry (sections 9, 10, 14). |
+| 22 | Invitation email for a new admin | `sendInvitation` and `invitationSent` on `POST /admin-users`; needs `ADMIN_URL` on the server for the link (section 2). |
+| 19, 20 | Reports; audit log | Not built. After launch. |
+
+**Cursors changed shape.** A cursor is now an opaque string (still the ObjectId for the default sort). The panel must not parse it. Cursors saved from before this date still work for the default sort.
+
+**Search words of old records.** Orders and customers from before 2026-10-14 are found by `q` once `npm run db:indexes` has run on the server (it fills the search words in, once).

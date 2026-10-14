@@ -12,13 +12,13 @@ describe("planSearch", () => {
       "1084",
       " RF 1084 ",
     ]) {
-      expect(planSearch(text).orderNumber, text).toBe("RF-1084");
+      expect(planSearch(text).query, text).toBe("RF-1084");
     }
   });
 
   it("finds the order of a return or refund number", () => {
-    expect(planSearch("RF-1084-R1").orderNumber).toBe("RF-1084");
-    expect(planSearch("rf-1084-rf2").orderNumber).toBe("RF-1084");
+    expect(planSearch("RF-1084-R1").query).toBe("RF-1084");
+    expect(planSearch("rf-1084-rf2").query).toBe("RF-1084");
   });
 
   it("also searches products for digits: an article number can be all digits", () => {
@@ -28,33 +28,21 @@ describe("planSearch", () => {
   it("reads a cargo code", () => {
     expect(planSearch("RF-C027").cargoCode).toBe("RF-C027");
     expect(planSearch("c27").cargoCode).toBe("RF-C027");
-    expect(planSearch("rf-c027").orderNumber).toBeNull();
+    expect(planSearch("rf-c027").query).toBeNull();
   });
 
-  it("looks up orders only for a complete email", () => {
-    const partial = planSearch("priya@exa");
-    expect(partial.orderEmail).toBeNull();
-    expect(partial.customerEmailPrefix).toBe("priya@exa");
-    const complete = planSearch("Priya@Example.com");
-    expect(complete.orderEmail).toBe("priya@example.com");
-    expect(complete.customerEmailPrefix).toBe("priya@example.com");
-    expect(complete.productQuery).toBeNull();
-  });
-
-  it("searches customers by email prefix and products by words", () => {
+  it("searches orders and customers by any words, products unless it is an email", () => {
     expect(planSearch("priya")).toEqual({
-      orderNumber: null,
-      orderEmail: null,
-      customerEmailPrefix: "priya",
+      query: "priya",
       productQuery: "priya",
       cargoCode: null,
     });
-  });
-
-  it("does not search customers for several words: emails have no spaces", () => {
-    const plan = planSearch("basmati rice");
-    expect(plan.customerEmailPrefix).toBeNull();
-    expect(plan.productQuery).toBe("basmati rice");
+    expect(planSearch("anna schmidt").query).toBe("anna schmidt");
+    expect(planSearch("priya@exa")).toEqual({
+      query: "priya@exa",
+      productQuery: null,
+      cargoCode: null,
+    });
   });
 
   it("asks nothing for less than two characters", () => {
@@ -63,8 +51,10 @@ describe("planSearch", () => {
     expect(hasRemoteSearch(planSearch("at"))).toBe(true);
   });
 
-  it("respects the API's limit of 80 characters for product search", () => {
+  it("respects the API's limits: 80 characters for products, 100 for orders and customers", () => {
     expect(planSearch("x".repeat(81)).productQuery).toBeNull();
+    expect(planSearch("x".repeat(81)).query).toBe("x".repeat(81));
+    expect(planSearch("x".repeat(101)).query).toBeNull();
   });
 });
 

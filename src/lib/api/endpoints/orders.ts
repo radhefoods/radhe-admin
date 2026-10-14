@@ -6,8 +6,13 @@ import type { SessionTransport } from "../session";
 import type {
   ActivatePaymentInput,
   Attention,
+  BulkChosenMethodInput,
+  BulkChosenMethodResult,
+  BulkChosenStatusInput,
+  BulkChosenStatusResult,
   CashPaymentInput,
   CompleteRefundInput,
+  CountResult,
   CreateRefundInput,
   CursorResult,
   Id,
@@ -40,6 +45,24 @@ export function ordersApi({ request }: SessionTransport) {
       request<CursorResult<OrderSummary>>(base, {
         query: query as Query,
         signal,
+      }),
+    /** How many orders the filters match (0.8). */
+    count: (query: OrderQuery = {}, signal?: AbortSignal) =>
+      request<CountResult>(`${base}/count`, {
+        query: query as Query,
+        signal,
+      }),
+    /** Chosen orders on to a status; every order is answered (10). */
+    bulkStatus: (input: BulkChosenStatusInput) =>
+      request<BulkChosenStatusResult>(`${base}/bulk/status`, {
+        method: "POST",
+        body: input,
+      }),
+    /** The delivery method of chosen orders; every order is answered (10). */
+    bulkDeliveryMethod: (input: BulkChosenMethodInput) =>
+      request<BulkChosenMethodResult>(`${base}/bulk/delivery-method`, {
+        method: "POST",
+        body: input,
       }),
     /** The numbers of a cargo. */
     summary: (cargoId: Id, signal?: AbortSignal) =>
@@ -119,6 +142,11 @@ export function returnsApi({ request }: SessionTransport) {
         query: query as Query,
         signal,
       }),
+    count: (query: ReturnQuery = {}, signal?: AbortSignal) =>
+      request<CountResult>(`${base}/count`, {
+        query: query as Query,
+        signal,
+      }),
     get: (id: Id, signal?: AbortSignal) =>
       request<{ return: OrderReturn }>(`${base}/${id}`, { signal }),
     approve: (id: Id, input: ReturnApproveInput) =>
@@ -145,6 +173,11 @@ export function refundsApi({ request }: SessionTransport) {
   return {
     list: (query: RefundQuery = {}, signal?: AbortSignal) =>
       request<CursorResult<Refund>>(base, { query: query as Query, signal }),
+    count: (query: RefundQuery = {}, signal?: AbortSignal) =>
+      request<CountResult>(`${base}/count`, {
+        query: query as Query,
+        signal,
+      }),
     get: (id: Id, signal?: AbortSignal) =>
       request<{ refund: Refund }>(`${base}/${id}`, { signal }),
     /** The money was sent by hand: completes a `pending` manual refund. */

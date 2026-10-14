@@ -50,7 +50,10 @@ export const announcementSchema = z
         (value) => value === "" || isAbsoluteUrl(value),
         "Enter the full address, beginning with https://",
       ),
-    linkLabel: z.object({ en: z.string().trim(), de: z.string().trim() }),
+    linkLabel: z.object({
+      en: z.string().trim().max(160, "At most 160 characters."),
+      de: z.string().trim().max(160, "At most 160 characters."),
+    }),
     /** The id of the chosen product, or empty. */
     productId: z.string(),
     /** The id of the chosen cargo, or empty. */

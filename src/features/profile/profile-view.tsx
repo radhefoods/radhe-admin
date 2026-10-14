@@ -262,7 +262,14 @@ export function ProfileView() {
                   <li>
                     If you are the only admin who can reset two-factor, a lost
                     phone locks you out of the panel. Give a second person you
-                    trust the Team permission.
+                    trust the Team permission. The way out without one is on the
+                    server: whoever runs the API enters{" "}
+                    <code className="rounded-xs bg-sunken px-1 font-mono text-xs">
+                      npm run reset:mfa -- {admin.email}
+                    </code>{" "}
+                    there, which removes your authenticator and ends your
+                    sessions; you sign in with your password and set it up
+                    again.
                   </li>
                 </ul>
               </CardBody>

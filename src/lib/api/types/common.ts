@@ -40,10 +40,35 @@ export interface PageResult<T> {
   totalPages: number;
 }
 
-/** Newest first; `nextCursor` is `null` on the last page; no total (0.8). */
+/**
+ * `nextCursor` is `null` on the last page; no total (0.8). The cursor is an
+ * opaque string: it goes back unchanged, with the same filters and sort.
+ */
 export interface CursorResult<T> {
   items: T[];
-  nextCursor: Id | null;
+  nextCursor: string | null;
+}
+
+/** `GET …/count` with the filters of a cursor list (0.8). */
+export interface CountResult {
+  total: number;
+}
+
+export type SortDirection = "asc" | "desc";
+/** `createdAt:desc` (0.8). */
+export type SortParam<F extends string> = `${F}:${SortDirection}`;
+
+/** An admin next to the id that names them (0.9). */
+export interface AdminRef {
+  id: Id;
+  name: string;
+}
+
+/** A customer next to the id that names them (0.9). */
+export interface CustomerRef {
+  id: Id;
+  name: string | null;
+  email: string;
 }
 
 export interface ListResult<T> {
@@ -57,5 +82,5 @@ export interface PageQuery {
 
 export interface CursorQuery {
   limit?: number;
-  cursor?: Id;
+  cursor?: string;
 }

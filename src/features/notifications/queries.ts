@@ -21,6 +21,17 @@ export type NotificationFilters = Omit<NotificationQuery, "limit" | "cursor">;
  * The log of messages, newest first. Paged by cursor without a total (0.8):
  * the list grows with "load more".
  */
+/** How many messages the filters match (`GET /notifications/count`, 0.8). */
+export function useNotificationCount(
+  filters: Omit<NotificationFilters, "sort">,
+) {
+  return useQuery({
+    queryKey: queryKeys.notifications.count(filters),
+    queryFn: ({ signal }) => api.notifications.count(filters, signal),
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useNotifications(filters: NotificationFilters) {
   const query: NotificationQuery = { ...filters, limit: PAGE_SIZE };
   return useInfiniteQuery({

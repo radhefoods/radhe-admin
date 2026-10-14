@@ -695,7 +695,11 @@ export function OrderPaymentCard({
             {active.activatedBy ? (
               <>
                 {" "}
-                by <AdminName id={active.activatedBy} />
+                by{" "}
+                <AdminName
+                  id={active.activatedBy}
+                  admin={active.activatedByAdmin}
+                />
               </>
             ) : null}
           </>
@@ -789,7 +793,11 @@ export function OrderPaymentCard({
         {active.cash ? (
           <p className="text-13 text-ink-muted">
             Cash collected <DateTime value={active.cash.collectedAt} />,
-            recorded by <AdminName id={active.cash.recordedBy} />
+            recorded by{" "}
+            <AdminName
+              id={active.cash.recordedBy}
+              admin={active.cash.recordedByAdmin}
+            />
             {active.cash.note ? <>: “{active.cash.note}”</> : null}
           </p>
         ) : null}

@@ -55,8 +55,7 @@ const stale = [queryKeys.adminUsers.all] as const;
 
 export function useInviteAdmin() {
   return useMutation({
-    mutationFn: async (input: CreateAdminInput) =>
-      (await api.adminUsers.create(input)).admin,
+    mutationFn: (input: CreateAdminInput) => api.adminUsers.create(input),
     meta: { invalidates: stale, silent: true },
   });
 }

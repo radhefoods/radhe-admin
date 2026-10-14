@@ -75,6 +75,23 @@ function channelsText(announcement: Announcement): string {
 
 // From `lg` on the table is not allowed to scroll sideways (its header
 // sticks to the page), so the columns shown at each width must fit it.
+/**
+ * How far an announcement is, from the counts the list carries (15):
+ * "12 sent, 1 failed"; without counts, how many messages were queued.
+ */
+export function progressText(announcement: Announcement): string {
+  const progress = announcement.progress;
+  if (!progress) return plural(announcement.queued, "message");
+  const sum = (status: "sent" | "failed" | "queued" | "sending") =>
+    progress.email[status] + progress.whatsapp[status];
+  const parts = [`${sum("sent").toLocaleString("en")} sent`];
+  const open = sum("queued") + sum("sending");
+  if (open > 0) parts.push(`${open.toLocaleString("en")} waiting`);
+  if (sum("failed") > 0)
+    parts.push(`${sum("failed").toLocaleString("en")} failed`);
+  return parts.join(", ");
+}
+
 const columns: Column<Announcement>[] = [
   {
     id: "announcement",
@@ -125,7 +142,7 @@ const columns: Column<Announcement>[] = [
           {row.original.recipients.toLocaleString("en")}
         </span>
         <span className="text-13 whitespace-nowrap text-ink-subtle">
-          {plural(row.original.queued, "message")}
+          {progressText(row.original)}
         </span>
       </span>
     ),

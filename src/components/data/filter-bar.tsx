@@ -118,6 +118,37 @@ export function FilterSelect<T extends string>({
   );
 }
 
+export interface SortOption<S extends string> {
+  value: S;
+  label: string;
+}
+
+/**
+ * The order of a list the API sorts (0.8), as a chip like a filter. Nothing
+ * chosen means the API's default, newest first.
+ */
+export function SortSelect<S extends string>({
+  value,
+  options,
+  onChange,
+  className,
+}: {
+  value: S | undefined;
+  options: readonly SortOption<S>[];
+  onChange: (value: S | undefined) => void;
+  className?: string;
+}) {
+  return (
+    <FilterSelect
+      label="Sort"
+      value={value}
+      options={options}
+      onChange={onChange}
+      className={className}
+    />
+  );
+}
+
 /**
  * A search field that writes its value a moment after the typing stops.
  * A text shorter than what the API accepts is not sent.

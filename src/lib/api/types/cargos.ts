@@ -1,6 +1,7 @@
 // Section 9: cargos, their products, bulk order actions, cargo payments.
 
 import type {
+  AdminRef,
   CalendarDay,
   Cents,
   Id,
@@ -60,11 +61,14 @@ export interface CargoStatusHistoryEntry {
   at: IsoDateTime;
   source: "admin" | "schedule";
   by: Id | null;
+  admin?: AdminRef | null;
   note: string | null;
 }
 
 /** `GET /cargos/{id}` and every transition. */
 export interface CargoDetail extends Cargo {
+  createdByAdmin?: AdminRef | null;
+  updatedByAdmin?: AdminRef | null;
   statusHistory: CargoStatusHistoryEntry[];
 }
 

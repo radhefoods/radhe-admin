@@ -341,6 +341,13 @@ export function CargoForm({
             disabled={!can.delivery}
           />
         </div>
+        {!creating && can.delivery ? (
+          <p className="text-13 text-ink-muted">
+            New days reach the orders of the cargo that have not left yet: their
+            promised days move, and their customers are emailed about it. Orders
+            already dispatched or delivered keep their days.
+          </p>
+        ) : null}
       </section>
 
       {creating ? (

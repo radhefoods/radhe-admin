@@ -37,9 +37,9 @@ interface Result {
 }
 
 /**
- * The global search: an order by its number, a customer by the beginning
- * of the email, a product by words, a cargo by its code, and every page of
- * the panel. Opens with `/` or Ctrl/⌘ K.
+ * The global search: orders and customers by words of the number, the
+ * name, the email or the phone, a product by words, a cargo by its code,
+ * and every page of the panel. Opens with `/` or Ctrl/⌘ K.
  */
 export function CommandPalette({
   open,
@@ -66,32 +66,22 @@ export function CommandPalette({
     enabled: open && searching,
     staleTime: 15_000,
     queryFn: async ({ signal }) => {
-      const [byNumber, byEmail, customers, products, cargos] =
-        await Promise.all([
-          plan.orderNumber && can("orders.read")
-            ? api.orders.list(
-                { orderNumber: plan.orderNumber, limit: 5 },
-                signal,
-              )
-            : null,
-          plan.orderEmail && can("orders.read")
-            ? api.orders.list({ email: plan.orderEmail, limit: 5 }, signal)
-            : null,
-          plan.customerEmailPrefix && can("customers.read")
-            ? api.customers.list(
-                { email: plan.customerEmailPrefix, limit: 5 },
-                signal,
-              )
-            : null,
-          plan.productQuery && can("catalog.read")
-            ? api.products.list({ q: plan.productQuery, limit: 6 }, signal)
-            : null,
-          plan.cargoCode && can("cargos.read")
-            ? api.cargos.list({ limit: 100 }, signal)
-            : null,
-        ]);
+      const [orders, customers, products, cargos] = await Promise.all([
+        plan.query && can("orders.read")
+          ? api.orders.list({ q: plan.query, limit: 5 }, signal)
+          : null,
+        plan.query && can("customers.read")
+          ? api.customers.list({ q: plan.query, limit: 5 }, signal)
+          : null,
+        plan.productQuery && can("catalog.read")
+          ? api.products.list({ q: plan.productQuery, limit: 6 }, signal)
+          : null,
+        plan.cargoCode && can("cargos.read")
+          ? api.cargos.list({ limit: 100 }, signal)
+          : null,
+      ]);
       return {
-        orders: [...(byNumber?.items ?? []), ...(byEmail?.items ?? [])],
+        orders: orders?.items ?? [],
         customers: customers?.items ?? [],
         products: products?.items ?? [],
         cargos: (cargos?.items ?? []).filter(
@@ -212,9 +202,9 @@ export function CommandPalette({
           <Command.List className="min-h-0 flex-1 overflow-y-auto p-2">
             {nothing ? (
               <p className="px-3 py-8 text-center text-13 text-ink-muted">
-                Nothing found for “{text.trim()}”. An order is found by its
-                number (RF-1084), a customer by the beginning of the email, a
-                product by name or article number.
+                Nothing found for “{text.trim()}”. Orders and customers are
+                found by words of the order number, the name, the email or the
+                phone; products by name or article number; a cargo by its code.
               </p>
             ) : null}
             {search.isError ? (

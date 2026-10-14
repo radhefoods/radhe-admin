@@ -7,6 +7,8 @@ import {
   FilterBar,
   FilterSelect,
   SearchField,
+  SortSelect,
+  type SortOption,
 } from "@/components/data/filter-bar";
 import { LoadMore } from "@/components/data/pagination";
 import { RequirePermission } from "@/components/domain/permission";
@@ -17,19 +19,32 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, EmptyState } from "@/components/ui/surface";
 import { errorMessage } from "@/lib/api/error-text";
-import type { Customer, CustomerStatus } from "@/lib/api/types";
+import type {
+  Customer,
+  CustomerSortField,
+  CustomerStatus,
+  SortParam,
+} from "@/lib/api/types";
 import { formatDate } from "@/lib/format/dates";
 import { LOCALE_LABEL, personName } from "@/lib/format/names";
 import { useNow } from "@/lib/hooks/use-now";
 import { param, useUrlState } from "@/lib/hooks/use-url-state";
 import { routes } from "@/lib/routes";
 import { CUSTOMER_STATUS, statusOptions } from "@/lib/status";
-import { useCustomers } from "./queries";
+import { useCustomerCount, useCustomers } from "./queries";
 import { SIGNUP_METHOD_LABEL } from "./schemas";
 
 const STATUSES: readonly CustomerStatus[] = ["active", "blocked"];
-/** The API searches the beginning of the email, 2 to 254 characters (4). */
-const EMAIL = { min: 2, max: 254 } as const;
+
+/** The orders of the list the API offers (4). */
+const SORTS: readonly SortOption<SortParam<CustomerSortField>>[] = [
+  { value: "createdAt:desc", label: "Newest first" },
+  { value: "createdAt:asc", label: "Oldest first" },
+  { value: "email:asc", label: "Email A to Z" },
+  { value: "email:desc", label: "Email Z to A" },
+  { value: "status:asc", label: "By status" },
+];
+const SORT_VALUES = SORTS.map((option) => option.value);
 
 /** The name when the customer gave one; the email stands in otherwise. */
 function hasName(customer: Customer): boolean {
@@ -192,13 +207,21 @@ function CustomerCard({ customer }: { customer: Customer }) {
 export function CustomersView() {
   const [state, setState, clear] = useUrlState({
     status: param.oneOf(STATUSES),
-    email: param.text(EMAIL.max),
+    q: param.text(100),
+    sort: param.oneOf(SORT_VALUES),
+    // Links from elsewhere may still name the beginning of an email.
+    email: param.text(254),
   });
-  // A shorter text is not a search the API accepts: it is not sent.
-  const email = state.email.length >= EMAIL.min ? state.email : undefined;
-  const customers = useCustomers({ status: state.status, email });
+  const q = state.q.trim() || undefined;
+  const email = q || state.email.length < 2 ? undefined : state.email;
+  const filters = { status: state.status, q, email };
+  const customers = useCustomers({ ...filters, sort: state.sort });
+  const count = useCustomerCount(filters);
   const rows = customers.data?.pages.flatMap((page) => page.items);
-  const filtered = Boolean(state.status || email);
+  const filtered = Boolean(state.status || q || email);
+  const sortLabel =
+    SORTS.find((option) => option.value === state.sort)?.label ??
+    "newest first";
 
   return (
     <RequirePermission permission="customers.read">
@@ -207,31 +230,28 @@ export function CustomersView() {
         description="Everyone with an account in the shop, newest first. Customers keep their own details; here you look them up, block an account, and decide who may order."
       />
       <PageBody className="gap-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <FilterBar active={filtered} onClear={clear}>
-            <SearchField
-              value={state.email}
-              onChange={(value) => setState({ email: value })}
-              label="Search customers by the beginning of their email address"
-              placeholder="Email begins with…"
-              minLength={EMAIL.min}
-              hint="Type at least 2 characters."
-            />
-            <FilterSelect
-              label="Status"
-              value={state.status}
-              options={statusOptions(CUSTOMER_STATUS)}
-              onChange={(status) => setState({ status })}
-            />
-          </FilterBar>
-          <p className="text-13 text-ink-subtle">
-            The search finds the beginning of the email address. There is no
-            search by name.
-          </p>
-        </div>
+        <FilterBar active={filtered || Boolean(state.sort)} onClear={clear}>
+          <SearchField
+            value={state.q || state.email}
+            onChange={(value) => setState({ q: value, email: "" })}
+            label="Search customers"
+            placeholder="Name, email or phone"
+          />
+          <FilterSelect
+            label="Status"
+            value={state.status}
+            options={statusOptions(CUSTOMER_STATUS)}
+            onChange={(status) => setState({ status })}
+          />
+          <SortSelect
+            value={state.sort}
+            options={SORTS}
+            onChange={(sort) => setState({ sort })}
+          />
+        </FilterBar>
 
         <DataTable
-          caption="Customers, newest first"
+          caption={`Customers, ${sortLabel.toLowerCase()}`}
           columns={columns}
           data={rows}
           getRowId={(customer) => customer.id}
@@ -244,11 +264,13 @@ export function CustomersView() {
             <EmptyState
               icon={<Users />}
               title={
-                email
-                  ? `No customer's email begins with "${email}"`
-                  : state.status
-                    ? `No customer is ${CUSTOMER_STATUS[state.status].label.toLowerCase()}`
-                    : "No customer yet"
+                q
+                  ? `No customer matches "${q}"`
+                  : email
+                    ? `No customer's email begins with "${email}"`
+                    : state.status
+                      ? `No customer is ${CUSTOMER_STATUS[state.status].label.toLowerCase()}`
+                      : "No customer yet"
               }
               action={
                 filtered ? (
@@ -256,8 +278,8 @@ export function CustomersView() {
                 ) : null
               }
             >
-              {email
-                ? 'Only the beginning of the address is searched: type it as it starts, for example "anna.s". A name cannot be searched.'
+              {q || email
+                ? "The search looks at the name, the email and the phone; every word must begin one of them."
                 : state.status
                   ? "Choose another status or clear the filter."
                   : "Customers appear here as soon as they create an account in the shop."}
@@ -280,6 +302,7 @@ export function CustomersView() {
               ) : null}
               <LoadMore
                 shown={rows?.length ?? 0}
+                total={count.data?.total}
                 noun="customer"
                 hasMore={customers.hasNextPage}
                 loading={customers.isFetchingNextPage}

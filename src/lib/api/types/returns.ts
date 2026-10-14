@@ -1,10 +1,13 @@
 // Section 11: returns.
 
 import type {
+  AdminRef,
   Cents,
   CursorQuery,
+  CustomerRef,
   Id,
   IsoDateTime,
+  SortParam,
   Translated,
   VatRate,
 } from "./common";
@@ -49,6 +52,7 @@ export interface ReturnHistoryEntry {
   at: IsoDateTime;
   by: Actor;
   adminId: Id | null;
+  admin?: AdminRef | null;
   note: string | null;
 }
 
@@ -60,6 +64,7 @@ export interface OrderReturn {
   orderId: Id;
   orderNumber: string;
   customerId: Id;
+  customer?: CustomerRef | null;
   cargoId: Id;
   status: ReturnStatus;
   requestedAt: IsoDateTime;
@@ -78,10 +83,15 @@ export interface OrderReturn {
   updatedAt: IsoDateTime;
 }
 
+export const RETURN_SORT_FIELDS = ["createdAt", "status"] as const;
+export type ReturnSortField = (typeof RETURN_SORT_FIELDS)[number];
+
 export interface ReturnQuery extends CursorQuery {
   status?: ReturnStatus;
   orderNumber?: string;
   customerId?: Id;
+  /** Default `createdAt:desc`. */
+  sort?: SortParam<ReturnSortField>;
 }
 
 export interface ReturnApproveInput {

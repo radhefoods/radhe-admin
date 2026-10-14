@@ -1,6 +1,11 @@
 "use client";
 
-import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+} from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import { invalidation, queryKeys } from "@/lib/api/query-keys";
 import type {
@@ -32,6 +37,20 @@ export function useOrders(
       ),
     initialPageParam: undefined as Id | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
+    enabled,
+  });
+}
+
+/** How many orders the filters match (`GET /orders/count`, 0.8). */
+export function useOrderCount(
+  query: Omit<OrderQuery, "cursor" | "limit" | "sort">,
+  enabled = true,
+) {
+  const { sort: _sort, ...filters } = query as OrderQuery;
+  return useQuery({
+    queryKey: queryKeys.orders.count(filters),
+    queryFn: ({ signal }) => api.orders.count(filters, signal),
+    placeholderData: keepPreviousData,
     enabled,
   });
 }

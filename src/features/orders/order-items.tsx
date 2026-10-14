@@ -229,7 +229,7 @@ export function OrderItemsCard({
                 {entry.from} to {entry.to} delivered,{" "}
                 {humanize(entry.reason).toLowerCase()}
                 {entry.note ? `, “${entry.note}”` : ""} ·{" "}
-                <AdminName id={entry.adminId} />,{" "}
+                <AdminName id={entry.adminId} admin={entry.admin} />,{" "}
                 <DateTime value={entry.at} short />
               </li>
             ))}

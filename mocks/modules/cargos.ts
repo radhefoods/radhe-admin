@@ -16,6 +16,7 @@ import {
   customerOf,
   descendantIds,
   productSummary,
+  pushHistory,
   queueMessage,
 } from "../domain.ts";
 import {
@@ -656,9 +657,44 @@ export function registerCargos(router: Router): void {
       assertWindowAhead(next, ctx.now);
       assertWindowFree(ctx.db, next);
     }
+    const before = { ...cargo.delivery };
     cargo.orderOpenAt = next.orderOpenAt;
     cargo.orderCloseAt = next.orderCloseAt;
     cargo.delivery = next.delivery;
+    if (
+      daysChange &&
+      (next.delivery.start !== before.start || next.delivery.end !== before.end)
+    ) {
+      // New delivery days reach the orders that have not left yet (9).
+      for (const order of ctx.db.orders) {
+        if (order.cargo.id !== cargo.id) continue;
+        if (
+          !["confirmed", "preparing", "delivery_failed"].includes(order.status)
+        )
+          continue;
+        const from = `${order.delivery.promisedStart}/${order.delivery.promisedEnd}`;
+        order.delivery.promisedStart = next.delivery.start;
+        order.delivery.promisedEnd = next.delivery.end;
+        pushHistory(
+          order,
+          {
+            field: "delivery_window",
+            from,
+            to: `${next.delivery.start}/${next.delivery.end}`,
+            adminId: ctx.admin.id,
+          },
+          ctx.now,
+        );
+        const customer = customerOf(ctx.db, order);
+        if (customer) {
+          queueMessage(
+            ctx.db,
+            { type: "delivery_rescheduled", customer, order },
+            ctx.now,
+          );
+        }
+      }
+    }
     if (input.internalName !== undefined)
       cargo.internalName = input.internalName;
     if (input.customerName !== undefined)

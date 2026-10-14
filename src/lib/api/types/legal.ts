@@ -33,11 +33,13 @@ export interface CreateLegalDocumentInput {
   type: LegalType;
   title: Translated;
   content: TranslatedOptional;
-  note?: string;
+  /** `null` removes the note. */
+  note?: string | null;
 }
 
 export interface UpdateLegalDocumentInput {
   title?: Translated;
   content?: TranslatedOptional;
-  note?: string;
+  /** `null` removes the note. */
+  note?: string | null;
 }

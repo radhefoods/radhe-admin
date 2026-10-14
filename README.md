@@ -81,22 +81,22 @@ Both are read when the panel is built: change them, then build again.
 
 ## What is in the panel
 
-| Area          | Pages                                                                                                                                                                                                         |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sign-in       | Email and password, authenticator code, first-time setup with QR code, forced password change, re-sign-in over the page when a session ends                                                                   |
-| Today         | What needs a person now (returns, overdue payments, failed deliveries, refunds, failed messages), the cargos on their way with their next step, what is still to collect                                      |
-| Cargos        | List and overview; create and edit; the lifecycle with exactly the allowed transitions, rollover, cancel with order move; products and limits per cargo; bulk order actions; payment activation for the cargo |
-| Orders        | List with the API's filters; detail with items, corrections of delivered quantities, status, delivery, move, cancel, payment, documents, returns, messages, history                                           |
-| Returns       | List; approve (also fewer units), decline, complete                                                                                                                                                           |
-| Payments      | Orders by payment status; activation, cash, waive, reminders and refunds on the order; refund list and lifecycle; invoices and credit notes with PDF; the payment jobs by hand                                |
-| Customers     | List and search by email; detail with orders, preferences, block and unblock, ordering decisions                                                                                                              |
-| Catalogue     | Products with bilingual content, pack sizes, prices, VAT, price history; image manager; categories as a tree                                                                                                  |
-| Communication | The log of every message with retry and cancel; announcements with preview and recipient counts                                                                                                               |
-| Settings      | Company, delivery fee, order and return rules, payment defaults; legal texts in versions; team; roles as permission matrices; the admin's own profile                                                         |
+| Area          | Pages                                                                                                                                                                                                                                                                             |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sign-in       | Email and password, authenticator code, first-time setup with QR code, forced password change, re-sign-in over the page when a session ends                                                                                                                                       |
+| Today         | What needs a person now (returns, overdue payments, failed deliveries, refunds, failed messages), the cargos on their way with their next step, what is still to collect                                                                                                          |
+| Cargos        | List and overview; create and edit; the lifecycle with exactly the allowed transitions, rollover, cancel with order move; products and limits per cargo; bulk order actions; payment activation for the cargo                                                                     |
+| Orders        | List with the API's filters, search by words of the number, name, email or phone, sorting and the count; actions on chosen orders at once; detail with items, corrections of delivered quantities, status, delivery, move, cancel, payment, documents, returns, messages, history |
+| Returns       | List; approve (also fewer units), decline, complete                                                                                                                                                                                                                               |
+| Payments      | Orders by payment status; activation, cash, waive, reminders and refunds on the order; refund list and lifecycle; invoices and credit notes with PDF; the payment jobs by hand                                                                                                    |
+| Customers     | List with search by name, email or phone, sorting and the count; detail with orders, preferences, block and unblock, ordering decisions                                                                                                                                           |
+| Catalogue     | Products with bilingual content, pack sizes, prices, VAT, price history; image manager; categories as a tree                                                                                                                                                                      |
+| Communication | The log of every message with retry and cancel; announcements with preview and recipient counts                                                                                                                                                                                   |
+| Settings      | Company, delivery fee, order and return rules, payment defaults and the connected services; legal texts in versions; team with invitation emails; roles as permission matrices; the admin's own profile                                                                           |
 
 Navigation and buttons follow the permissions of the signed-in admin; the API enforces them anyway.
 
-Keys: `/` or `Ctrl K` opens the search (an order number, a customer's email, a product, a cargo code, or a page), `Esc` closes what is open. `/styleguide` shows the parts every page is made of.
+Keys: `/` or `Ctrl K` opens the search (orders and customers by words of the number, name, email or phone; a product; a cargo code; or a page), `Esc` closes what is open. `/styleguide` shows the parts every page is made of.
 
 ## Deployment
 

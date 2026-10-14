@@ -278,7 +278,9 @@ function Details({ announcement }: { announcement: Announcement }) {
           <Fact label="Sent">
             <DateTime value={announcement.createdAt} />
           </Fact>
-          <Fact label="Sent by">{adminName(announcement.createdBy)}</Fact>
+          <Fact label="Sent by">
+            {adminName(announcement.createdBy, announcement.createdByAdmin)}
+          </Fact>
           {announcement.cancelledAt ? (
             <Fact label="Cancelled">
               <DateTime value={announcement.cancelledAt} />

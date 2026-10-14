@@ -285,7 +285,10 @@ function Related({ message }: { message: NotificationDetail }) {
                 label="Customer"
                 href={routes.customer(message.customerId)}
               >
-                {customer ?? `Customer ${shortId(message.customerId)}`}
+                {message.customer?.name ??
+                  message.customer?.email ??
+                  customer ??
+                  `Customer ${shortId(message.customerId)}`}
               </RelatedRow>
             ) : null}
             {message.orderId ? (

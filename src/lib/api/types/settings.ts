@@ -33,6 +33,8 @@ export interface CompanySettings {
 export type CompanyInput = Omit<CompanySettings, "missingForInvoices">;
 
 export interface PaymentSettings {
+  /** Whether the server has Stripe keys (repeated from `integrations`). */
+  stripeConnected?: boolean;
   /** 0 to 23, German time. */
   reminderHour: number;
   /** 1 to 60. */
@@ -48,4 +50,6 @@ export interface Settings {
   returnPolicy: { windowDays: number };
   company: CompanySettings;
   payments: PaymentSettings;
+  /** Whether the server has Stripe keys and WhatsApp credentials (5). */
+  integrations?: { stripeConnected: boolean; whatsappConfigured: boolean };
 }

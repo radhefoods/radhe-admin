@@ -25,7 +25,12 @@ export const NEWEST_ORDERS = 5;
  * Customers, newest first. The API pages them by cursor and gives no total
  * (0.8): the list grows with "load more".
  */
-export function useCustomers(filters: Pick<CustomerQuery, "status" | "email">) {
+export type CustomerFilters = Pick<
+  CustomerQuery,
+  "status" | "email" | "q" | "sort"
+>;
+
+export function useCustomers(filters: CustomerFilters) {
   const query: CustomerQuery = { ...filters, limit: PAGE_SIZE };
   return useInfiniteQuery({
     queryKey: [...queryKeys.customers.list(query), "pages"] as const,
@@ -33,6 +38,15 @@ export function useCustomers(filters: Pick<CustomerQuery, "status" | "email">) {
       api.customers.list({ ...query, cursor: pageParam }, signal),
     initialPageParam: undefined as Id | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** How many customers the filters match (`GET /customers/count`, 0.8). */
+export function useCustomerCount(filters: Omit<CustomerFilters, "sort">) {
+  return useQuery({
+    queryKey: queryKeys.customers.count(filters),
+    queryFn: ({ signal }) => api.customers.count(filters, signal),
     placeholderData: keepPreviousData,
   });
 }
