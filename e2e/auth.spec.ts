@@ -131,12 +131,12 @@ test.describe("the session", () => {
   }) => {
     await signIn(page);
     await mock(request, "expire-access");
-    await page.getByRole("link", { name: "Cargos", exact: true }).click();
+    await page.getByRole("link", { name: "Orders", exact: true }).click();
     await expect(
-      page.getByRole("heading", { level: 1, name: "Cargos" }),
+      page.getByRole("heading", { level: 1, name: "Orders" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "RF-C028" }).first(),
+      page.getByRole("link", { name: /^RF-\d{4}$/ }).first(),
     ).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(0);
   });
@@ -145,9 +145,9 @@ test.describe("the session", () => {
     page,
     request,
   }) => {
-    await signIn(page, "owner", "/cargos/new");
-    await page.getByLabel("Internal name").fill("November, third week");
-    await page.getByLabel("Ordering opens").fill("2026-11-10T00:00");
+    await signIn(page, "owner", "/settings/company");
+    await page.getByLabel("Company name").fill("Radhe Foods GmbH");
+    await page.getByLabel("Phone").fill("+49 69 7654321");
 
     await mock(request, "expire-sessions");
     // The next call to the API finds the session gone.
@@ -166,12 +166,10 @@ test.describe("the session", () => {
 
     // What was typed before the session ended is still there.
     await page.keyboard.press("Escape");
-    await expect(page.getByLabel("Internal name")).toHaveValue(
-      "November, third week",
+    await expect(page.getByLabel("Company name")).toHaveValue(
+      "Radhe Foods GmbH",
     );
-    await expect(page.getByLabel("Ordering opens")).toHaveValue(
-      "2026-11-10T00:00",
-    );
+    await expect(page.getByLabel("Phone")).toHaveValue("+49 69 7654321");
   });
 
   test("signing out ends the session", async ({ page }) => {
@@ -179,7 +177,7 @@ test.describe("the session", () => {
     await page.getByRole("button", { name: /Account of/ }).click();
     await page.getByRole("menuitem", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/sign-in/);
-    await page.goto("/cargos");
+    await page.goto("/orders");
     await expect(page).toHaveURL(/\/sign-in/);
   });
 });

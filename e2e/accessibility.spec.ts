@@ -8,9 +8,8 @@ import { expect, fillCredentials, signIn, test } from "./support";
 
 const PAGES = [
   "/",
-  "/cargos",
-  "/cargos/new",
   "/orders",
+  "/orders?needsRefund=true",
   "/returns",
   "/payments",
   "/payments/refunds",
@@ -84,8 +83,8 @@ for (const theme of ["light", "dark"] as const) {
       const found: Record<string, string[]> = {};
       // The first record of each list, whatever its id is.
       const lists: [string, RegExp][] = [
-        ["/cargos", /^\/cargos\/[0-9a-f-]{8,}$/],
         ["/orders", /^\/orders\/[0-9a-f-]{8,}$/],
+        ["/payments/refunds", /^\/payments\/refunds\/[0-9a-f-]{8,}$/],
         ["/returns", /^\/returns\/[0-9a-f-]{8,}$/],
         ["/customers", /^\/customers\/[0-9a-f-]{8,}$/],
         ["/catalogue/products", /^\/catalogue\/products\/[0-9a-f-]{8,}$/],
