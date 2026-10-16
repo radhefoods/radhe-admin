@@ -642,6 +642,39 @@ export function ProductForm({
               required
               hint="The place among the products: 0 to 1,000,000."
             />
+          </div>
+          <div className="grid gap-4 border-t border-line pt-4 sm:grid-cols-2">
+            {creating ? (
+              <UnitField
+                form={form}
+                name="stockQuantity"
+                label="Opening stock"
+                unit="units"
+                required
+                hint="What is on the shelf now. Later changes go through the stock panel of the product, so every one is in its history."
+              />
+            ) : (
+              <Field label="In stock">
+                <p className="text-sm text-ink">
+                  <span className="font-semibold tabular">
+                    {product.stock.quantity}
+                  </span>{" "}
+                  <span className="text-ink-muted">
+                    units. Changed in the stock panel, not here, so every change
+                    is in the history.
+                  </span>
+                </p>
+              </Field>
+            )}
+            <UnitField
+              form={form}
+              name="lowStockThreshold"
+              label="Low-stock threshold"
+              unit="units"
+              optional
+              placeholder="No threshold"
+              hint="You are warned at or below this count, on the start page and in the list. Empty: never."
+            />
             <SelectField form={form} name="storageType" label="Storage">
               {product && !product.storageType ? (
                 <option value="">Not set</option>

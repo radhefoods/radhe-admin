@@ -49,6 +49,7 @@ import { routes, withQuery } from "@/lib/routes";
 import { PRODUCT_STATUS, statusOptions } from "@/lib/status";
 import { PRODUCT_STATUSES } from "./product-schema";
 import { ImportExportButton } from "./import-export-dialog";
+import { stockState } from "./stock";
 import { useCategories, useProducts, useSetAvailable } from "./queries";
 
 const PAGE_SIZE = 25;
@@ -218,6 +219,28 @@ function AvailableSwitch({ product }: { product: ProductSummary }) {
   );
 }
 
+/** The count, with the low or sold-out state as a word next to it. */
+function StockCell({ product }: { product: ProductSummary }) {
+  const state = stockState(product.stock);
+  return (
+    <span className="inline-flex flex-col items-end gap-0.5 leading-tight">
+      <span
+        className={cn(
+          "tabular",
+          product.stock.quantity === 0 ? "font-semibold text-danger-fg" : "",
+        )}
+      >
+        {product.stock.quantity}
+      </span>
+      {state ? (
+        <Badge tone={state.tone} className="h-[18px] px-1.5 text-2xs">
+          {state.label}
+        </Badge>
+      ) : null}
+    </span>
+  );
+}
+
 const columns: Column<ProductSummary>[] = [
   {
     id: "product",
@@ -268,6 +291,12 @@ const columns: Column<ProductSummary>[] = [
       <StatusBadge kind="product" value={row.original.status} />
     ),
     meta: { skeleton: "w-16" },
+  },
+  {
+    id: "stock",
+    header: "Stock",
+    cell: ({ row }) => <StockCell product={row.original} />,
+    meta: { align: "right", skeleton: "w-12" },
   },
   {
     id: "available",
@@ -339,6 +368,7 @@ function ProductCard({ product }: { product: ProductSummary }) {
         <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-13 text-ink-subtle">
           <span className="tabular">{product.sku}</span>
           <StatusBadge kind="product" value={product.status} />
+          <span className="tabular">{product.stock.quantity} in stock</span>
         </span>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-2">
@@ -357,6 +387,8 @@ export function ProductsView() {
     categoryId: param.id(),
     isAvailable: param.flag(),
     onSale: param.flag(),
+    // The start page links the products running low (`?lowStock=true`).
+    lowStock: param.flag(),
     sort: param.oneOfOr(SORT_VALUES, "newest"),
     page: param.page(),
   });
@@ -367,6 +399,7 @@ export function ProductsView() {
     categoryId: state.categoryId,
     isAvailable: state.isAvailable,
     onSale: state.onSale,
+    lowStock: state.lowStock === true ? true : undefined,
     sort: state.sort === "newest" ? undefined : state.sort,
     page: state.page,
     limit: PAGE_SIZE,
@@ -377,7 +410,8 @@ export function ProductsView() {
     state.status ||
     state.categoryId ||
     state.isAvailable !== undefined ||
-    state.onSale !== undefined,
+    state.onSale !== undefined ||
+    state.lowStock === true,
   );
   const flag = (value: boolean | undefined) =>
     value === undefined ? undefined : value ? "yes" : "no";
@@ -463,6 +497,14 @@ export function ProductsView() {
                 setState({
                   onSale: value === undefined ? undefined : value === "yes",
                 })
+              }
+            />
+            <FilterSelect
+              label="Stock"
+              value={state.lowStock === true ? "low" : undefined}
+              options={[{ value: "low", label: "Running low" }]}
+              onChange={(value) =>
+                setState({ lowStock: value === "low" ? true : undefined })
               }
             />
           </FilterBar>

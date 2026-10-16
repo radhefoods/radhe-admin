@@ -359,6 +359,24 @@ describe("what POST /products gets", () => {
     expect("discountPercent" in input).toBe(false);
   });
 
+  it("sends the opening stock and the threshold where the API takes them", () => {
+    expect(toProductInput(typed({ stockQuantity: "25" })).stockQuantity).toBe(
+      25,
+    );
+    // The default of 0 is the API's default: it is left out.
+    expect(toProductInput(typed()).stockQuantity).toBeUndefined();
+    expect(
+      toProductInput(typed({ lowStockThreshold: "10" })).lowStockThreshold,
+    ).toBe(10);
+    expect(toProductInput(typed()).lowStockThreshold).toBeUndefined();
+    expect(problems(typed({ stockQuantity: "-1" })).stockQuantity).toMatch(
+      /Between 0 and/,
+    );
+    expect(
+      problems(typed({ lowStockThreshold: "1000001" })).lowStockThreshold,
+    ).toMatch(/Between 0 and/);
+  });
+
   it("sends a discount as a percentage and then no sale price", () => {
     const input = toProductInput(
       typed({ saleMode: "percent", discountPercent: "20", salePrice: "3.00" }),
@@ -557,6 +575,25 @@ describe("what PATCH /products/{id} gets: only what changed", () => {
       storageType: "frozen",
       categoryId: "66f000000000000000000002",
     });
+  });
+
+  it("sends the threshold when it changes, null when it is removed, never the count", () => {
+    expect(
+      toProductPatch({ ...form(), lowStockThreshold: "8" }, before),
+    ).toEqual({ lowStockThreshold: 8 });
+    const withThreshold = product({
+      stock: { quantity: 40, lowStockThreshold: 8, isLow: false },
+    });
+    expect(
+      toProductPatch(
+        { ...productDefaults(withThreshold), lowStockThreshold: "" },
+        withThreshold,
+      ),
+    ).toEqual({ lowStockThreshold: null });
+    // The count is shown by the form, changed only through the stock endpoint.
+    expect(toProductPatch({ ...form(), stockQuantity: "99" }, before)).toEqual(
+      {},
+    );
   });
 
   it("sends an address only with the languages that are filled", () => {

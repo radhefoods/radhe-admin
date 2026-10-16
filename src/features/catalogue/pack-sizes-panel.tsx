@@ -505,6 +505,12 @@ function PackRow({
           <span className="tabular">{entry.sku}</span>
           <StatusBadge kind="product" value={entry.status} />
           {entry.isAvailable ? null : <Badge tone="neutral">Unavailable</Badge>}
+          <span className="tabular">{entry.stock.quantity} in stock</span>
+          {entry.stock.quantity === 0 ? (
+            <Badge tone="danger">Sold out</Badge>
+          ) : entry.stock.isLow ? (
+            <Badge tone="attention">Low stock</Badge>
+          ) : null}
         </span>
         {!entry.isDefault && manage ? (
           <Button

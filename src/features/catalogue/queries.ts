@@ -2,6 +2,7 @@
 
 import {
   keepPreviousData,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -23,6 +24,7 @@ import type {
   ProductPatch,
   ProductQuery,
   ProductSummary,
+  StockChangeInput,
   TranslatedOptional,
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
@@ -56,6 +58,24 @@ export function usePriceHistory(id: Id, enabled = true) {
     queryKey: queryKeys.products.priceHistory(id),
     queryFn: async ({ signal }) =>
       (await api.products.priceHistory(id, signal)).items,
+    enabled,
+  });
+}
+
+const MOVEMENTS_PAGE = 25;
+
+/** The stock history of a product, newest first, page by page (8). */
+export function useStockMovements(id: Id, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.products.stockMovements(id),
+    queryFn: ({ pageParam, signal }) =>
+      api.products.stockMovements(
+        id,
+        { limit: MOVEMENTS_PAGE, cursor: pageParam },
+        signal,
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
     enabled,
   });
 }
@@ -137,6 +157,21 @@ export function useUpdateProduct(id: Id) {
       (await api.products.update(id, input)).product,
     onSuccess: (product) => keepProduct(client, product),
     meta: { invalidates: invalidation.catalog, silent: true },
+  });
+}
+
+/**
+ * Sets the counted number or adds and removes units (8). The answer is the
+ * product as it is now, plus the line of the ledger; the history and the
+ * low-stock group of the start page are loaded again.
+ */
+export function useChangeStock(id: Id) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: StockChangeInput) =>
+      api.products.changeStock(id, input),
+    onSuccess: ({ product }) => keepProduct(client, product),
+    meta: { invalidates: invalidation.stock, silent: true },
   });
 }
 

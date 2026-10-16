@@ -47,6 +47,8 @@ import { ImageManager } from "./image-manager";
 import { PackSizesPanel } from "./pack-sizes-panel";
 import { PriceHistoryPanel } from "./price-history-panel";
 import { ProductForm } from "./product-form";
+import { stockState } from "./stock";
+import { StockPanel } from "./stock-panel";
 import {
   useCategories,
   useDeleteProduct,
@@ -65,6 +67,7 @@ const PARTS: { id: string; label: string; aside?: boolean }[] = [
   { id: "texts", label: "Texts" },
   { id: "food", label: "Food information" },
   { id: "seo", label: "Search and SEO" },
+  { id: "stock", label: "Stock", aside: true },
   { id: "pictures", label: "Pictures", aside: true },
   { id: "pack-sizes", label: "Pack sizes", aside: true },
   { id: "price-history", label: "Price history", aside: true },
@@ -340,6 +343,7 @@ export function ProductView() {
   const manage = can("catalog.manage");
   const name = translated(data.name);
   const path = categories ? categoryPath(categories, data.categoryId) : "";
+  const stock = stockState(data.stock);
 
   return (
     <RequirePermission permission="catalog.read">
@@ -356,6 +360,7 @@ export function ProductView() {
             {data.isAvailable ? null : (
               <Badge tone="neutral">Unavailable</Badge>
             )}
+            {stock ? <Badge tone={stock.tone}>{stock.label}</Badge> : null}
             {data.pricing.onSale ? (
               <Badge tone="neutral">
                 On sale
@@ -456,9 +461,10 @@ export function ProductView() {
           }}
         />
         <aside
-          aria-label="Pictures, pack sizes and history"
+          aria-label="Stock, pictures, pack sizes and history"
           className="flex min-w-0 flex-col gap-6"
         >
+          <StockPanel product={data} paused={deleting} />
           <ImageManager product={data} />
           <PackSizesPanel product={data} />
           <PriceHistoryPanel product={data} paused={deleting} />

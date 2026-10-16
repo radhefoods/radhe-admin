@@ -74,6 +74,7 @@ export const LIMITS = {
   packMax: 1_000_000,
   sortOrderMax: 1_000_000,
   quantityMax: 10_000,
+  stockMax: 1_000_000,
 } as const;
 
 const SKU = /^[A-Z0-9][A-Z0-9._-]{1,39}$/;
@@ -268,6 +269,10 @@ const productFields = z.object({
   maxOrderQuantity: following(
     zOptionalInt({ min: 1, max: LIMITS.quantityMax }),
   ),
+  /** The opening stock of a new product; an existing one changes it in the stock panel. */
+  stockQuantity: following(zInt({ min: 0, max: LIMITS.stockMax })),
+  /** Empty: no threshold, never warned. */
+  lowStockThreshold: following(zOptionalInt({ min: 0, max: LIMITS.stockMax })),
   storageType: z.enum(STORAGE_TYPES).or(z.literal("")),
   shortDescription: translated(LIMITS.short),
   description: translated(LIMITS.long),
@@ -383,6 +388,12 @@ export function productDefaults(product?: ProductDetail): ProductFormValues {
       product?.maxOrderQuantity === undefined
         ? ""
         : String(product.maxOrderQuantity),
+    stockQuantity: product ? String(product.stock.quantity) : "0",
+    lowStockThreshold:
+      product?.stock.lowStockThreshold === null ||
+      product?.stock.lowStockThreshold === undefined
+        ? ""
+        : String(product.stock.lowStockThreshold),
     storageType: product ? (product.storageType ?? "") : "ambient",
     shortDescription: translatedDefaults(product?.shortDescription),
     description: translatedDefaults(product?.description),
@@ -461,6 +472,7 @@ interface Complete {
   sortOrder: number;
   minOrderQuantity: number;
   maxOrderQuantity: number | null;
+  lowStockThreshold: number | null;
   storageType: StorageType | "";
   food: ProductFoodInput;
   tags: string[];
@@ -515,6 +527,10 @@ function complete(values: ProductFormValues): Complete {
       values.maxOrderQuantity.trim() === ""
         ? null
         : integer(values.maxOrderQuantity),
+    lowStockThreshold:
+      values.lowStockThreshold.trim() === ""
+        ? null
+        : integer(values.lowStockThreshold),
     storageType: values.storageType,
     food,
     tags: values.tags.map((tag) => tag.trim()).filter(Boolean),
@@ -576,6 +592,11 @@ export function toProductInput(values: ProductFormValues): ProductInput {
   if (all.brand) input.brand = all.brand;
   if (all.maxOrderQuantity !== null)
     input.maxOrderQuantity = all.maxOrderQuantity;
+  // The opening stock (default 0) and the threshold, where the API takes them.
+  const stockQuantity = integer(values.stockQuantity);
+  if (stockQuantity > 0) input.stockQuantity = stockQuantity;
+  if (all.lowStockThreshold !== null)
+    input.lowStockThreshold = all.lowStockThreshold;
   if (all.storageType) input.storageType = all.storageType;
   const food = presentFood(all.food);
   if (Object.keys(food).length > 0) input.food = food;
@@ -647,6 +668,9 @@ export function toProductPatch(
     patch.minOrderQuantity = next.minOrderQuantity;
   if (changed("maxOrderQuantity"))
     patch.maxOrderQuantity = next.maxOrderQuantity;
+  // `null` removes the threshold; the count itself is not part of a patch.
+  if (changed("lowStockThreshold"))
+    patch.lowStockThreshold = next.lowStockThreshold;
   if (changed("storageType") && next.storageType)
     patch.storageType = next.storageType;
   if (changed("food")) patch.food = next.food;
