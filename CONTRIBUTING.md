@@ -27,7 +27,7 @@ src/test/                   the test harness: the mock API behind fetch, render 
 e2e/                        browser tests (Playwright) against the mock API
 ```
 
-The reference feature is `src/features/orders/`: list with URL state and bulk actions (`orders-list.tsx`, `orders-bulk.tsx`), detail (`order-view.tsx`), confirmations with the real numbers (`order-dialogs.tsx`), a card with its own permission and dialog (`order-payment.tsx`), queries (`queries.ts`) and tests (`order-flows.test.tsx`). The small reference for a panel with one dialog and a cursor list is the stock of a product (`src/features/catalogue/stock-panel.tsx`, `stock.ts`, `stock-flows.test.tsx`).
+The reference feature is `src/features/orders/`: list with URL state and bulk actions (`orders-list.tsx`, `orders-bulk.tsx`), detail (`order-view.tsx`), confirmations with the real numbers (`order-dialogs.tsx`), a card with its own permission and dialog (`order-payment.tsx`), queries (`queries.ts`) and tests (`order-flows.test.tsx`). The small reference for a panel with one dialog and a cursor list is the stock of a product (`src/features/catalogue/stock-panel.tsx`, `stock.ts`, `stock-flows.test.tsx`). The reference for a table inside a form that is saved in a sequence of requests is the pack-size table of the product (`variant-rows.tsx`, `product-schema.ts` with `planOf`, `queries.ts` with `useSaveProduct`, the "pack sizes of a product" tests in `catalogue-flows.test.tsx`).
 
 ## Rules
 

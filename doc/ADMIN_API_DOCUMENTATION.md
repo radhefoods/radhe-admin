@@ -2,7 +2,7 @@
 
 For the Next.js Admin Panel. Generated from the implemented NestJS backend (`radhe-api`); every route, field, status and error below exists in the code as of 2026-10-16. Customer-facing APIs are documented separately in `CUSTOMER_WEB_API_DOCUMENTATION.md`.
 
-**What the admin panel manages:** the catalogue (categories, products with pack sizes, images and stock), orders and their way to the customer (processing, dispatch with tracking, delivery, corrections, cancellations), returns, payments (invoices and credit notes, refunds), customers, notifications to customers, announcements, settings, legal texts, admin users and roles.
+**What the admin panel manages:** the catalogue (categories, products with their pack sizes, prices and stock per pack size, images), orders and their way to the customer (processing, dispatch with tracking, delivery, corrections, cancellations), returns, payments (invoices and credit notes, refunds), customers, notifications to customers, announcements, settings, legal texts, admin users and roles.
 
 **How the shop sells:** a customer puts products in the cart and pays at checkout through Stripe (card or PayPal). The payment confirms the order: the stock is taken, the money is captured, the invoice is issued and the customer gets the confirmation with the PDF. The admin then prepares, dispatches and delivers the order. Nothing is reserved before the payment, no order is confirmed by hand, and every refund is a decision of the admin.
 
@@ -41,7 +41,7 @@ For the Next.js Admin Panel. Generated from the implemented NestJS backend (`rad
 ### 0.2 Requests and responses
 
 - JSON bodies (`Content-Type: application/json`), except image uploads (`multipart/form-data`).
-- Validation is strict: **unknown fields are rejected** (`400 VALIDATION_FAILED`, "property X should not exist"). Strings are trimmed; an empty optional string counts as not provided. `null` is only accepted where documented (it clears the field: `description` of a role, `note` of a legal text, `parentId` of a category, `salePrice`, `discountPercent`, `lowStockThreshold`, `variantOf`, `gtin`, `brand` and `maxOrderQuantity` of a product, `trackingNumber` of an order).
+- Validation is strict: **unknown fields are rejected** (`400 VALIDATION_FAILED`, "property X should not exist"). Strings are trimmed; an empty optional string counts as not provided. `null` is only accepted where documented (it clears the field: `description` of a role, `note` of a legal text, `parentId` of a category, `salePrice`, `discountPercent`, `lowStockThreshold` and `gtin` of a pack size, `brand` and `maxOrderQuantity` of a product, `trackingNumber` of an order).
 - No response envelope: each endpoint returns the documented object (`{ product }`, `{ items, page, … }`, …). `204` = empty body.
 - Optional header `X-Request-Id` (8–64 chars `[A-Za-z0-9_-]`); every response carries `x-request-id`. Show it on unexpected errors.
 - `POST` answers `201` when something was created, `200` otherwise (documented per endpoint).
@@ -709,7 +709,7 @@ A tree of at most three levels. Products belong to one category; store listings 
 }
 ```
 
-`productCount` counts every product (all statuses and pack sizes) in the category and below. `tagline`, `description`, `seo`, `image` are `null` when unset.
+`productCount` counts every product (all statuses; a product with several pack sizes counts once) in the category and below. `tagline`, `description`, `seo`, `image` are `null` when unset.
 
 ### `GET /v1/admin/categories`
 
@@ -797,9 +797,13 @@ A tree of at most three levels. Products belong to one category; store listings 
 
 ## 8. Products, stock and images
 
-One product document = one article in **one pack size**. Several pack sizes of the same article are separate products linked by a `variantGroupId`; one of them is the default (shown in listings). Prices are cents including VAT.
+One product holds everything customers read about it once (name, texts, category, images, food information, SEO, VAT rate, the order quantities) and its **pack sizes** as `variants`: each pack size has its own article number, barcode, pack, prices, enabled switch, stock and URL. "Basmati Rice 1 kg" and "Basmati Rice 5 kg" are two pack sizes of the product "Basmati Rice". Prices are cents including VAT.
 
-Every product has a stock: `stock.quantity` is the number of units on the shelf, `stock.lowStockThreshold` the count at or below which the admin is warned. A product with quantity 0 is sold out in the shop. The stock changes through its own endpoint (8.1, `POST …/stock`), through paid orders, cancellations, returns and corrections, and through the CSV import; every change is kept in the stock history. Nothing is reserved before a payment; the units are taken the moment the payment is approved. Customers never see the stock.
+Rules for the pack sizes: at least one and at most 20 per product; all of one unit family (weight `g`/`kg`, volume `ml`/`l`, or pieces `pcs`); no pack twice; article numbers are unique across the shop. The URL of a pack size is the base `slug` of the product plus its pack: `basmati-rice-200g`, `basmati-rice-1kg`, `basmati-rice-1-5kg`, `basmati-rice-250ml`, `basmati-rice-6pcs` (German `-6stk`). A new base slug renames every URL; a changed pack renames its own. `isEnabled: false` takes one pack size out of the shop (not listed, not orderable, its URL answers 404) while the product stays; `isAvailable: false` on the product does that for every pack size.
+
+The **default pack size** (`defaultVariant` on the product, `isDefault` on the pack size) stands for the product in the lists of the shop and opens first on its page: the smallest enabled one whose stock covers `minOrderQuantity`, else the smallest enabled one, else the smallest of all. Never the cheapest. The API computes it after every change of the pack sizes and of their stock; nothing is set by hand. `priceFrom` on the product is the selling price of the default pack size; the price sorts and filters of both APIs use it. The shop shows a product as `displayName`: the name with the pack label, "Basmati Rice (1 kg)".
+
+Every pack size has a stock: `stock.quantity` is the number of packs on the shelf, `stock.lowStockThreshold` the count at or below which the admin is warned. A pack size with quantity 0 is sold out in the shop; the other pack sizes of the product are not affected. The stock changes through its own endpoint (`POST …/variants/{variantId}/stock`), through paid orders, cancellations, returns and corrections, and through the CSV import; every change is kept in the stock history of the pack size. Nothing is reserved before a payment; the units are taken the moment the payment is approved. Customers never see the stock.
 
 ### 8.1 Objects
 
@@ -822,39 +826,57 @@ Every product has a stock: `stock.quantity` is the number of units on the shelf,
 
 Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, never enlarged) under immutable URLs. The original file is not kept.
 
+**Pack size** (an entry of `variants`, and `defaultVariant`):
+
+```json
+{
+  "id": "66f2…",
+  "sku": "RF-00041",
+  "gtin": "8901234567890",
+  "packSize": { "value": 1, "unit": "kg", "label": "1 kg" },
+  "slug": { "en": "basmati-rice-1kg", "de": "basmati-reis-1kg" },
+  "displayName": { "en": "Basmati Rice (1 kg)", "de": "Basmati Reis (1 kg)" },
+  "pricing": { "…PriceView…": "" },
+  "isEnabled": true,
+  "isDefault": true,
+  "stock": { "quantity": 40, "lowStockThreshold": null, "isLow": false },
+  "createdAt": "2026-09-01T08:00:00.000Z"
+}
+```
+
+`slug` is the URL of this pack size in each language; `displayName` the name customers see for it. `isDefault` marks the pack size that stands for the product. `stock.isLow` is true when a threshold is set and the quantity is at or below it; `lowStockThreshold` is `null` when none is set, and a pack size without a threshold is never low.
+
 **Product summary** (list entries):
 
 ```json
 {
   "id": "66f3…",
-  "sku": "RF-00042",
   "name": { "en": "Basmati Rice", "de": "Basmati Reis" },
-  "slug": { "en": "basmati-rice-5-kg", "de": "basmati-reis-5-kg" },
+  "slug": { "en": "basmati-rice", "de": "basmati-reis" },
   "brand": "India Gate",
   "category": { "id": "66f0…", "name": { "en": "Rice", "de": "Reis" } },
-  "packSize": { "value": 5, "unit": "kg", "label": "5 kg" },
-  "pricing": { "…PriceView…": "" },
   "status": "active",
   "isAvailable": true,
   "isFeatured": false,
   "sortOrder": 0,
-  "stock": { "quantity": 120, "lowStockThreshold": 10, "isLow": false },
-  "variantGroupId": "66f4…",
-  "isDefaultVariant": true,
-  "packSizeCount": 2,
+  "vatRate": 700,
+  "priceFrom": 549,
+  "defaultVariant": { "…pack size RF-00041, 1 kg…": "" },
+  "variants": [ { "…pack size RF-00041, 1 kg…": "" }, { "…pack size RF-00042, 5 kg…": "" } ],
+  "variantCount": 2,
+  "stock": { "quantity": 160, "lowVariants": 0, "isLow": false },
   "imageCount": 3,
   "image": { "id": "…", "alt": "Basmati Rice", "isPrimary": true, "url": "…", "sizes": { "…": "" } },
   "createdAt": "…", "updatedAt": "…"
 }
 ```
 
-(`image` in the summary is the store-style image with a plain `alt` string; `variantGroupId` is `null` for a product without other pack sizes. `stock.isLow` is true when a threshold is set and the quantity is at or below it; `lowStockThreshold` is `null` when none is set, and a product without a threshold is never low. The entries of `packSizes` in the detail carry `stock` too.)
+(`slug` is the base of the URLs; the URL of each pack size is in `variants[].slug`. `variants` lists every pack size, smallest first, disabled ones included; `defaultVariant` repeats the one that stands for the product; `variantCount` counts them all. `stock.quantity` is the sum over the pack sizes, `stock.lowVariants` the number of pack sizes at or below their threshold, `stock.isLow` true when there is at least one. `image` in the summary is the store-style image with a plain `alt` string.)
 
 **Product detail** = summary plus:
 
 ```json
 {
-  "gtin": "8901234567890",
   "subtitle": null,
   "shortDescription": { "en": "…" },
   "description": { "en": "…", "de": "…" },
@@ -869,27 +891,23 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
   "searchKeywords": ["Reis"],
   "seo": null,
   "images": [ { "…admin image…": "", "isPrimary": true } ],
-  "packSizes": [
-    { "id": "66f2…", "sku": "RF-00041", "packSize": { "value": 1, "unit": "kg", "label": "1 kg" }, "pricing": { "…": "" }, "status": "active", "isAvailable": true, "stock": { "quantity": 40, "lowStockThreshold": null, "isLow": false }, "isDefault": false },
-    { "id": "66f3…", "sku": "RF-00042", "packSize": { "value": 5, "unit": "kg", "label": "5 kg" }, "pricing": { "…": "" }, "status": "active", "isAvailable": true, "stock": { "quantity": 120, "lowStockThreshold": 10, "isLow": false }, "isDefault": true }
-  ],
   "publishedAt": "2026-09-01T08:00:00.000Z"
 }
 ```
 
-`packSizes` lists all members of the variant group (any status), smallest first; it is `[]` for a product without a group. `images` are in the admin's order.
+`images` are in the admin's order and belong to the product: every pack size is shown with them. `GET …/{id}` adds `deletable` and `notDeletableReason`.
 
-**Stock movement** (the stock history):
+**Stock movement** (the stock history of a pack size):
 
 ```json
-{ "id": "66f9…", "reason": "adjustment", "delta": -4, "quantityAfter": 116, "orderId": null, "orderNumber": null, "adminId": "66f1…", "admin": { "id": "66f1…", "name": "Priya" }, "note": "Broken bags", "createdAt": "…" }
+{ "id": "66f9…", "variantId": "66f3…", "sku": "RF-00042", "reason": "adjustment", "delta": -4, "quantityAfter": 116, "orderId": null, "orderNumber": null, "adminId": "66f1…", "admin": { "id": "66f1…", "name": "Priya" }, "note": "Broken bags", "createdAt": "…" }
 ```
 
-`reason` ∈ `restock` (units added by the admin, or the opening stock of a new product), `adjustment` (count corrected by the admin), `import` (CSV import), `order` (taken by a paid order; `orderId`/`orderNumber` set, `admin` null), `cancel` (given back by a cancellation), `return` (given back by a completed return with `restock: true`), `release` (given back when a payment could not be completed after the units were taken, or when a correction lowered the delivered quantity). `delta` is positive for units that came in, negative for units that went out.
+`reason` ∈ `restock` (units added by the admin, or the opening stock of a new pack size), `adjustment` (count corrected by the admin), `import` (CSV import), `order` (taken by a paid order; `orderId`/`orderNumber` set, `admin` null), `cancel` (given back by a cancellation), `return` (given back by a completed return with `restock: true`), `release` (given back when a payment could not be completed after the units were taken, or when a correction lowered the delivered quantity). `delta` is positive for units that came in, negative for units that went out.
 
 ### `GET /v1/admin/products`
 
-**Purpose:** Products with filters, search and pages (every pack size is its own row).
+**Purpose:** Products with filters, search and pages: one entry per product, with every pack size in `variants`.
 
 **Permission:** `catalog.read`.
 
@@ -899,19 +917,18 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
 | ----- | ---- | ----------- |
 | `status` | `draft` \| `active` \| `archived` | |
 | `categoryId` | ObjectId | Sub-categories included. |
-| `q` | string 2–80 | Search words (name, subtitle, SKU, brand, keywords, tags; prefix match per word) or the beginning of an article number. |
+| `q` | string 2–80 | Search words (name, subtitle, brand, keywords, tags and every article number of the product; prefix match per word), or the beginning of an article number. |
 | `isAvailable` | boolean | |
-| `onSale` | boolean | |
-| `variantGroupId` | ObjectId | The pack sizes of one product. |
-| `lowStock` | boolean | `true`: only products at or below their low-stock threshold. |
-| `sort` | `newest` (default) \| `updated` \| `name` \| `sku` \| `price_asc` \| `price_desc` | |
+| `onSale` | boolean | `true`: products with a reduced enabled pack size; `false`: products without one. |
+| `lowStock` | boolean | `true`: only products with a pack size at or below its low-stock threshold. |
+| `sort` | `newest` (default) \| `updated` \| `name` \| `sku` \| `price_asc` \| `price_desc` | `sku` sorts by the smallest article number of the product, `price_asc`/`price_desc` by `priceFrom`. |
 | `page`, `limit` | int | 1–500 / 1–100 (default 24) |
 
 **Success Response (200):** `{ "items": [ …summaries… ], "page": 1, "limit": 24, "total": 57, "totalPages": 3 }`
 
 ### `POST /v1/admin/products`
 
-**Purpose:** Create a product (a draft unless `status` says otherwise). Images are uploaded afterwards. For a further pack size of an existing product, set `variantOf` or use the duplicate endpoint.
+**Purpose:** Create a product with its pack sizes (a draft unless `status` says otherwise). Images are uploaded afterwards. A further pack size of an existing product is added with `POST …/{id}/variants`.
 
 **Permission:** `catalog.manage`.
 
@@ -919,10 +936,8 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
 
 ```json
 {
-  "sku": "RF-00042",
-  "gtin": "8901234567890",
   "name": { "en": "Basmati Rice", "de": "Basmati Reis" },
-  "slug": { "en": "basmati-rice-5-kg", "de": "basmati-reis-5-kg" },
+  "slug": { "en": "basmati-rice", "de": "basmati-reis" },
   "subtitle": { "en": "Aged", "de": "Gereift" },
   "shortDescription": { "en": "…", "de": "…" },
   "description": { "en": "…", "de": "…" },
@@ -930,13 +945,10 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
   "uses": { "en": ["Biryani"], "de": ["Biryani"] },
   "brand": "India Gate",
   "categoryId": "66f0…",
-  "packSize": { "value": 5, "unit": "kg" },
-  "stockQuantity": 120,
-  "lowStockThreshold": 10,
-  "variantOf": "66f2…",
-  "regularPrice": 2499,
-  "salePrice": 1999,
-  "discountPercent": null,
+  "variants": [
+    { "sku": "RF-00041", "gtin": "8901234567890", "packSize": { "value": 1, "unit": "kg" }, "regularPrice": 549, "stockQuantity": 40 },
+    { "sku": "RF-00042", "packSize": { "value": 5, "unit": "kg" }, "regularPrice": 2499, "salePrice": 1999, "isEnabled": true, "stockQuantity": 120, "lowStockThreshold": 10 }
+  ],
   "vatRate": 700,
   "status": "active",
   "isAvailable": true,
@@ -961,36 +973,42 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
 
 | Field | Type | Required | Validation / meaning |
 | ----- | ---- | -------- | -------------------- |
-| `sku` | string | no | `^[A-Z0-9][A-Z0-9._-]{1,39}$` (upper-cased); generated `RF-00001…` when left out |
-| `gtin` | string or `null` | no | 8, 12, 13 or 14 digits |
 | `name` | `{ en (1–160), de? }` | yes | |
-| `slug` | `{ en?, de? }` | no | ≤120, slug pattern; generated from name + pack size |
+| `slug` | `{ en?, de? }` | no | ≤120, slug pattern; the base of the URLs of the product, generated from the name when left out; every pack size adds its pack to it (`basmati-rice-1kg`) |
 | `subtitle`, `shortDescription` | `{ en?, de? }` ≤300 | no | |
 | `description` | `{ en?, de? }` ≤20000 | no | |
 | `highlights`, `uses` | `{ en?: string[], de?: string[] }` ≤20 each | no | |
 | `brand` | string or `null` | no | ≤80 |
 | `categoryId` | ObjectId | yes | |
-| `packSize` | `{ value: 0.001–1000000 (≤3 decimals), unit: g\|kg\|ml\|l\|pcs }` | yes | |
-| `stockQuantity` | int 0–1 000 000 | no | the opening stock (default 0); recorded as a `restock` movement. **Only on create**: `PATCH` rejects it (`400 VALIDATION_FAILED`); later changes go through `POST …/stock` |
-| `lowStockThreshold` | int 0–1 000 000 or `null` | no | the admin is warned at or below this count; `null` removes it |
-| `variantOf` | ObjectId or `null` | no | id of **any** pack size of the product to join; `null` separates |
-| `regularPrice` | int cents | yes | 1–10 000 000 |
-| `salePrice` | int cents or `null` | no | 1–10 000 000, must be below `regularPrice`; `null` ends a sale |
-| `discountPercent` | int or `null` | no | 1–99; alternative to `salePrice` (not both) |
-| `vatRate` | int | yes | 0–10000 (700 = 7 %, 1900 = 19 %) |
+| `variants` | pack size[] | yes | 1–20 entries, the fields below; all of one unit family, no pack twice, no article number twice |
+| `vatRate` | int | yes | 0–10000 (700 = 7 %, 1900 = 19 %); the same for every pack size |
 | `status` | `draft` \| `active` \| `archived` | no | default `draft`; `active` sets `publishedAt` once |
-| `isAvailable`, `isFeatured` | boolean | no | `isAvailable: false` keeps an active product in the shop but marks it as not orderable (shown as "sold out"; it cannot be put in a cart). A product with `stock.quantity` 0 is sold out as well. `isFeatured` marks the product for the featured block of the shop (`GET /v1/store/products?featured=true`); it changes nothing else. |
+| `isAvailable`, `isFeatured` | boolean | no | `isAvailable: false` keeps an active product in the shop but marks every pack size as not orderable (shown as "sold out"; nothing of it can be put in a cart). A pack size with `stock.quantity` 0 is sold out as well. `isFeatured` marks the product for the featured block of the shop (`GET /v1/store/products?featured=true`); it changes nothing else. |
 | `sortOrder` | int 0–1 000 000 | no | |
-| `minOrderQuantity`, `maxOrderQuantity` | int 1–10000 (`max` nullable) | no | max ≥ min |
+| `minOrderQuantity`, `maxOrderQuantity` | int 1–10000 (`max` nullable) | no | packs per order, the same for every pack size; max ≥ min |
 | `storageType` | `ambient` \| `chilled` \| `frozen` | no | |
 | `food` | object | no | free-text fields per language (≤20000); `origin` ≤120; `manufacturer` ≤500 |
 | `tags` | string[] | no | ≤20, each `^[a-z0-9]+(?:-[a-z0-9]+)*$` ≤40, unique |
 | `searchKeywords` | string[] | no | ≤30, 2–60 chars each |
 | `seo` | `{ title?: {en?,de?}, description?: {en?,de?} }` ≤300 | no | |
 
+A pack size (an entry of `variants`; the same fields for `POST …/{id}/variants`):
+
+| Field | Type | Required | Validation / meaning |
+| ----- | ---- | -------- | -------------------- |
+| `sku` | string | no | `^[A-Z0-9][A-Z0-9._-]{1,39}$` (upper-cased); generated `RF-00001…` when left out |
+| `gtin` | string or `null` | no | 8, 12, 13 or 14 digits |
+| `packSize` | `{ value: 0.001–1000000 (≤3 decimals), unit: g\|kg\|ml\|l\|pcs }` | yes | decides the URL and the order of the pack sizes |
+| `regularPrice` | int cents | yes | 1–10 000 000 |
+| `salePrice` | int cents or `null` | no | 1–10 000 000, must be below `regularPrice`; `null` ends a sale |
+| `discountPercent` | int or `null` | no | 1–99; alternative to `salePrice` (not both) |
+| `isEnabled` | boolean | no | default `true`; `false` takes the pack size out of the shop |
+| `stockQuantity` | int 0–1 000 000 | no | the opening stock (default 0); recorded as a `restock` movement. **Only when the pack size is created**: `PATCH …/variants/{variantId}` rejects it (`400 VALIDATION_FAILED`); later changes go through `POST …/variants/{variantId}/stock` |
+| `lowStockThreshold` | int 0–1 000 000 or `null` | no | the admin is warned at or below this count; `null` removes it |
+
 **Success Response (201):** `{ "product": { …detail… } }`
 
-**Possible Errors:** `404 CATEGORY_NOT_FOUND`, `400 PRODUCT_PRICE_INVALID` (`details: { regularPrice, salePrice }`; both `salePrice` and `discountPercent` sent, or sale price not below regular), `400 PRODUCT_QUANTITY_INVALID`, `400 PRODUCT_VARIANT_INVALID`, `409 PRODUCT_SKU_TAKEN`, `409 PRODUCT_SLUG_TAKEN`, `400 VALIDATION_FAILED`.
+**Possible Errors:** `404 CATEGORY_NOT_FOUND`, `400 PRODUCT_PRICE_INVALID` (`details: { regularPrice, salePrice }`; both `salePrice` and `discountPercent` sent, or sale price not below regular), `400 PRODUCT_QUANTITY_INVALID`, `400 PRODUCT_VARIANT_INVALID` (pack sizes of different unit families, the same pack twice, or the same article number twice; `details` names the `families`, the `baseQuantity` or the `sku`), `409 PRODUCT_SKU_TAKEN` (an article number of another product), `409 PRODUCT_SLUG_TAKEN` (the base slug or a pack-size URL is in use by another product), `400 VALIDATION_FAILED` (also for an empty `variants` or more than 20).
 
 ### `GET /v1/admin/products/{id}`
 
@@ -998,33 +1016,63 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
 
 ### `PATCH /v1/admin/products/{id}`
 
-**Purpose:** Change a product; send only what changes. Translated fields, lists and `food` are replaced as a whole. `salePrice: null` ends a sale; sending neither `salePrice` nor `discountPercent` keeps the current sale. `lowStockThreshold` can be set or removed (`null`) here; the stock itself cannot (`stockQuantity` is refused).
+**Purpose:** Change the product; send only what changes. Translated fields, lists and `food` are replaced as a whole. A new `slug` renames the URLs of every pack size; a new `vatRate` writes a price-history entry for every pack size; a changed `minOrderQuantity` can change the default pack size. The pack sizes themselves (article number, barcode, pack, prices, enabled switch, threshold, stock) have endpoints of their own: `variants` is refused here (`400 VALIDATION_FAILED`).
 
-**Permission:** `catalog.manage`. **Request Body:** same fields as create except `stockQuantity`, all optional. **Success Response (200):** `{ "product": { … } }`.
+**Permission:** `catalog.manage`. **Request Body:** the product fields of create (everything except `variants`), all optional. **Success Response (200):** `{ "product": { … } }`.
 
-**Possible Errors:** `404 PRODUCT_NOT_FOUND`, `404 CATEGORY_NOT_FOUND`, `400 PRODUCT_PRICE_INVALID`, `400 PRODUCT_QUANTITY_INVALID`, `400 PRODUCT_VARIANT_INVALID` (`variantOf` is the product itself or unknown), `409 PRODUCT_SKU_TAKEN`, `409 PRODUCT_SLUG_TAKEN`, `400 VALIDATION_FAILED`.
+**Possible Errors:** `404 PRODUCT_NOT_FOUND`, `404 CATEGORY_NOT_FOUND`, `400 PRODUCT_QUANTITY_INVALID`, `409 PRODUCT_SLUG_TAKEN` (the new base slug, or a pack-size URL derived from it, is in use by another product), `400 VALIDATION_FAILED`.
 
 ### `DELETE /v1/admin/products/{id}`
 
-**Purpose:** Delete a product and its images for good. Only for drafts/archived products that are not part of an order (cancelled orders do not count). **Permission:** `catalog.manage`. **Success Response:** `204`.
+**Purpose:** Delete a product with its pack sizes and images for good. Only for drafts/archived products no pack size of which is part of an order (cancelled orders do not count). **Permission:** `catalog.manage`. **Success Response:** `204`.
 
 **Possible Errors:** `404 PRODUCT_NOT_FOUND`, `409 PRODUCT_IS_ACTIVE` ("Archive the product before deleting it."), `409 PRODUCT_IN_USE` ("The product cannot be deleted. It is part of 3 order(s). Archive it instead.").
 
 ### `POST /v1/admin/products/{id}/duplicate`
 
-**Purpose:** Copy a product as another pack size: a draft with the same texts, category, food information, low-stock threshold and (by default) images. The copy starts with a stock of 0 and an empty history.
+**Purpose:** Copy a product: a draft with the same texts, category, food information and (by default) images, with its own URL and its own pack sizes. The copy starts with a stock of 0 on every pack size and an empty history.
 
 **Permission:** `catalog.manage`.
 
-**Request Body:** `{ "sku"?: string, "packSize": { "value", "unit" }, "regularPrice": int, "salePrice"?: int|null, "discountPercent"?: int|null, "asVariant"?: boolean (default true), "copyImages"?: boolean (default true) }`
+**Request Body:** `{ "slug"?: { "en"?, "de"? }, "variants"?: [ …pack sizes as in create, 1–20… ], "copyImages"?: boolean (default true) }`. Without `slug` the base slug is generated from the name. Without `variants` the copy gets the pack sizes of the original with generated article numbers, the same packs, prices, enabled switches and thresholds, and no stock.
 
 **Success Response (201):** `{ "product": { …the new draft… } }`. **Possible Errors:** as for create, plus `404 PRODUCT_NOT_FOUND`, `503 STORAGE_UNAVAILABLE`.
 
-### `POST /v1/admin/products/{id}/make-default`
+### `POST /v1/admin/products/{id}/variants`
 
-**Purpose:** Make this pack size the one shown in listings. **Permission:** `catalog.manage`. **Success Response (200):** `{ "product": { … } }`. **Possible Errors:** `404 PRODUCT_NOT_FOUND`, `400 PRODUCT_VARIANT_INVALID` ("The product has no other pack sizes.").
+**Purpose:** Add a pack size to a product. Its unit must be of the product's unit family and its pack must not exist yet. It gets its URL from the base slug and its pack, the first entry of its price history and, with `stockQuantity`, the opening entry of its stock history. The default pack size is computed again.
 
-### `GET /v1/admin/products/{id}/price-history`
+**Permission:** `catalog.manage`.
+
+**Request Body:** one pack size as in create: `{ "sku"?, "gtin"?, "packSize": { "value", "unit" }, "regularPrice", "salePrice"? | "discountPercent"?, "isEnabled"?, "stockQuantity"?, "lowStockThreshold"? }`.
+
+**Success Response (201):** `{ "product": { …detail with the new pack size… } }`
+
+**Possible Errors:** `400 PRODUCT_VARIANT_INVALID` (another unit family, the same pack again, or the product has 20 pack sizes already), `400 PRODUCT_PRICE_INVALID`, `409 PRODUCT_SKU_TAKEN`, `409 PRODUCT_SLUG_TAKEN` (the URL of the pack size is in use by another product), `404 PRODUCT_NOT_FOUND`, `400 VALIDATION_FAILED`.
+
+### `PATCH /v1/admin/products/{id}/variants/{variantId}`
+
+**Purpose:** Change a pack size; send only what changes. `salePrice: null` ends a sale; sending neither `salePrice` nor `discountPercent` keeps the current sale. `gtin: null` and `lowStockThreshold: null` remove them. A changed `packSize` renames the URL of the pack size. `isEnabled: false` takes it out of the shop (and `true` brings it back). A changed price writes a price-history entry; the default pack size is computed again. The stock itself changes through the stock endpoint only: `stockQuantity` is refused (`400 VALIDATION_FAILED`).
+
+**Permission:** `catalog.manage`.
+
+**Request Body:** `{ "sku"?: string, "gtin"?: string | null, "packSize"?: { "value", "unit" }, "regularPrice"?: int, "salePrice"?: int | null, "discountPercent"?: int | null, "isEnabled"?: boolean, "lowStockThreshold"?: int | null }`.
+
+**Success Response (200):** `{ "product": { …detail… } }`
+
+**Possible Errors:** `404 PRODUCT_NOT_FOUND`, `404 PRODUCT_VARIANT_NOT_FOUND`, `400 PRODUCT_VARIANT_INVALID` (the new unit is of another family, or the new pack or article number exists on the product already), `400 PRODUCT_PRICE_INVALID`, `409 PRODUCT_SKU_TAKEN`, `409 PRODUCT_SLUG_TAKEN`, `400 VALIDATION_FAILED`.
+
+### `DELETE /v1/admin/products/{id}/variants/{variantId}`
+
+**Purpose:** Remove a pack size for good, with its price history (its stock history is kept). Not the last pack size of a product, and not one that an order holds (cancelled orders do not count): disable those instead (`isEnabled: false`).
+
+**Permission:** `catalog.manage`. **Success Response (200):** `{ "product": { …detail without the pack size… } }`.
+
+**Possible Errors:** `409 PRODUCT_VARIANT_LAST` ("A product needs at least one pack size. Disable it, or delete the product."), `409 PRODUCT_VARIANT_IN_USE` ("The pack size cannot be removed. It is part of 3 order(s). Disable it instead."), `404 PRODUCT_NOT_FOUND`, `404 PRODUCT_VARIANT_NOT_FOUND`.
+
+### `GET /v1/admin/products/{id}/variants/{variantId}/price-history`
+
+**Purpose:** Every price the pack size had, newest first (max 200): one entry when the pack size was created, one for every price change, one for every change of the product's VAT rate.
 
 **Permission:** `catalog.read`.
 
@@ -1034,11 +1082,11 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
 { "items": [ { "regularPrice": 2499, "salePrice": 1999, "price": 1999, "vatRate": 700, "changedBy": "66f1…", "changedAt": "2026-09-20T09:30:00.000Z" } ] }
 ```
 
-Newest first, max 200. **Possible Errors:** `404 PRODUCT_NOT_FOUND`.
+**Possible Errors:** `404 PRODUCT_NOT_FOUND`, `404 PRODUCT_VARIANT_NOT_FOUND`.
 
-### `POST /v1/admin/products/{id}/stock`
+### `POST /v1/admin/products/{id}/variants/{variantId}/stock`
 
-**Purpose:** Set or adjust the stock. `quantity` sets the exact count (after counting the shelf); `delta` adds (positive) or removes (negative) units. Send one of the two.
+**Purpose:** Set or adjust the stock of one pack size. `quantity` sets the exact count (after counting the shelf); `delta` adds (positive) or removes (negative) units. Send one of the two. The other pack sizes of the product are not touched; the default pack size is computed again.
 
 **Permission:** `catalog.manage`.
 
@@ -1049,27 +1097,27 @@ Newest first, max 200. **Possible Errors:** `404 PRODUCT_NOT_FOUND`.
 ```json
 {
   "product": { "…product detail…": "" },
-  "movement": { "id": "66f9…", "reason": "adjustment", "delta": -4, "quantityAfter": 116, "orderId": null, "orderNumber": null, "adminId": "66f1…", "admin": { "id": "66f1…", "name": "Priya" }, "note": "Broken bags", "createdAt": "…" }
+  "movement": { "id": "66f9…", "variantId": "66f3…", "sku": "RF-00042", "reason": "adjustment", "delta": -4, "quantityAfter": 116, "orderId": null, "orderNumber": null, "adminId": "66f1…", "admin": { "id": "66f1…", "name": "Priya" }, "note": "Broken bags", "createdAt": "…" }
 }
 ```
 
 `movement` is `null` when nothing changed (the same count again). A positive `delta` is recorded as `restock`, a negative `delta` and every `quantity` as `adjustment`.
 
-**Possible Errors:** `400 STOCK_CHANGE_INVALID` (both or neither of `quantity` and `delta`), `409 STOCK_INSUFFICIENT` (removing more than there is; `details: { productId, sku, available, wanted }`), `404 PRODUCT_NOT_FOUND`, `400 VALIDATION_FAILED`.
+**Possible Errors:** `400 STOCK_CHANGE_INVALID` (both or neither of `quantity` and `delta`), `409 STOCK_INSUFFICIENT` (removing more than there is; `details: { productId, variantId, sku, available, wanted }`), `404 PRODUCT_NOT_FOUND`, `404 PRODUCT_VARIANT_NOT_FOUND`, `400 VALIDATION_FAILED`.
 
-### `GET /v1/admin/products/{id}/stock/movements`
+### `GET /v1/admin/products/{id}/variants/{variantId}/stock/movements`
 
-**Purpose:** The stock history, newest first.
+**Purpose:** The stock history of one pack size, newest first.
 
 **Permission:** `catalog.read`.
 
 **Parameters (query):** `limit` 1–100 (default 25), `cursor`, `sort` (`createdAt:asc|desc`; default newest first).
 
-**Success Response (200):** `{ "items": [ { "…stock movement (8.1)…": "" } ], "nextCursor": "…" | null }`. **Possible Errors:** `404 PRODUCT_NOT_FOUND`.
+**Success Response (200):** `{ "items": [ { "…stock movement (8.1)…": "" } ], "nextCursor": "…" | null }`. **Possible Errors:** `404 PRODUCT_NOT_FOUND`, `404 PRODUCT_VARIANT_NOT_FOUND`.
 
 ### `POST /v1/admin/products/{id}/images`
 
-**Purpose:** Upload one or more images (JPEG, PNG, WebP). The first image of a product becomes its main image. All-or-nothing: if one file is refused, nothing is stored, and the error names every refused file.
+**Purpose:** Upload one or more images (JPEG, PNG, WebP). Images belong to the product and are shown for every pack size. The first image of a product becomes its main image. All-or-nothing: if one file is refused, nothing is stored, and the error names every refused file.
 
 **Permission:** `catalog.manage`.
 
@@ -1101,7 +1149,9 @@ Newest first, max 200. **Possible Errors:** `404 PRODUCT_NOT_FOUND`.
 
 The panel reads a spreadsheet and sends its rows; the API checks them, previews what would happen, and writes them once the admin confirms. The export gives the same columns back, so a file can be edited and imported again. The columns, the rules and the flow for the panel are in `doc/CSV_IMPORT_EXPORT.md`; `doc/examples/categories-example.csv` and `doc/examples/products-example.csv` hold every column with sample rows.
 
-The product columns include the stock: `stock_quantity` (the exact count) and `low_stock_threshold` (empty or `0` removes the threshold). A changed count is recorded as an `import` movement with the note "CSV import"; a new product with a count starts its history with a `restock` movement.
+The product sheet has **one row per pack size**. Rows with the same `slug_en` (or, without a slug, the same `name_en`) belong to one product; the columns of the product (name, slug, texts, brand, category, VAT rate, status, switches, sort order, order quantities, storage type, food information, tags, keywords, SEO) are read from its first row in the file, and the later rows contribute only the columns of their pack size: `sku`, `gtin`, `pack_value`, `pack_unit`, `variant_enabled` (yes/no, default yes), `regular_price`, `sale_price`, `discount_percent`, `stock_quantity`, `low_stock_threshold`. The first row of a new product creates it with that pack size; the other rows add theirs (a further pack size needs an article number). A row whose article number exists updates that pack size, and the product columns too when it is the first row of its product in the file. A row without an article number on a product that exists names its pack size by the pack (or the only pack size there is). A sheet of single-size products imports unchanged.
+
+The stock columns: `stock_quantity` (the exact count of the pack size) and `low_stock_threshold` (empty or `0` removes the threshold). A changed count is recorded as an `import` movement with the note "CSV import"; a new pack size with a count starts its history with a `restock` movement.
 
 ### `POST /v1/admin/catalog/import/preview`
 
@@ -1109,7 +1159,7 @@ The product columns include the stock: `stock_quantity` (the exact count) and `l
 
 **Permission:** `catalog.manage`.
 
-**Request Body:** `{ "categories"?: Row[], "products"?: Row[], "existing"?: "skip" | "update" }`. A `Row` is one object per row of the file, the column names as keys, the cells as text (numbers and booleans are accepted too). At most 2,000 rows per type. `existing` says what happens to a row that matches a record: `skip` (default) leaves it alone, `update` changes the fields the row provides. Categories are matched by `slug_en` (or the slug the name would get), products by `sku` (or `slug_en`, or the slug name and pack size would get).
+**Request Body:** `{ "categories"?: Row[], "products"?: Row[], "existing"?: "skip" | "update" }`. A `Row` is one object per row of the file, the column names as keys, the cells as text (numbers and booleans are accepted too). At most 2,000 rows per type. `existing` says what happens to a row that matches a record: `skip` (default) leaves it alone, `update` changes the fields the row provides. Categories are matched by `slug_en` (or the slug the name would get); products by `slug_en` (or the slug the name would get) and their pack sizes by `sku` (or by the pack). With `existing: skip`, an existing pack size is skipped, but a new pack size of an existing product is still added.
 
 **Success Response (200):**
 
@@ -1124,19 +1174,19 @@ The product columns include the stock: `stock_quantity` (the exact count) and `l
     ],
     "unknownColumns": []
   },
-  "products": { "summary": { "…": "" }, "rows": [ { "row": 1, "key": "RF-00042", "name": "Basmati Rice", "action": "update", "id": "66f3…", "changes": ["stock", "lowStockThreshold"], "problems": [] } ], "unknownColumns": ["colour"] },
+  "products": { "summary": { "…": "" }, "rows": [ { "row": 1, "key": "RF-00042", "name": "Basmati Rice", "action": "update", "id": "66f3…", "variantId": "66f2…", "changes": ["stock", "lowStockThreshold"], "problems": [] } ], "unknownColumns": ["colour"] },
   "applied": false,
   "stoppedAt": null
 }
 ```
 
-`row` counts from 1 for the first data row. `action` ∈ `create`, `update` (`changes` names the fields), `skip`, `unchanged`, `error` (`problems` says what; the row is never written). `unknownColumns` lists headers the import ignores. Images, SKUs of existing products and the price history are never changed by an import.
+`row` counts from 1 for the first data row. `action` ∈ `create`, `update` (`changes` names the fields; `variant` for a pack size that is added to a product), `skip`, `unchanged`, `error` (`problems` says what; the row is never written). Product rows carry `id` (the product) and `variantId` (the pack size the row matched or created); in the preview each is `null` when the row would create it. `unknownColumns` lists headers the import ignores. Images, article numbers of existing pack sizes and the price history are never changed by an import.
 
 **Possible Errors:** `400 VALIDATION_FAILED` (more than 2,000 rows, or a body that is not rows).
 
 ### `POST /v1/admin/catalog/import`
 
-**Purpose:** Write the rows of the same body. Categories first, parents before children; then products, a main pack size before its other sizes, whatever the order of the file. A row may refer to a category or product another row creates.
+**Purpose:** Write the rows of the same body. Categories first, parents before children; then products, the row that creates a product before the rows that add its pack sizes, whatever the order of the file. A row may refer to a category or product another row creates.
 
 **Permission:** `catalog.manage`.
 
@@ -1148,7 +1198,7 @@ The product columns include the stock: `stock_quantity` (the exact count) and `l
 
 **Permission:** `catalog.read`.
 
-**Success Response (200):** `{ "type": "products", "columns": ["sku", "gtin", …, "stock_quantity", "low_stock_threshold", …], "rows": [ { "sku": "RF-00001", "regular_price": "19.99", "vat_rate": "7", "is_available": "yes", "stock_quantity": "40", "low_stock_threshold": "", "tags": "vegan|new", … } ] }`. Every cell is a string in the writing of the import; categories in display order, products by SKU. The panel writes the `.xlsx` or `.csv` file. The rows import again as `unchanged`.
+**Success Response (200):** `{ "type": "products", "columns": ["sku", "gtin", …, "pack_value", "pack_unit", "variant_enabled", …, "stock_quantity", "low_stock_threshold", …], "rows": [ { "sku": "RF-00001", "slug_en": "basmati-rice", "pack_value": "1", "pack_unit": "kg", "variant_enabled": "yes", "regular_price": "5.49", "vat_rate": "7", "is_available": "yes", "stock_quantity": "40", "low_stock_threshold": "", "tags": "vegan|new", … } ] }`. Every cell is a string in the writing of the import; categories in display order; one row per pack size, products by base slug and their pack sizes smallest first, the product columns repeated on every row. The panel writes the `.xlsx` or `.csv` file. The rows import again as `unchanged`.
 
 ---
 
@@ -1214,8 +1264,9 @@ Customers can cancel by the rule in `settings.orderPolicy.customerCancellation`:
   "language": "de",
   "items": [
     {
-      "productId": "66e9…", "sku": "ATTA-5KG",
+      "productId": "66e9…", "variantId": "66ea…", "sku": "ATTA-5KG",
       "name": { "en": "Chakki Atta", "de": "Chakki Atta" },
+      "displayName": "Chakki Atta (5 kg)",
       "packSize": { "value": 5, "unit": "kg", "label": "5 kg" },
       "imageUrl": "https://cdn…/small.webp",
       "quantity": 2, "unitPrice": 1299, "regularUnitPrice": 1499, "lineTotal": 2598,
@@ -1225,7 +1276,7 @@ Customers can cancel by the rule in `settings.orderPolicy.customerCancellation`:
   ],
   "totals": { "currency": "EUR", "subtotal": 2598, "deliveryFee": 499, "total": 3097, "netTotal": 2894, "vatTotal": 203, "vat": [ { "vatRate": 700, "gross": 3097, "net": 2894, "vat": 203 } ] },
   "finalTotals": { "…same shape…": "" },
-  "adjustments": [ { "productId": "66e9…", "sku": "ATTA-5KG", "from": 2, "to": 1, "reason": "damaged", "note": "box crushed", "adminId": "66d0…", "admin": { "id": "66d0…", "name": "Vrushabh" }, "at": "…" } ],
+  "adjustments": [ { "productId": "66e9…", "variantId": "66ea…", "sku": "ATTA-5KG", "from": 2, "to": 1, "reason": "damaged", "note": "box crushed", "adminId": "66d0…", "admin": { "id": "66d0…", "name": "Vrushabh" }, "at": "…" } ],
   "deliveryAddress": { "firstName": "Priya", "lastName": "Shah", "street": "Hauptstraße", "houseNumber": "12", "postalCode": "60311", "city": "Frankfurt am Main", "countryCode": "DE" },
   "note": null,
   "payment": { "…admin payment block (11.1)…": "" },
@@ -1246,7 +1297,7 @@ Customers can cancel by the rule in `settings.orderPolicy.customerCancellation`:
 }
 ```
 
-- `items[].regularUnitPrice` is the crossed-out price when the unit price was a reduced one, else `null`. `finalLineTotal` is the price of the units that were delivered and kept.
+- `items[]`: one line per pack size that was bought; `variantId` names the pack size (the key of the correction endpoint and of return decisions), `productId` its product. `name`, `displayName` ("Chakki Atta (5 kg)", English), `packSize` and the prices are the snapshot of the order, not the catalogue of today. `regularUnitPrice` is the crossed-out price when the unit price was a reduced one, else `null`. `finalLineTotal` is the price of the units that were delivered and kept.
 - `deliveryAddress` keys `company`, `additionalLine`, `phone` are absent when unset.
 - `note` is the customer's note at checkout. `adjustments[].note` is internal; the customer sees the reason only.
 - `cancellation`: `null` or `{ reason, text, by: "customer" | "admin" | "system", adminId, admin, at }`. Reasons: section 17.2.
@@ -1331,9 +1382,9 @@ Customers can cancel by the rule in `settings.orderPolicy.customerCancellation`:
 
 **Possible Errors:** `409 ORDER_CANNOT_BE_CHANGED` (`details: { status, allowedIn }` – e.g. a pending or cancelled order), `409 ORDER_CHANGED_MEANWHILE`, `404 ORDER_NOT_FOUND`, `400 VALIDATION_FAILED`.
 
-### `PATCH /v1/admin/orders/{id}/items/{productId}`
+### `PATCH /v1/admin/orders/{id}/items/{variantId}`
 
-**Purpose:** Correct how many units of a product were delivered (missing/damaged). The final bill follows; the agreed bill and the delivery fee stay. A credit note is issued in the same transaction (every confirmed order has an invoice), the units that were not delivered go back to the stock (movement `release`), and the order waits for a refund of the credited amount (`payment.needsRefund`, section 11). The delivered quantity cannot go below what was returned already.
+**Purpose:** Correct how many units of a pack size were delivered (missing/damaged). `{variantId}` is `items[].variantId` of the order. The final bill follows; the agreed bill and the delivery fee stay. A credit note is issued in the same transaction (every confirmed order has an invoice), the units that were not delivered go back to the stock (movement `release`), and the order waits for a refund of the credited amount (`payment.needsRefund`, section 11). The delivered quantity cannot go below what was returned already.
 
 **Permission:** `orders.manage`.
 
@@ -1341,7 +1392,7 @@ Customers can cancel by the rule in `settings.orderPolicy.customerCancellation`:
 
 **Success Response (200):** `{ "order": { … } }` (unchanged when `deliveredQuantity` is the current one).
 
-**Possible Errors:** `404 ORDER_ITEM_NOT_FOUND`, `400 ORDER_QUANTITY_INVALID` (`details: { min: returnedQuantity, max: quantity }`), `409 ORDER_CANNOT_BE_CHANGED` (`details: { status, allowedIn }`), `409 ORDER_CHANGED_MEANWHILE`, `404 ORDER_NOT_FOUND`.
+**Possible Errors:** `404 ORDER_ITEM_NOT_FOUND` ("The order has no such pack size."), `400 ORDER_QUANTITY_INVALID` (`details: { min: returnedQuantity, max: quantity }`), `409 ORDER_CANNOT_BE_CHANGED` (`details: { status, allowedIn }`), `409 ORDER_CHANGED_MEANWHILE`, `404 ORDER_NOT_FOUND`.
 
 ### `POST /v1/admin/orders/{id}/cancel`
 
@@ -1382,7 +1433,7 @@ Reasons: `damaged`, `wrong_item`, `quality`, `not_as_described`, `changed_mind`,
   "status": "approved",
   "requestedAt": "…", "decidedAt": "…", "completedAt": null,
   "items": [
-    { "productId": "…", "sku": "ATTA-5KG", "name": { "en": "Chakki Atta", "de": "Chakki Atta" }, "packSize": { "value": 5, "unit": "kg", "label": "5 kg" }, "quantity": 1, "approvedQuantity": 1, "unitPrice": 1299, "vatRate": 700, "reason": "damaged", "comment": "Bag was torn" }
+    { "productId": "66e9…", "variantId": "66ea…", "sku": "ATTA-5KG", "name": { "en": "Chakki Atta", "de": "Chakki Atta" }, "packSize": { "value": 5, "unit": "kg", "label": "5 kg" }, "quantity": 1, "approvedQuantity": 1, "unitPrice": 1299, "vatRate": 700, "reason": "damaged", "comment": "Bag was torn" }
   ],
   "requestedAmount": 1299,
   "customerComment": "Please pick up on Monday.",
@@ -1395,7 +1446,7 @@ Reasons: `damaged`, `wrong_item`, `quality`, `not_as_described`, `changed_mind`,
 }
 ```
 
-`decisionNote` is what the customer reads; `internalNote` is not shown to the customer. `approvedQuantity` is `null` until approved. `creditAmount` is set on completion (the cents the final bill went down by, delivery fee included when everything came back). `restockedAt` is set when the admin completed the return with `restock: true`, else `null`.
+`items[]` are per pack size of the order: `variantId` is the `variantId` of the order item (the key of the approve body), `productId` its product; name and pack size are the snapshot of the order. `decisionNote` is what the customer reads; `internalNote` is not shown to the customer. `approvedQuantity` is `null` until approved. `creditAmount` is set on completion (the cents the final bill went down by, delivery fee included when everything came back). `restockedAt` is set when the admin completed the return with `restock: true`, else `null`.
 
 ### `GET /v1/admin/returns`
 
@@ -1415,11 +1466,11 @@ Reasons: `damaged`, `wrong_item`, `quality`, `not_as_described`, `changed_mind`,
 
 **Permission:** `orders.manage`.
 
-**Request Body:** `{ "items"?: [ { "productId": "…", "quantity": 0–10000 } ], "note"?: string (≤1000, to the customer), "internalNote"?: string (≤2000) }` — leave `items` out to accept the requested quantities.
+**Request Body:** `{ "items"?: [ { "variantId": "…", "quantity": 0–10000 } ], "note"?: string (≤1000, to the customer), "internalNote"?: string (≤2000) }` — `variantId` is that of an item of the return; leave `items` out to accept the requested quantities.
 
 **Success Response (200):** `{ "return": { … } }` (unchanged when approved already)
 
-**Possible Errors:** `409 RETURN_TRANSITION_NOT_ALLOWED` (`details: { from, to }`), `400 RETURN_QUANTITY_INVALID` (more than requested: `details: { productId, max }`; or everything 0: "Nothing is accepted. Reject the return instead."), `400 ORDER_ITEM_NOT_FOUND` (`details: { productIds }`), `409 ORDER_CHANGED_MEANWHILE`, `404 RETURN_NOT_FOUND`.
+**Possible Errors:** `409 RETURN_TRANSITION_NOT_ALLOWED` (`details: { from, to }`), `400 RETURN_QUANTITY_INVALID` (more than requested: `details: { variantId, max }`; or everything 0: "Nothing is accepted. Reject the return instead."), `400 ORDER_ITEM_NOT_FOUND` ("The return has no such pack size."; `details: { variantIds }`), `409 ORDER_CHANGED_MEANWHILE`, `404 RETURN_NOT_FOUND`.
 
 ### `POST /v1/admin/returns/{id}/reject`
 
@@ -1431,7 +1482,7 @@ Reasons: `damaged`, `wrong_item`, `quality`, `not_as_described`, `changed_mind`,
 
 **Permission:** `orders.manage`. **Request Body:** `{ "note"?: string (≤1000), "internalNote"?: string (≤2000), "restock"?: boolean }`. **Success Response (200):** `{ "return": { …, "status": "completed", "creditAmount": 1299, "restockedAt": "…" | null } }`.
 
-**Possible Errors:** `409 RETURN_TRANSITION_NOT_ALLOWED` (must be `approved`; `details: { from, to }`), `409 RETURN_QUANTITY_INVALID` (`details: { productId, sku }` – more than delivered), `409 ORDER_CHANGED_MEANWHILE`, `404 RETURN_NOT_FOUND`, `404 ORDER_NOT_FOUND`.
+**Possible Errors:** `409 RETURN_TRANSITION_NOT_ALLOWED` (must be `approved`; `details: { from, to }`), `409 RETURN_QUANTITY_INVALID` (`details: { productId, variantId, sku }` – more than delivered), `409 ORDER_CHANGED_MEANWHILE`, `404 RETURN_NOT_FOUND`, `404 ORDER_NOT_FOUND`.
 
 ---
 
@@ -1439,7 +1490,7 @@ Reasons: `damaged`, `wrong_item`, `quality`, `not_as_described`, `changed_mind`,
 
 Every order is paid at checkout, through Stripe (card or PayPal), before anything is taken from the stock: the bank approves the amount on Stripe's page, the webhook brings the approval, the API takes the stock and only then captures the money (section 9). The admin never records a payment. What the admin decides are **refunds**: through Stripe (the money goes back to the card or PayPal account) or by hand (bank transfer, cash, or another way the admin records).
 
-**How a refund comes about.** Money waits for a refund in two cases: a paid order was cancelled (by the customer or the admin; `refundable.suggested` is then everything that was paid), or a correction (`PATCH /v1/admin/orders/{id}/items/{productId}`) or a completed return lowered the final bill and a credit note was issued (`suggested` is what the credit notes took off the bill and has not gone back yet). Both show as `payment.needsRefund: true` on the order, are listed by `GET /v1/admin/orders?needsRefund=true` and counted on the start page (section 15). The admin reads `refundable`, then decides with `POST /v1/admin/orders/{id}/payment/refunds`: `method: "stripe"` is asked of Stripe at once and completes when Stripe confirms; `method: "manual"` waits as `pending` until the admin has sent the money and completes it. When a refund completes, the order's `refundedAmount` rises, `paymentStatus` becomes `refunded` once everything paid went back, and the customer gets the `refund_completed` email.
+**How a refund comes about.** Money waits for a refund in two cases: a paid order was cancelled (by the customer or the admin; `refundable.suggested` is then everything that was paid), or a correction (`PATCH /v1/admin/orders/{id}/items/{variantId}`) or a completed return lowered the final bill and a credit note was issued (`suggested` is what the credit notes took off the bill and has not gone back yet). Both show as `payment.needsRefund: true` on the order, are listed by `GET /v1/admin/orders?needsRefund=true` and counted on the start page (section 15). The admin reads `refundable`, then decides with `POST /v1/admin/orders/{id}/payment/refunds`: `method: "stripe"` is asked of Stripe at once and completes when Stripe confirms; `method: "manual"` waits as `pending` until the admin has sent the money and completes it. When a refund completes, the order's `refundedAmount` rises, `paymentStatus` becomes `refunded` once everything paid went back, and the customer gets the `refund_completed` email.
 
 ### 11.1 The admin payment block (`order.payment`)
 
@@ -1769,7 +1820,7 @@ News about a product or an offer, written by the admin, sent to the customers wh
 | ----- | ---- | -------- | -------------------- |
 | `subject` | `{ en (1–160), de? }` | yes | |
 | `message` | `{ en (1–2000), de? (≤2000) }` | yes | line breaks are kept in the email |
-| `link` | absolute URL ≤500 | no | the button; defaults to the product page (`<SHOP_URL>/products/<slug.en>`) or the shop |
+| `link` | absolute URL ≤500 | no | the button; defaults to the product page (`<SHOP_URL>/products/<slug.en>`, the base URL of the product, which opens its default pack size) or the shop |
 | `linkLabel` | `{ en (1–160), de? (≤160) }` | no | button label; default "Visit the shop"/"Zum Shop" |
 | `productId` | ObjectId | no | the product the news is about (for the record and the lists) |
 | `channels` | `["email"]` and/or `["whatsapp"]` | no | default `["email"]` |
@@ -1843,7 +1894,7 @@ News about a product or an offer, written by the admin, sent to the customers wh
 
 - `orders.toProcess` = orders in `confirmed` (paid, not yet in processing); `items` the newest five.
 - `refunds.needed` = paid orders whose money waits for the admin, exactly what `GET /v1/admin/orders?needsRefund=true` lists: cancelled and not refunded in full, or credited by a correction or a completed return beyond what was refunded (section 11); `orders` the newest five of them (with `paidAmount`); `pending` / `failed` = refunds in those statuses, `items` the newest five `pending` refunds.
-- `stock.low` = products at or below their low-stock threshold, `items` the five most recently updated.
+- `stock.low` = products with a pack size at or below its low-stock threshold (the `lowStock=true` filter), `items` the five most recently updated, as product summaries with `variants`: `variants[].stock.isLow` marks the pack sizes that run low, `stock.lowVariants` counts them.
 - `notifications.items` are the newest five `failed` messages, in the shape of the notifications list.
 
 ---
@@ -1926,8 +1977,8 @@ Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 - **400**: `VALIDATION_FAILED`, `BAD_REQUEST`, `IDEMPOTENCY_KEY_REQUIRED`, `ADMIN_MFA_SETUP_REQUIRED`, `ROLE_PERMISSION_UNKNOWN`, `ADDRESS_LIMIT_REACHED`, `CATEGORY_PARENT_INVALID`, `CATEGORY_TOO_DEEP`, `CATEGORY_ORDER_INVALID`, `PRODUCT_PRICE_INVALID`, `PRODUCT_QUANTITY_INVALID`, `PRODUCT_VARIANT_INVALID`, `STOCK_CHANGE_INVALID`, `CART_FULL`, `ORDER_QUANTITY_INVALID`, `ORDER_ITEM_NOT_FOUND` (returns), `RETURN_QUANTITY_INVALID` (approve), `REFUND_AMOUNT_INVALID` (more than can be refunded), `REFUND_METHOD_INVALID`, `IMAGE_REQUIRED`, `IMAGE_INVALID`, `IMAGE_FORMAT_NOT_ALLOWED`, `IMAGE_DIMENSIONS_INVALID`, `IMAGE_LIMIT_REACHED`, `IMAGE_ORDER_INVALID`, `WEBHOOK_SIGNATURE_INVALID`.
 - **401**: `UNAUTHENTICATED` (generic), `AUTH_TOKEN_INVALID`, `AUTH_REFRESH_INVALID`, `AUTH_SESSION_REVOKED`, `ADMIN_CREDENTIALS_INVALID`, `ADMIN_MFA_TOKEN_INVALID`, `ADMIN_MFA_CODE_INVALID`, `OTP_INVALID`, `GOOGLE_TOKEN_INVALID`, `GOOGLE_EMAIL_NOT_VERIFIED`.
 - **403**: `FORBIDDEN` (generic), `ADMIN_PERMISSION_DENIED`, `ADMIN_PASSWORD_CHANGE_REQUIRED`, `ADMIN_ACCOUNT_DISABLED`, `ADMIN_SELF_MODIFICATION`, `ROLE_IS_SYSTEM`, `ORIGIN_NOT_ALLOWED`, `CUSTOMER_BLOCKED`, `JOBS_TOKEN_INVALID`.
-- **404**: `NOT_FOUND`, `ADMIN_NOT_FOUND`, `ROLE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `ADDRESS_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `IMAGE_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND`, `ORDER_ITEM_NOT_FOUND` (orders), `RETURN_NOT_FOUND`, `INVOICE_NOT_FOUND`, `REFUND_NOT_FOUND`, `LEGAL_DOCUMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `ANNOUNCEMENT_NOT_FOUND`.
-- **409**: `CONFLICT`, `ADMIN_EMAIL_TAKEN`, `ADMIN_SELF_MODIFICATION` (last super admin), `ROLE_KEY_TAKEN`, `ROLE_IN_USE`, `CATEGORY_SLUG_TAKEN`, `CATEGORY_HAS_CHILDREN`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_SKU_TAKEN`, `PRODUCT_SLUG_TAKEN`, `PRODUCT_IS_ACTIVE`, `PRODUCT_IN_USE`, `STOCK_INSUFFICIENT`, `IMAGE_ORDER_INVALID` (changed meanwhile), `CART_EMPTY`, `ORDER_ITEMS_NOT_ORDERABLE`, `ORDER_TOTAL_CHANGED`, `ORDER_NOT_PAYABLE`, `ORDER_CANNOT_BE_CANCELLED`, `ORDER_TRANSITION_NOT_ALLOWED`, `ORDER_CANNOT_BE_CHANGED`, `ORDER_CHANGED_MEANWHILE`, `RETURN_NOT_POSSIBLE`, `RETURN_WINDOW_CLOSED`, `RETURN_QUANTITY_INVALID` (request/complete), `RETURN_TRANSITION_NOT_ALLOWED`, `LEGAL_DOCUMENT_PUBLISHED`, `LEGAL_DOCUMENTS_MISSING`, `LEGAL_VERSION_CHANGED`, `COMPANY_DETAILS_MISSING`, `REFUND_AMOUNT_INVALID` (nothing paid), `REFUND_TRANSITION_NOT_ALLOWED`, `NOTIFICATION_TRANSITION_NOT_ALLOWED`, `ANNOUNCEMENT_NO_RECIPIENTS`.
+- **404**: `NOT_FOUND`, `ADMIN_NOT_FOUND`, `ROLE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `ADDRESS_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `PRODUCT_VARIANT_NOT_FOUND`, `IMAGE_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND`, `ORDER_ITEM_NOT_FOUND` (orders), `RETURN_NOT_FOUND`, `INVOICE_NOT_FOUND`, `REFUND_NOT_FOUND`, `LEGAL_DOCUMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `ANNOUNCEMENT_NOT_FOUND`.
+- **409**: `CONFLICT`, `ADMIN_EMAIL_TAKEN`, `ADMIN_SELF_MODIFICATION` (last super admin), `ROLE_KEY_TAKEN`, `ROLE_IN_USE`, `CATEGORY_SLUG_TAKEN`, `CATEGORY_HAS_CHILDREN`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_SKU_TAKEN`, `PRODUCT_SLUG_TAKEN`, `PRODUCT_IS_ACTIVE`, `PRODUCT_IN_USE`, `PRODUCT_VARIANT_LAST`, `PRODUCT_VARIANT_IN_USE`, `STOCK_INSUFFICIENT`, `IMAGE_ORDER_INVALID` (changed meanwhile), `CART_EMPTY`, `ORDER_ITEMS_NOT_ORDERABLE`, `ORDER_TOTAL_CHANGED`, `ORDER_NOT_PAYABLE`, `ORDER_CANNOT_BE_CANCELLED`, `ORDER_TRANSITION_NOT_ALLOWED`, `ORDER_CANNOT_BE_CHANGED`, `ORDER_CHANGED_MEANWHILE`, `RETURN_NOT_POSSIBLE`, `RETURN_WINDOW_CLOSED`, `RETURN_QUANTITY_INVALID` (request/complete), `RETURN_TRANSITION_NOT_ALLOWED`, `LEGAL_DOCUMENT_PUBLISHED`, `LEGAL_DOCUMENTS_MISSING`, `LEGAL_VERSION_CHANGED`, `COMPANY_DETAILS_MISSING`, `REFUND_AMOUNT_INVALID` (nothing paid), `REFUND_TRANSITION_NOT_ALLOWED`, `NOTIFICATION_TRANSITION_NOT_ALLOWED`, `ANNOUNCEMENT_NO_RECIPIENTS`.
 - **413**: `FILE_TOO_LARGE`. **429**: `RATE_LIMITED`, `ADMIN_ACCOUNT_LOCKED`, `OTP_COOLDOWN`, `OTP_LIMIT_REACHED`. **502**: `PAYMENT_PROVIDER_ERROR`. **503**: `SERVICE_UNAVAILABLE`, `PAYMENTS_NOT_CONFIGURED`, `GOOGLE_NOT_CONFIGURED`, `MAIL_DELIVERY_FAILED`, `STORAGE_UNAVAILABLE`. **500**: `INTERNAL_ERROR`.
 
 ---

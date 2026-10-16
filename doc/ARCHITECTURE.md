@@ -1,6 +1,6 @@
 # Radhe Foods Backend Architecture
 
-Status: describes the API as built. Rewritten on 2026-10-16, after the move from a pre-order shop to a shop that sells from stock and is paid at checkout.
+Status: describes the API as built. Rewritten on 2026-10-16, after the move from a pre-order shop to a shop that sells from stock and is paid at checkout, and updated the same day for products with several pack sizes.
 Scope: this repository (`radhe-api`) holds the NestJS backend only. The customer web app and the admin app are separate Next.js projects.
 
 The plan of the move and the owner's decisions are in `ECOMMERCE_MIGRATION_PLAN.md`.
@@ -18,9 +18,10 @@ Product → Cart → Checkout → Stripe Checkout (card, PayPal) → Order confi
         → Processing → Dispatched → Delivered → (Return within the return window)
 ```
 
-- Every product has a stock count; 0 means sold out. The stock is what everyone sees: nothing is reserved while a customer is paying.
+- A product is one record with its pack sizes: "Basmati Rice" with 1 kg and 5 kg. The texts, category, images, food information and VAT rate are on the product; each pack size (`variants[]`) has its own article number, price, stock and URL (`basmati-rice-1kg`). The smallest enabled pack size that is in stock stands for the product in lists; what a customer puts in the cart and orders is a pack size.
+- Every pack size has a stock count; 0 means sold out. The stock is what everyone sees: nothing is reserved while a customer is paying.
 - An order exists from the moment the customer starts to pay (`pending_payment`). The payment confirms it; an order is never confirmed by hand.
-- Overselling is prevented at the moment of payment: the bank approves the amount on the Stripe page, the API takes the stock of every item, and only then captures the money. An item that sold out meanwhile cancels the order and nothing is charged.
+- Overselling is prevented at the moment of payment: the bank approves the amount on the Stripe page, the API takes the stock of every item from its pack size, and only then captures the money. An item that sold out meanwhile cancels the order and nothing is charged.
 - Delivery is Germany-wide, one standard delivery with configurable fee tiers; the admin picks the carrier, never the customer.
 
 ## 2. Decisions
@@ -31,11 +32,11 @@ Product → Cart → Checkout → Stripe Checkout (card, PayPal) → Order confi
 | Languages | English (`en`) and German (`de`) from launch |
 | Shape | One NestJS modular monolith, one process, REST with OpenAPI. No microservices, no Redis, no queue service |
 | Database | MongoDB Atlas, also for development. Automated tests use an in-memory MongoDB |
-| Stock | Every product tracks `stock.quantity` and an optional `lowStockThreshold`; set by the admin and by CSV; every change is a record in a ledger |
+| Stock | Every pack size tracks `stock.quantity` and an optional `lowStockThreshold`; set by the admin and by CSV; every change is a record in a ledger |
 | Reservation | None before payment. Products stay available to everyone until a payment is captured; overselling is prevented by taking the stock before capturing the money |
 | Payment | Stripe Checkout with card and PayPal, at checkout, with manual capture: authorise on the page, deduct the stock, then capture. No cash, no cash on delivery, no coupons |
 | Accounts | Browsing and the cart need no account. Checkout requires sign-in; no guest checkout |
-| Pack sizes | Every pack size is its own product with its own SKU, price and page. Pack sizes of the same product share a group, and the shop offers them as sizes to choose from |
+| Pack sizes | One product holds its pack sizes as embedded `variants`, each with its own SKU, price, stock and URL. The smallest enabled size in stock stands for the product; the shop offers the other sizes to choose from. Design and decisions: `PRODUCT_VARIANTS_PLAN.md` |
 | Categories | Managed in the admin panel, up to three levels deep |
 | Cancellation | The customer may cancel until the order is dispatched by default; the cutoff is a setting (`never`, `while_confirmed`, `until_dispatched`). An unpaid order can always be given up. The admin may cancel until the goods are delivered |
 | Changing an order | Not possible. The customer cancels while allowed and orders again |
@@ -91,10 +92,10 @@ Cron job ── POST /v1/jobs/run ─────────────┤
 | `customers` | Profiles, addresses, language, account status (blocking), communication preferences, the unsubscribe link |
 | `admin-users` | Admin accounts, roles, permissions |
 | `people` | The names of admins and customers next to their ids in admin answers. Owns no data |
-| `catalog` | Products (one per pack size), categories, translations, SEO fields, images, prices with their history, stock with the movement ledger, CSV import and export |
+| `catalog` | Products with their pack sizes (`variants`), categories, translations, SEO fields, images, prices with their history per pack size, stock per pack size with the movement ledger, CSV import and export |
 | `media`, `storage` | Image validation and conversion; file storage behind a provider interface (S3, local folder) |
-| `storefront` | What customers see: the catalogue with `ordering` per product (can it be ordered, why not, how many are left), facets. Owns no data |
-| `cart` | Server cart for signed-in customers, price preview for anonymous carts, and the bill: totals, VAT, delivery fee |
+| `storefront` | What customers see: the catalogue, one entry per product shown as one pack size, with `ordering` per pack size (can it be ordered, why not, how many are left), facets. Owns no data |
+| `cart` | Server cart for signed-in customers, one line per pack size, price preview for anonymous carts, and the bill: totals, VAT, delivery fee |
 | `orders` | The order from checkout to delivery: creation from the cart as `pending_payment`, taking stock and giving it back, statuses and history, delivery method and tracking, bulk actions, corrections of delivered quantities, cancellation, the final bill, the hooks the modules above register |
 | `payments` | Stripe Checkout with manual capture, settlement from the webhook, paying again, the checkout cleanup job, credit notes after a changed bill, refunds through Stripe or by hand |
 | `invoices` | Invoices and credit notes: numbers without gaps, immutable documents, PDF rendering, the PDF attachment for notifications |
@@ -107,6 +108,8 @@ Cron job ── POST /v1/jobs/run ─────────────┤
 | `legal` | Versioned `terms` and `privacy` documents |
 | `jobs` | Every scheduled job in one call, for an external timer. Owns no data |
 | `health`, `config`, `database`, `common` | Health check, validated environment, transactions, counters, errors, middleware |
+
+Inside `catalog`, the product and its pack sizes are one unit (`products/`): `product.schema.ts` holds the product with its embedded `variants`; `product-variants.ts` holds the rules of the pack sizes free of database calls (one unit family, no pack twice, no article number twice, the URL of a size from the base slug and the pack, the default size, the display name, the derived fields); `products.service.ts` writes products and their sizes (there is no separate service for the sizes); `stock.service.ts` keeps the stock per pack size and its ledger, and is the only place that changes `stock.quantity` once a size exists (a size is created with its opening count, which the ledger records); `product-query.ts`, `product-facets.ts` and `product-ordering.ts` hold the filters, the facet counts and the rule "can this pack size be ordered now"; `catalog-view.service.ts` turns the records into every store and admin answer.
 
 Rule: modules talk through their public services. Business modules never call an email or WhatsApp provider directly: they queue a message with the notifications module, which knows the consent of the customer and the channels. There is no event bus; `notifications` sits below the business modules and is called directly.
 
@@ -128,7 +131,7 @@ notifications ──► customers, settings, mail
 
 Where a module needs an answer from a module above it, that module registers the answer:
 
-- `orders` registers with `catalog` that a product which is part of an order that counts cannot be deleted.
+- `orders` registers with `catalog` that a product, or a pack size of it, which is part of an order that counts cannot be deleted or removed.
 - `payments` registers with `orders` what follows a changed final bill (a credit note) and a cancellation (an approval of the bank that was never captured is let go of, an open payment page is closed).
 - The refunds part of `payments` registers with the webhook handler what Stripe tells about refunds.
 - `invoices` registers with `notifications` how an invoice PDF is drawn, so a confirmation email can carry one. `notifications` knows nothing about orders or invoices: it stores what it is given and renders it at send time.
@@ -147,7 +150,7 @@ MongoDB Atlas with Mongoose. Collections have `createdAt` and `updatedAt` unless
 - **Dates** are stored in UTC. Calendar days are interpreted in `BUSINESS_TIMEZONE` (`Europe/Berlin`).
 - **Translatable fields** are objects: `{ en: "...", de: "..." }`.
 - **Orders hold snapshots**, never live references, for anything shown to the customer.
-- **Settlement, corrections and the completion of a return run in transactions.** Stock changes are single atomic updates outside them.
+- **Settlement, corrections and the completion of a return run in transactions.** Stock changes are single atomic updates on the pack size's array element, outside them.
 
 ### Collections
 
@@ -159,14 +162,14 @@ MongoDB Atlas with Mongoose. Collections have `createdAt` and `updatedAt` unless
 | `otpChallenges` | email, keyed hash of the login code, attempts, expiry; purged by TTL |
 | `roles` | key, name, permission strings |
 | `categories` | translated name and slug, parent, ancestors, sort order, visibility, image |
-| `products` | one document per sellable pack size: SKU, translated name, slug and description, category and category path, pack size, pack-size group, regular and sale price, VAT rate, status (`draft`, `active`, `archived`), `isAvailable`, `minOrderQuantity`, `maxOrderQuantity`, `stock { quantity, lowStockThreshold }`, images, food information, SEO fields, search words |
-| `productPriceChanges` | one entry per price change of a product |
-| `stockMovements` | the ledger: product, SKU, reason (`restock`, `adjustment`, `import`, `order`, `cancel`, `return`, `release`), delta, quantity afterwards, the order or the admin, note. Appended, never edited; `createdAt` only |
-| `carts` | customer, items; one per customer, dropped after 90 days without a change |
+| `products` | one document per product with its pack sizes, see below: translated name, base slug and description, category and category path, `variants[]` (SKU, pack size, URL, prices, enabled switch, stock per size), `defaultVariantId`, `priceFrom`, VAT rate, status (`draft`, `active`, `archived`), `isAvailable`, `minOrderQuantity`, `maxOrderQuantity`, images, food information, SEO fields, search words |
+| `productPriceChanges` | one entry per price change of a pack size: product, pack size (`variantId`), SKU, prices, VAT rate, admin |
+| `stockMovements` | the ledger: product, pack size (`variantId`), SKU, reason (`restock`, `adjustment`, `import`, `order`, `cancel`, `return`, `release`), delta, quantity afterwards, the order or the admin, note. Appended, never edited; `createdAt` only |
+| `carts` | customer, items (product, pack size, quantity, added at); one line per pack size, one cart per customer, dropped after 90 days without a change |
 | `orders` | see below |
 | `paymentEvents` | Stripe event id (unique), type, processed flag, order, error; kept 90 days |
 | `refunds` | number (`RF-1084-RF1`), order, customer, invoice number, amount, reason, method (`stripe`, `manual`), status, Stripe refund id and status, manual way, reference and paid date, note, history |
-| `returns` | number (`RF-1084-R1`), order, customer, status, items with requested and approved quantities and reasons, comments, notes, credit amount, decided, completed and restocked dates, history |
+| `returns` | number (`RF-1084-R1`), order, customer, status, items (product, pack size, SKU, name, pack) with requested and approved quantities and reasons, comments, notes, credit amount, decided, completed and restocked dates, history |
 | `notifications` | type, channel, recipient, customer, order, product, return, refund, announcement, language, the data it is rendered from, subject, attachments by reference, status, dedupe key, attempts, next attempt, lock, sent time, provider message id, last error, history of attempts |
 | `announcements` | subject and message per language, link, product, channels, recipients, queued, who sent it, cancelled |
 | `legalDocuments` | type (`terms`, `privacy`), version, translated title and content, status (`draft`, `published`), published date |
@@ -176,6 +179,32 @@ MongoDB Atlas with Mongoose. Collections have `createdAt` and `updatedAt` unless
 
 The delivery fee is a setting with tiers, not a collection of rules. Delivery methods are a fixed list in code (`radhe_delivery`, `dhl`, `hermes`), not a collection; the default for new orders is a setting. Delivery addresses are part of the customer document.
 
+### Product document
+
+```text
+name { en, de }, slug { en, de }                           (the base of the URLs, "basmati-rice")
+sortName, subtitle, shortDescription, description, highlights[], uses[]
+brand, categoryId, categoryPath[]
+variants[]:                                                (the pack sizes, 1 to 20, each with its own _id)
+  sku                                                      (unique across the shop)
+  gtin
+  packSize: { value, unit, baseQuantity }                  (baseQuantity in g, ml or pieces; orders the sizes)
+  slug { en, de }                                          ("basmati-rice-1kg"; base slug plus the pack)
+  regularPrice, salePrice, effectivePrice, discountPercent (cents, per size)
+  isEnabled                                                (the admin's switch for one size)
+  stock: { quantity, lowStockThreshold }
+  createdAt
+defaultVariantId                                           (the size that stands for the product)
+priceFrom, discountPercent                                 (of the default size, for sorting and filtering)
+vatRate                                                    (the same for every size)
+status, isAvailable, isFeatured, sortOrder
+minOrderQuantity, maxOrderQuantity                         (packs per order, the same for every size)
+storageType, images[], primaryImageId, food, tags[], searchKeywords[], searchTokens[], seo
+publishedAt, createdBy, updatedBy
+```
+
+Rules of the pack sizes, checked on every write: all sizes of a product share one unit family (mass `g`/`kg`, volume `ml`/`l`, count `pcs`); no pack twice; no article number twice; the URLs of the sizes are unique because the base slug is unique and the packs are unique within a product. The default size is the smallest enabled one whose stock covers `minOrderQuantity`, else the smallest enabled one, else the smallest; never the cheapest. `defaultVariantId`, `priceFrom` and `discountPercent` are written again after every change to the sizes or their stock (an import, an order, a cancellation, a return). `searchTokens` contain every article number.
+
 ### Order document
 
 ```text
@@ -183,7 +212,7 @@ orderNumber ("RF-1001" onwards), customerId
 customer: { email, firstName, lastName, phone }            (snapshot)
 searchTokens[]                                             (number, name, email, phone)
 items[]:
-  productId, sku, name { en, de }, packValue, packUnit, imageKey
+  productId, variantId, sku, name { en, de }, packValue, packUnit, imageKey
   quantity, unitPrice, regularUnitPrice, vatRate
   lineTotal, vatAmount                                     (agreed)
   deliveredQuantity, returnedQuantity
@@ -191,7 +220,7 @@ items[]:
 totals:      currency, subtotal, deliveryFee, total, netTotal, vatTotal,
              vat[]: { vatRate, gross, net, vat }           (agreed, never changes)
 finalTotals: the same fields                               (after corrections and returns)
-adjustments[]: { productId, sku, from, to, reason, note, adminId, at }
+adjustments[]: { productId, variantId, sku, from, to, reason, note, adminId, at }
 deliveryAddress (snapshot)
 delivery: { method, trackingNumber, dispatchedAt, deliveredAt }
 orderStatus, paymentStatus
@@ -211,8 +240,8 @@ idempotencyKey
 ### Important indexes
 
 - `orders`: unique `orderNumber`; unique `(customerId, idempotencyKey)` where the key exists, so the database itself guarantees one order per attempt; `(customerId, _id)` and `(orderStatus, _id)` for the lists; `(orderStatus, pendingUntil)` on `pending_payment` only, for the cleanup; sparse `payment.checkoutSessionId` and `payment.paymentIntentId` for what Stripe talks about; `(paymentStatus, orderStatus)` for the refunds to decide.
-- `products`: unique SKU; unique slug per language; `(status, isDefaultVariant, sortOrder, _id)` for the shop listing; sparse `variantGroupId`; `searchTokens`.
-- `stockMovements`: `(productId, _id)`, the history of one product newest first.
+- `products`: unique `variants.sku` (a unique index on an array field refuses the same value in two documents; within one document the service checks); unique base slug per language (`slug.en`, `slug.de`); unique URL of a pack size per language (`variants.slug.en`, `variants.slug.de`); `(categoryPath, status, sortOrder, _id)` for the products of a category and its sub-categories; `(status, sortOrder, _id)` for the shop listing; `(status, priceFrom, _id)` for the sort by price; `(variants.packSize.value, variants.packSize.unit)` for the pack-size filter; `searchTokens`.
+- `stockMovements`: `(productId, variantId, _id)`, the history of one pack size newest first. `productPriceChanges`: `(productId, variantId, createdAt)`.
 - `carts`: unique `customerId`; TTL on `updatedAt` of 90 days.
 - `invoices`: unique `number`; `(orderId, _id)` ascending, so the documents of an order come in order of issue; `(customerId, _id)`; `(type, issuedAt)`.
 - `refunds`: unique `refundNumber`; `(orderId, _id)`, `(status, _id)`; sparse `stripe.refundId`.
@@ -270,19 +299,25 @@ Payment status: `pending` while the customer has not paid; `authorized` once the
 
 ## 7. Key flows
 
-### 7.1 Checkout
+### 7.1 Catalogue and cart
+
+- `GET /v1/store/products` answers one entry per product, shown as its default pack size: `variantId`, `sku`, `slug` (the URL of that size), `displayName` ("Basmati Rice (1 kg)": the name, a space, the pack label in parentheses), `packSize`, `pricing` (with `basePrice` per kg, l or piece) and `ordering` are those of the shown size; `variants[]` lists every enabled size, smallest first, each with `isDefault` and `isSelected`. With the `packSize` filter a product is listed when one of its enabled sizes matches, and shown as the smallest matching one. `orderable=true` means some enabled size can be ordered, `onSale=true` that some enabled size is reduced; `minPrice`, `maxPrice`, `sort=price_asc|price_desc` and `sort=discount` use the default size (`priceFrom` and `discountPercent` on the product). The pack-size facet counts the enabled sizes of the listed products; the other facets and the price bands count products.
+- `GET /v1/store/products/{slug}` takes the URL of a pack size (`basmati-rice-1kg`, which selects that size) or the base slug of the product (`basmati-rice`, which selects the default size), in either language; the slug of the requested language is tried first, then the other one, so a link still works after a language switch. A disabled size answers 404, as does a product that is not active or in a hidden category. The answer is the list entry with the selected size plus `slugs` (the selected size's URL in both languages, for the language switch), `gtin`, the texts, images, breadcrumbs, food information and SEO (`title` defaults to the display name). Switching sizes on the page needs no further request: every size is in `variants`.
+- The cart holds pack sizes: `PUT /v1/store/cart/items/{variantId}` sets the quantity of a line (0 removes it), `DELETE .../items/{variantId}` removes it; `POST /v1/store/cart/preview` (for visitors) and `POST /v1/store/cart/merge` take `items: [{ variantId, quantity }]`. A size that is unknown or disabled, or whose product is not active, answers 404 `CART_PRODUCT_NOT_FOUND`. Every line is priced from the current price of its size when the cart is shown and answers `variantId`, `productId` (null when the size is gone), `quantity`, `unitPrice`, `lineTotal`, `vatRate`, `vatAmount`, `issue` (`product_not_found` when the size or the product is gone, `product_unavailable` when the product or the size is switched off, `sold_out`, `quantity_below_minimum`, `quantity_above_maximum`, or null), `ordering` and `product` (the list entry with this size selected, or null). The admin's stock changes, the CSV import and every order, cancellation and return write the stock of one size and refresh the product's default size and `priceFrom`.
+
+### 7.2 Checkout
 
 `POST /v1/store/checkout`, signed-in customers only, header `Idempotency-Key`, body `addressId`, `expectedTotal`, `consent { accepted, versions { terms, privacy } }`, optional `note` and `language`.
 
 1. Online payment must be configured (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`), else 503 `PAYMENTS_NOT_CONFIGURED`. The company settings must be complete enough for an invoice (name, address, email, VAT id or tax number), else 409 `COMPANY_DETAILS_MISSING`.
 2. If an order with this key exists for this customer, it is answered with status 200 and `created: false`, with its open payment page or a new one; 409 `ORDER_NOT_PAYABLE` when that order is paid or given up.
-3. Checks, reading only: the customer is not blocked; the address is theirs; the accepted versions are the current published ones of `terms` and `privacy`; the cart is not empty; every line can be ordered (the product exists and is available, the stock covers the quantity, the quantity is within the product's minimum and maximum), else 409 `ORDER_ITEMS_NOT_ORDERABLE` with the lines and their issue; prices, VAT, delivery fee and totals are computed from the database; the total equals `expectedTotal`, else 409 `ORDER_TOTAL_CHANGED` with the new bill.
+3. Checks, reading only: the customer is not blocked; the address is theirs; the accepted versions are the current published ones of `terms` and `privacy`; the cart is not empty; every line can be ordered (the pack size exists and is enabled, its product is active and available, the stock of the size covers the quantity, the quantity is within the product's minimum and maximum), else 409 `ORDER_ITEMS_NOT_ORDERABLE` with `details.lines[]` (`productId`, `variantId`, `sku`, `quantity`, `issue`, `minQuantity`, `maxQuantity`, `remaining`); prices, VAT, delivery fee and totals are computed from the database; the total equals `expectedTotal`, else 409 `ORDER_TOTAL_CHANGED` with the new bill.
 4. The next order number is taken (`RF-1001` onwards) and the order is written as `pending_payment` / `pending` with its snapshots, the consent record, `payment.amount` and `pendingUntil` 24 hours ahead. Nothing is reserved; the cart is kept.
 5. A Stripe Checkout Session is created: the amount, the order number as description, the email and language of the customer, card and PayPal, **manual capture**, expiry after `payments.checkoutMinutes` (default 60, 30 to 1440), success and cancel URLs `SHOP_URL/account/orders/{number}?payment=success|cancelled`, one idempotency key per attempt. The session is noted on the order (`attempts` + 1, `pendingUntil` = page expiry + 10 minutes) and `{ created: true, order, checkout: { url, expiresAt } }` is answered with 201.
 
 The customer pays on Stripe's page; the bank approves the amount; nothing is taken yet. The order number is taken outside any transaction; a failed request can leave a gap in the numbers.
 
-### 7.2 Settlement
+### 7.3 Settlement
 
 Stripe reports through `POST /v1/webhooks/stripe`, verified with the signing secret. Every event is recorded in `paymentEvents` by its id before it is worked and marked processed afterwards; an event that arrived before changes nothing, and two arriving at once are worked once. The events used: `checkout.session.completed` and `checkout.session.async_payment_succeeded` settle; `checkout.session.async_payment_failed` and `payment_intent.payment_failed` record a failure; `checkout.session.expired` forgets the page; `refund.*`, `charge.refund.updated` and `charge.refunded` go to the refunds.
 
@@ -291,7 +326,7 @@ Settling an order, given the payment intent:
 1. An order that is `paid` or `refunded` is left alone. An order that is no longer `pending_payment` (cancelled while the customer was paying) lets the approval go: nothing is charged.
 2. The payment is read from Stripe. An approval that was cancelled, or an amount that differs from `payment.amount`, marks the payment `failed` (the approval is let go of when the amount differs).
 3. The order is claimed: one conditional update sets `authorized`, so only one worker goes on with it.
-4. The stock is taken, one atomic decrement per item guarded by `quantity >= wanted`, written to the ledger as `order`. When an item sold out meanwhile, the items taken so far are given back (`release`), the approval is cancelled at Stripe, the payment is marked `failed`, the order is cancelled with reason `sold_out`, and the customer gets the cancellation email. Nothing was charged.
+4. The stock is taken, one atomic decrement per item on the array element of its pack size (`$elemMatch` on the size's `_id` and `stock.quantity >= wanted`, `$inc` on `variants.$.stock.quantity`), outside any transaction, written to the ledger as `order` with product, pack size and SKU. Two customers paying for the last pack of one size cannot both succeed; another size of the same product is another element and is not touched. When an item sold out meanwhile, the items taken so far are given back (`release`), the approval is cancelled at Stripe, the payment is marked `failed`, the order is cancelled with reason `sold_out`, and the customer gets the cancellation email. Nothing was charged.
 5. The money is captured, with an idempotency key per payment intent. If Stripe refuses, the stock is given back (`release`), the payment is marked `failed` and the error is raised; the webhook is retried by Stripe.
 6. In one transaction: the invoice is issued from the final bill with the next number (`INV-YYYY-NNNNNN`, issued and paid at the same moment), the order becomes `confirmed` with payment `paid` (amount received, charge, card or PayPal, receipt URL, invoice), the page and `pendingUntil` are removed, the cart of the customer is emptied.
 7. The confirmation email goes out with the invoice PDF attached.
@@ -300,37 +335,37 @@ Crash recovery: `stockTakenAt` is set when the stock is taken. An order found `a
 
 The customer coming back before the webhook: `GET /v1/store/orders/{number}/payment` asks Stripe about the open page; a complete session is settled at once, an expired one is forgotten. A pending order whose page expired or whose payment failed gets a new page with `POST /v1/store/orders/{number}/pay` (409 `ORDER_NOT_PAYABLE` otherwise); a page that is still open for more than five minutes is handed out again instead of a new one. A recorded failure sends the `payment_failed` email with a link to the order page.
 
-### 7.3 Abandoned checkouts
+### 7.4 Abandoned checkouts
 
 The cleanup finds orders that are `pending_payment` with `pendingUntil` in the past, 200 at a time. An order that is `authorized` is settled late (or cancelled with `sold_out` when the stock is gone); if the capture fails, the payment is marked `failed` and the next run gives the order up. Any other one has its page expired at Stripe and is cancelled by the system with reason `payment_not_completed`; no email is sent for an order that was never paid. The cleanup runs 15 seconds after the start and then at every full `PAYMENT_JOB_INTERVAL_MINUTES` on the clock, and it is the first job of `POST /v1/jobs/run`.
 
-### 7.4 Cancellation and refund
+### 7.5 Cancellation and refund
 
 - The customer cancels with `POST /v1/store/orders/{number}/cancel` while `canCancel` of the order is true (see section 6); the admin with `POST /v1/admin/orders/{id}/cancel`, with a reason. Cancelling an order that is cancelled already changes nothing.
-- The status is written under the condition that it is still the one that was read. If the stock of the order was taken, it is given back with ledger reason `cancel`. An approval of the bank that was never captured is let go of; an open payment page is closed at Stripe.
+- The status is written under the condition that it is still the one that was read. If the stock of the order was taken, it is given back to the pack sizes it was taken from, with ledger reason `cancel`. An approval of the bank that was never captured is let go of; an open payment page is closed at Stripe.
 - The customer is emailed (`order_cancelled`, saying whether money was paid), except for an order the system gave up before any payment.
 - When money was paid, the order waits for a refund: `needsRefund` of its payment is true while `paidAmount` exceeds `refundedAmount` on a cancelled order, or while credit notes exceed what was refunded. Both cases are listed by `needsRefund=true` and counted on the attention page.
 - The admin decides the refund with `POST /v1/admin/orders/{id}/payment/refunds`: amount at most `paidAmount − refundedAmount − open refunds` (`refundable.maximum`; `refundable.suggested` is what the cancellation or the credit notes call for), reason, and `method`. `stripe` asks Stripe at once with an idempotency key per refund and becomes `processing`, then `completed` or `failed` when Stripe answers (through the webhook, or `POST /v1/admin/refunds/{id}/sync`); it needs a payment through Stripe. `manual` records the way and a reference and stays `pending` until the admin confirms with `POST /v1/admin/refunds/{id}/complete`. Either can be withdrawn while not complete.
 - A completed refund is booked on the order: `refundedAmount` grows, the payment status becomes `refunded` when everything paid went back, and the customer is emailed (`refund_completed`, with the way the money comes back).
 
-### 7.5 Fulfilment
+### 7.6 Fulfilment
 
 - `POST /v1/admin/orders/{id}/status` moves one order forward (`processing`, `dispatched`, `delivered`) or one step back, with a note and, when dispatching, the tracking number. The order answers `allowedStatuses`. Dispatching sets `delivery.dispatchedAt`, delivering `delivery.deliveredAt`; a step back clears what no longer holds.
 - `POST /v1/admin/orders/bulk/status` and `POST /v1/admin/orders/bulk/delivery-method` take up to 500 chosen orders and answer every one in `results` (`changed`, or the `reason` why not). The status change is one write for all eligible orders.
 - `PATCH /v1/admin/orders/{id}/delivery` sets the method and the tracking number; changing the method removes the tracking number, because it belongs to one carrier. The default method of a new order is the setting `delivery.defaultMethod`.
 - The customer sees a tracking link for DHL and Hermes, none for delivery by Radhe Foods. The dispatch email carries carrier, tracking number and link and the delivery estimate of the settings; the delivery email names the return window.
 
-### 7.6 Corrections
+### 7.7 Corrections
 
-`PATCH /v1/admin/orders/{id}/items/{productId}` with `deliveredQuantity` (between what was returned and what was ordered), `reason` and an internal `note`. In one transaction the line and `finalTotals` are recomputed from delivered minus returned units at the agreed prices (the agreed bill and the delivery fee stay), the adjustment is recorded, and the hook of the payments module issues a credit note (`CN-YYYY-NNNNNN`) for the difference on the invoice, growing `creditedAmount`. Units that were not delivered go back to the stock with reason `release`. The order then waits for a refund that the admin decides (7.4).
+`PATCH /v1/admin/orders/{id}/items/{variantId}` (the pack size of the line) with `deliveredQuantity` (between what was returned and what was ordered), `reason` and an internal `note`. In one transaction the line and `finalTotals` are recomputed from delivered minus returned units at the agreed prices (the agreed bill and the delivery fee stay), the adjustment is recorded, and the hook of the payments module issues a credit note (`CN-YYYY-NNNNNN`) for the difference on the invoice, growing `creditedAmount`. Units that were not delivered go back to the stock of their pack size with reason `release`. The order then waits for a refund that the admin decides (7.5).
 
-### 7.7 Returns
+### 7.8 Returns
 
-1. The customer asks to send back single products of a `delivered` order with `POST /v1/store/orders/{number}/returns`, within `return_policy.windowDays` after `deliveredAt` (14 by default; 0 switches returns off), up to what was delivered, not returned and not in an open request (`returnable` of `GET .../returns`). The request is numbered per order (`RF-1084-R1`); the admin is not emailed, the customer gets `return_requested`.
+1. The customer asks to send back single items of a `delivered` order with `POST /v1/store/orders/{number}/returns`, each named by the `variantId` of the order item, within `return_policy.windowDays` after `deliveredAt` (14 by default; 0 switches returns off), up to what was delivered, not returned and not in an open request (`returnable` of `GET .../returns`: one entry per item with `productId`, `variantId`, `sku`, `available`). The request is numbered per order (`RF-1084-R1`); the admin is not emailed, the customer gets `return_requested`.
 2. The admin approves (`POST /v1/admin/returns/{id}/approve`, as asked or with other quantities, 0 declines a product) or rejects, each with a note the customer reads and an internal note. The customer can take the request back until it is decided. Approval changes nothing on the order.
-3. When the goods are back, the admin completes the return (`POST /v1/admin/returns/{id}/complete`). In one transaction the accepted units are booked as returned on the order, `finalTotals` go down, the order becomes `returned` when nothing of a delivered order is kept, the return records `creditAmount` and the credit note is issued through the hook. With `restock: true` the accepted units go back on the shelf with ledger reason `return` and the return carries `restockedAt`. The customer gets `return_completed` with the credit; the order waits for a refund that the admin decides (7.4).
+3. When the goods are back, the admin completes the return (`POST /v1/admin/returns/{id}/complete`). In one transaction the accepted units are booked as returned on the order, `finalTotals` go down, the order becomes `returned` when nothing of a delivered order is kept, the return records `creditAmount` and the credit note is issued through the hook. With `restock: true` the accepted units go back on the shelf of their pack size with ledger reason `return` and the return carries `restockedAt`. The customer gets `return_completed` with the credit; the order waits for a refund that the admin decides (7.5).
 
-### 7.8 Jobs
+### 7.9 Jobs
 
 `POST /v1/jobs/run` with header `X-Jobs-Token` runs the checkout cleanup and then the notification queue once, and answers what each did. The same jobs run on timers inside the process (`PAYMENT_JOB_INTERVAL_MINUTES`, `NOTIFICATION_INTERVAL_SECONDS`); the endpoint exists for shared hosting, where the process may be put to sleep. Without `JOBS_TOKEN` the endpoint is off.
 
@@ -470,6 +505,7 @@ The foundation (configuration, database, errors, OpenAPI, health), authenticatio
 4. Returns and refunds on the new model: stock back on completed returns, credit note and refund after a return, trimmed admin payment routes.
 5. Removal: the cargos module, payment activation, reminders, pay links, cash, waiving, the overdue block and overrides, obsolete notification types and templates, settings and environment keys, the concept documents of the pre-order shop. A script for moving a database of the old shop existed briefly and was removed again, since no database with real data existed.
 6. Hardening and documentation: this document, both API references, the prompts for the shop and the panel, README and the Hostinger guide.
+7. Pack sizes (2026-10-16, commit `feat(catalog): one product with several pack sizes`): one product holds its pack sizes as embedded `variants` with their own SKU, price, stock and URL; the default size, the display name, the product page by base or size URL, the cart, orders, returns, corrections, the attention page and the CSV sheets by pack size; the one-document-per-size model with `variantGroupId`, `isDefaultVariant`, `make-default` and `variant_of_sku` removed. Design and decisions in `PRODUCT_VARIANTS_PLAN.md`.
 
 ## 15. Open items
 
@@ -477,7 +513,7 @@ The foundation (configuration, database, errors, OpenAPI, health), authenticatio
 |---|---|
 | The customer web and the admin panel were built against the pre-order API and must be adapted to the current one, design unchanged (migration briefs `PROMPT_CUSTOMER_WEB.md`, `PROMPT_ADMIN_PANEL.md`) | Launch |
 | German distance selling needs a Widerrufsbelehrung (withdrawal notice with a model form) and an Impressum. The API provides the legal types `terms` and `privacy` only; both pages are static content of the shop, not of the API | Launch |
-| Stripe account: PayPal switched on and allowed to authorise without capturing (the checkout uses manual capture), branding of the payment page, the webhook endpoint with the events of section 7.2 | Launch |
+| Stripe account: PayPal switched on and allowed to authorise without capturing (the checkout uses manual capture), branding of the payment page, the webhook endpoint with the events of section 7.3 | Launch |
 | Legal review: the wording of the order button ("zahlungspflichtig bestellen"), terms, withdrawal right, invoices | Launch |
 | VAT of the delivery fee: shared between the rates of the goods by net value. To be confirmed by the tax adviser | Launch |
 | Return process: who pays the way back, and products excluded from returns (food that spoils quickly). The steps and the refunds are built | Launch |
