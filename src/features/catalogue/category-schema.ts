@@ -35,6 +35,8 @@ export const categorySchema = z.object({
   parentId: z.string().regex(/^([0-9a-f]{24})?$/, "Choose a category."),
   isVisible: z.boolean(),
   seo: z.object({ title: translated(300), description: translated(300) }),
+  /** The description of the picture (alt text), saved through its own endpoint. */
+  alt: translated(300),
 });
 
 export type CategoryFormValues = z.input<typeof categorySchema>;
@@ -54,7 +56,24 @@ export function categoryDefaults(
       title: translatedDefaults(category?.seo?.title),
       description: translatedDefaults(category?.seo?.description),
     },
+    alt: translatedDefaults(category?.image?.alt),
   };
+}
+
+/** What `PATCH /categories/{id}/image` gets: both languages, an empty one cleared. */
+export function altOf(values: CategoryFormValues): TranslatedOptional {
+  return optional(values.alt);
+}
+
+/** Whether the description of the picture differs from what the category has. */
+export function altChanged(
+  values: CategoryFormValues,
+  category: Category,
+): boolean {
+  return !same(
+    altOf(values),
+    optional(translatedDefaults(category.image?.alt)),
+  );
 }
 
 type Both = { en: string; de: string };

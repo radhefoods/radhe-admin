@@ -65,6 +65,97 @@ const record = (id: string) => {
 /** The requests that change something. */
 const writes = () => api.calls.filter((call) => call.method !== "GET");
 
+/** A picture the API takes: a PNG of 640 × 480. */
+const samplePicture = (name: string) =>
+  new File([new Uint8Array(png(640, 480))], name, { type: "image/png" });
+const okSize: SizeReader = async () => ({ width: 640, height: 480 });
+
+function installUpload(mode: "works" | "fails") {
+  class FakeUpload {
+    upload: { onprogress: ((event: ProgressEvent) => void) | null } = {
+      onprogress: null,
+    };
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    onabort: (() => void) | null = null;
+    status = 0;
+    responseText = "";
+    withCredentials = false;
+    responseType = "";
+    private method = "GET";
+    private url = "";
+    private headers: Record<string, string> = {};
+    private response: Response | null = null;
+
+    open(method: string, url: string) {
+      this.method = method;
+      this.url = url;
+    }
+    setRequestHeader(name: string, value: string) {
+      this.headers[name] = value;
+    }
+    getResponseHeader(name: string) {
+      return this.response?.headers.get(name) ?? null;
+    }
+    abort() {
+      this.onabort?.();
+    }
+    send(body: FormData) {
+      void (async () => {
+        if (mode === "fails") {
+          this.onerror?.();
+          return;
+        }
+        const boundary = "----panel-test-upload";
+        const encoder = new TextEncoder();
+        const parts: Uint8Array[] = [];
+        for (const [name, value] of body.entries()) {
+          if (typeof value === "string") continue;
+          parts.push(
+            encoder.encode(
+              `--${boundary}\r\nContent-Disposition: form-data; name="${name}"; filename="${value.name}"\r\nContent-Type: ${value.type}\r\n\r\n`,
+            ),
+          );
+          parts.push(new Uint8Array(await value.arrayBuffer()));
+          parts.push(encoder.encode("\r\n"));
+        }
+        parts.push(encoder.encode(`--${boundary}--\r\n`));
+        const bytes = new Uint8Array(
+          parts.reduce((sum, part) => sum + part.length, 0),
+        );
+        let offset = 0;
+        for (const part of parts) {
+          bytes.set(part, offset);
+          offset += part.length;
+        }
+        // Node's multipart parser makes its files with the page's `File`
+        // (jsdom's here) and then does not recognise them: it gets Node's
+        // own class while the mock reads the request.
+        const pageFile = globalThis.File;
+        globalThis.File = NodeFile as unknown as typeof File;
+        let response: Response;
+        try {
+          response = await fetch(this.url, {
+            method: this.method,
+            headers: {
+              ...this.headers,
+              "Content-Type": `multipart/form-data; boundary=${boundary}`,
+            },
+            body: bytes,
+          });
+        } finally {
+          globalThis.File = pageFile;
+        }
+        this.response = response;
+        this.status = response.status;
+        this.responseText = await response.text();
+        this.onload?.();
+      })();
+    }
+  }
+  vi.stubGlobal("XMLHttpRequest", FakeUpload);
+}
+
 /** Makes sure a delivered order of the demo data holds a pack size of the product. */
 function putInAnOrder(productId: string, variantId?: string): void {
   const db = api.mock.db();
@@ -1385,6 +1476,124 @@ describe("the categories", () => {
     expect(unhandled).toHaveLength(0);
   });
 
+  it("adds a picture to a category in its form at once, then saves its description with the category", async () => {
+    installUpload("works");
+    const pulses = category("Everyday Rice");
+    expect(pulses.image).toBeNull();
+    const { user } = renderPanel(<CategoriesView readSize={okSize} />);
+    await actionsFor(user, "Everyday Rice", "Add a picture");
+    const dialog = await screen.findByRole("dialog");
+    const section = within(dialog).getByRole("region", { name: "Picture" });
+    expect(section).toHaveTextContent("Everyday Rice has no picture yet.");
+    expect(
+      within(dialog).queryByLabelText(/^Picture description/),
+    ).not.toBeInTheDocument();
+
+    await user.upload(
+      within(section).getByLabelText("Choose the picture"),
+      samplePicture("pulses.png"),
+    );
+    await waitFor(() =>
+      expect(writes().map((call) => `${call.method} ${call.path}`)).toEqual([
+        `PUT /v1/admin/categories/${pulses.id}/image`,
+      ]),
+    );
+    const stored = api.mock
+      .db()
+      .categories.find((entry) => entry.id === pulses.id);
+    expect(stored?.image).not.toBeNull();
+    // The form follows the list: the picture and its description are there.
+    await within(section).findByText("Delete the picture");
+    await user.type(field("alt.en"), "Lentils and beans");
+    api.calls.length = 0;
+    await user.click(
+      within(dialog).getByRole("button", { name: "Save changes" }),
+    );
+    await waitFor(() =>
+      expect(writes()).toEqual([
+        {
+          method: "PATCH",
+          path: `/v1/admin/categories/${pulses.id}/image`,
+          body: { alt: { en: "Lentils and beans", de: null } },
+        },
+      ]),
+    );
+    expect(stored?.image?.alt).toEqual({ en: "Lentils and beans", de: null });
+  });
+
+  it("deletes the picture of a category only after a confirmation", async () => {
+    const rice = category("Rice & Grains");
+    expect(rice.image).not.toBeNull();
+    const { user } = renderPanel(<CategoriesView readSize={okSize} />);
+    await actionsFor(user, "Rice & Grains", "Edit");
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("button", { name: "Delete the picture" }),
+    );
+    const confirm = await screen.findByRole("alertdialog");
+    expect(
+      within(confirm).getByRole("heading", {
+        name: "Delete the picture of Rice & Grains?",
+      }),
+    ).toBeInTheDocument();
+    expect(writes()).toEqual([]);
+    await user.click(
+      within(confirm).getByRole("button", { name: "Delete the picture" }),
+    );
+    await waitFor(() =>
+      expect(writes()).toEqual([
+        {
+          method: "DELETE",
+          path: `/v1/admin/categories/${rice.id}/image`,
+          body: undefined,
+        },
+      ]),
+    );
+    expect(
+      api.mock.db().categories.find((entry) => entry.id === rice.id)?.image,
+    ).toBeNull();
+    await within(dialog).findByText("Rice & Grains has no picture yet.");
+  });
+
+  it("creates a category with its picture: created first, then the upload, then the description", async () => {
+    installUpload("works");
+    const { user } = renderPanel(<CategoriesView readSize={okSize} />);
+    await user.click(
+      await screen.findByRole("button", { name: "New category" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.type(field("name.en"), "Snacks (test)");
+    await user.upload(
+      within(dialog).getByLabelText("Choose the picture"),
+      samplePicture("snacks.png"),
+    );
+    expect(dialog).toHaveTextContent("snacks.png");
+    expect(dialog).toHaveTextContent("uploaded when the category is created");
+    await user.type(field("alt.en"), "Crisps and nuts");
+    expect(writes()).toEqual([]);
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "Create category" }),
+    );
+    await waitFor(() =>
+      expect(
+        writes().map((call) => `${call.method} ${call.path}`),
+      ).toHaveLength(3),
+    );
+    const created = api.mock
+      .db()
+      .categories.find((entry) => entry.name.en === "Snacks (test)");
+    expect(writes().map((call) => `${call.method} ${call.path}`)).toEqual([
+      "POST /v1/admin/categories",
+      `PUT /v1/admin/categories/${created?.id}/image`,
+      `PATCH /v1/admin/categories/${created?.id}/image`,
+    ]);
+    expect(created?.image?.alt).toEqual({ en: "Crisps and nuts", de: null });
+    expect(
+      await screen.findByRole("list", { name: "Main categories" }),
+    ).toHaveTextContent("Snacks (test)");
+  });
+
   it("keeps changes away from an admin without catalog.manage", async () => {
     renderPanel(<CategoriesView />, { permissions: READ_ONLY });
     expect(
@@ -1445,91 +1654,6 @@ describe("creating a product with pictures", () => {
    * mock API behind `fetch` like every other call of the panel; or failing,
    * as it does when the API cannot be reached.
    */
-  function installUpload(mode: "works" | "fails") {
-    class FakeUpload {
-      upload: { onprogress: ((event: ProgressEvent) => void) | null } = {
-        onprogress: null,
-      };
-      onload: (() => void) | null = null;
-      onerror: (() => void) | null = null;
-      onabort: (() => void) | null = null;
-      status = 0;
-      responseText = "";
-      withCredentials = false;
-      responseType = "";
-      private method = "GET";
-      private url = "";
-      private headers: Record<string, string> = {};
-      private response: Response | null = null;
-
-      open(method: string, url: string) {
-        this.method = method;
-        this.url = url;
-      }
-      setRequestHeader(name: string, value: string) {
-        this.headers[name] = value;
-      }
-      getResponseHeader(name: string) {
-        return this.response?.headers.get(name) ?? null;
-      }
-      abort() {
-        this.onabort?.();
-      }
-      send(body: FormData) {
-        void (async () => {
-          if (mode === "fails") {
-            this.onerror?.();
-            return;
-          }
-          const boundary = "----panel-test-upload";
-          const encoder = new TextEncoder();
-          const parts: Uint8Array[] = [];
-          for (const [name, value] of body.entries()) {
-            if (typeof value === "string") continue;
-            parts.push(
-              encoder.encode(
-                `--${boundary}\r\nContent-Disposition: form-data; name="${name}"; filename="${value.name}"\r\nContent-Type: ${value.type}\r\n\r\n`,
-              ),
-            );
-            parts.push(new Uint8Array(await value.arrayBuffer()));
-            parts.push(encoder.encode("\r\n"));
-          }
-          parts.push(encoder.encode(`--${boundary}--\r\n`));
-          const bytes = new Uint8Array(
-            parts.reduce((sum, part) => sum + part.length, 0),
-          );
-          let offset = 0;
-          for (const part of parts) {
-            bytes.set(part, offset);
-            offset += part.length;
-          }
-          // Node's multipart parser makes its files with the page's `File`
-          // (jsdom's here) and then does not recognise them: it gets Node's
-          // own class while the mock reads the request.
-          const pageFile = globalThis.File;
-          globalThis.File = NodeFile as unknown as typeof File;
-          let response: Response;
-          try {
-            response = await fetch(this.url, {
-              method: this.method,
-              headers: {
-                ...this.headers,
-                "Content-Type": `multipart/form-data; boundary=${boundary}`,
-              },
-              body: bytes,
-            });
-          } finally {
-            globalThis.File = pageFile;
-          }
-          this.response = response;
-          this.status = response.status;
-          this.responseText = await response.text();
-          this.onload?.();
-        })();
-      }
-    }
-    vi.stubGlobal("XMLHttpRequest", FakeUpload);
-  }
 
   async function fillNewProduct(user: ReturnType<typeof renderPanel>["user"]) {
     await screen.findByText("Create product", { selector: "button" });

@@ -501,6 +501,10 @@ export function useReorderCategories() {
   });
 }
 
+/**
+ * Uploads or replaces the picture of a category (7). `id` names another
+ * category than the hook's: a category that was created a moment ago.
+ */
 export function usePutCategoryImage(id: Id) {
   const client = useQueryClient();
   return useMutation({
@@ -508,22 +512,29 @@ export function usePutCategoryImage(id: Id) {
       file,
       onProgress,
       signal,
+      id: other,
     }: {
       file: File;
       onProgress?: (fraction: number) => void;
       signal?: AbortSignal;
+      id?: Id;
     }) =>
-      (await api.categories.putImage(id, file, onProgress, signal)).category,
+      (await api.categories.putImage(other ?? id, file, onProgress, signal))
+        .category,
     onSuccess: (category) => keepCategory(client, category),
     meta: { invalidates: [queryKeys.categories.all], silent: true },
   });
 }
 
+/** The description of the picture (7); `id` for a category created a moment ago. */
 export function usePatchCategoryImage(id: Id) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (alt: TranslatedOptional) =>
-      (await api.categories.patchImage(id, alt)).category,
+    mutationFn: async ({
+      id: other,
+      ...alt
+    }: TranslatedOptional & { id?: Id }) =>
+      (await api.categories.patchImage(other ?? id, alt)).category,
     onSuccess: (category) => keepCategory(client, category),
     meta: { invalidates: [queryKeys.categories.all], silent: true },
   });

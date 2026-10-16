@@ -19,9 +19,13 @@ import {
 } from "@/components/ui/dialog";
 import { notify } from "@/components/ui/toast";
 import { errorMessage } from "@/lib/api/error-text";
+import { isSessionError } from "@/lib/api/errors";
 import type { Category } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
+import { CategoryPicture } from "./category-picture";
 import {
+  altChanged,
+  altOf,
   categoryDefaults,
   categoryErrorField,
   categorySchema,
@@ -34,7 +38,13 @@ import {
   indentedName,
   parentChoices,
 } from "./category-tree";
-import { useCreateCategory, useUpdateCategory } from "./queries";
+import type { SizeReader } from "./image-rules";
+import {
+  useCreateCategory,
+  usePatchCategoryImage,
+  usePutCategoryImage,
+  useUpdateCategory,
+} from "./queries";
 
 /** What the dialog is open for: a new category (under a parent), or one to change. */
 export type CategoryEdit =
@@ -46,24 +56,34 @@ function CategoryForm({
   categories,
   onClose,
   onDirty,
+  readSize,
 }: {
   edit: CategoryEdit;
   categories: Category[];
   onClose: () => void;
   /** Tells the dialog whether something was typed that is not saved yet. */
   onDirty: (dirty: boolean) => void;
+  readSize?: SizeReader;
 }) {
   const manage = useCan()("catalog.manage");
   const create = useCreateCategory();
   const update = useUpdateCategory();
+  const putImage = usePutCategoryImage(
+    edit.mode === "edit" ? edit.category.id : "",
+  );
+  const patchImage = usePatchCategoryImage(
+    edit.mode === "edit" ? edit.category.id : "",
+  );
   const category = edit.mode === "edit" ? edit.category : undefined;
+  // For a new category: the picture chosen for it, uploaded after the creation.
+  const [file, setFile] = useState<File | null>(null);
   const form = useZodForm(categorySchema, {
     defaultValues: categoryDefaults(
       category,
       edit.mode === "create" ? edit.parentId : null,
     ),
   });
-  const dirty = form.formState.isDirty;
+  const dirty = form.formState.isDirty || file !== null;
   useEffect(() => {
     onDirty(dirty);
     return () => onDirty(false);
@@ -75,6 +95,7 @@ function CategoryForm({
       try {
         if (category) {
           const patch = toCategoryPatch(values, category);
+          const describe = category.image && altChanged(values, category);
           if (Object.keys(patch).length > 0) {
             const saved = await update.mutateAsync({
               id: category.id,
@@ -87,12 +108,44 @@ function CategoryForm({
                 : undefined,
             );
           }
+          // The description of the picture has an endpoint of its own (7).
+          if (describe) {
+            await patchImage.mutateAsync(altOf(values));
+            if (Object.keys(patch).length === 0) {
+              notify.success("Picture description saved");
+            }
+          }
         } else {
           const created = await create.mutateAsync(toCategoryInput(values));
-          notify.success(
-            `${created.name.en} created`,
-            "It is the last of its level. Its picture can be added now.",
-          );
+          if (file) {
+            // The API takes the picture only for a category that exists (7):
+            // it follows right after the creation.
+            try {
+              const withPicture = await putImage.mutateAsync({
+                file,
+                id: created.id,
+              });
+              const alt = altOf(values);
+              if ((alt.en || alt.de) && withPicture.image) {
+                await patchImage.mutateAsync({ ...alt, id: created.id });
+              }
+              notify.success(
+                `${created.name.en} created`,
+                "With its picture. It is the last of its level.",
+              );
+            } catch (error) {
+              if (isSessionError(error)) return;
+              notify.error(
+                error,
+                `${created.name.en} created without its picture`,
+              );
+            }
+          } else {
+            notify.success(
+              `${created.name.en} created`,
+              "It is the last of its level. A picture can be added by editing it.",
+            );
+          }
         }
         onClose();
       } catch (error) {
@@ -110,6 +163,7 @@ function CategoryForm({
 
   const parents = parentChoices(categories, category);
   const visible = form.watch("isVisible");
+  const hasPicture = Boolean(category?.image) || file !== null;
 
   return (
     <form
@@ -124,7 +178,7 @@ function CategoryForm({
         title={category ? `Edit ${category.name.en}` : "New category"}
         description={
           category
-            ? "Only what you change is saved."
+            ? "Only what you change is saved. A new picture is uploaded at once."
             : "Categories go three levels deep. A new one is placed last; drag it where it belongs afterwards."
         }
       />
@@ -162,6 +216,38 @@ function CategoryForm({
             disabled={!manage}
             hint="A hidden category and its products disappear from the shop until it is shown again. Nothing is deleted."
           />
+        </fieldset>
+
+        <section
+          aria-label="Picture"
+          className="flex flex-col gap-3 rounded-lg border border-line p-3.5"
+        >
+          <h3 className="text-13 font-semibold text-ink">Picture</h3>
+          <CategoryPicture
+            category={category}
+            file={file}
+            onFile={setFile}
+            disabled={!manage || pending}
+            readSize={readSize}
+          />
+          {hasPicture ? (
+            <fieldset disabled={!manage} className="flex min-w-0 flex-col">
+              <legend className="sr-only">Picture description</legend>
+              <BilingualField
+                form={form}
+                name="alt"
+                label="Picture description (alt text)"
+                multiline
+                rows={2}
+                maxLength={300}
+                hint="Read out by screen readers and shown when the picture cannot load. At most 300 characters each; saved with the category."
+              />
+            </fieldset>
+          ) : null}
+        </section>
+
+        <fieldset disabled={!manage} className="flex min-w-0 flex-col gap-4">
+          <legend className="sr-only">Texts</legend>
           <BilingualField
             form={form}
             name="tagline"
@@ -224,16 +310,19 @@ function CategoryForm({
   );
 }
 
-/** Creating and changing a category, in a dialog. */
+/** Creating and changing a category, with its picture, in a dialog. */
 export function CategoryDialog({
   edit,
   categories,
   onClose,
+  readSize,
 }: {
   /** `null` closes the dialog. */
   edit: CategoryEdit | null;
   categories: Category[];
   onClose: () => void;
+  /** How the size of a picture is read; tests have no decoder. */
+  readSize?: SizeReader;
 }) {
   // What was typed is not lost to a click next to the dialog.
   const dirty = useRef(false);
@@ -268,6 +357,7 @@ export function CategoryDialog({
             categories={categories}
             onClose={onClose}
             onDirty={onDirty}
+            readSize={readSize}
           />
         ) : null}
       </DialogContent>

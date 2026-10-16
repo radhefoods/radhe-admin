@@ -47,7 +47,6 @@ import { cn } from "@/lib/cn";
 import { plural } from "@/lib/format/names";
 import { routes, withQuery } from "@/lib/routes";
 import { CategoryDialog, type CategoryEdit } from "./category-dialog";
-import { CategoryImageDialog } from "./category-image-dialog";
 import {
   MAX_CATEGORY_LEVEL,
   buildTree,
@@ -56,6 +55,7 @@ import {
   siblingsOf,
   type CategoryNode,
 } from "./category-tree";
+import type { SizeReader } from "./image-rules";
 import { ImportExportButton } from "./import-export-dialog";
 import {
   useCategories,
@@ -68,7 +68,6 @@ import { DragHandle, SortableList, useSortableEntry } from "./sortable";
 interface Actions {
   manage: boolean;
   edit: (category: Category) => void;
-  picture: (category: Category) => void;
   addBelow: (category: Category) => void;
   setVisible: (category: Category, visible: boolean) => void;
   remove: (category: Category) => void;
@@ -122,11 +121,11 @@ function Row({
           {manage ? (
             <button
               type="button"
-              onClick={() => actions.picture(category)}
+              onClick={() => actions.edit(category)}
               aria-label={
                 category.image
-                  ? `Picture of ${name}`
-                  : `Add a picture to ${name}`
+                  ? `Picture of ${name}: edit the category`
+                  : `Add a picture to ${name}: edit the category`
               }
               className="relative shrink-0 rounded-md"
             >
@@ -224,7 +223,7 @@ function Row({
                 <PencilLine />
                 Edit
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => actions.picture(category)}>
+              <DropdownMenuItem onSelect={() => actions.edit(category)}>
                 <ImageIcon />
                 {category.image ? "Picture" : "Add a picture"}
               </DropdownMenuItem>
@@ -402,7 +401,12 @@ function NotEmptyDialog({
   );
 }
 
-export function CategoriesView() {
+export function CategoriesView({
+  readSize,
+}: {
+  /** How the size of a picture is read; tests have no decoder. */
+  readSize?: SizeReader;
+} = {}) {
   const manage = useCan()("catalog.manage");
   const categories = useCategories();
   const update = useUpdateCategory();
@@ -410,7 +414,6 @@ export function CategoriesView() {
   const reorder = useReorderCategories();
 
   const [edit, setEdit] = useState<CategoryEdit | null>(null);
-  const [pictureOf, setPictureOf] = useState<Id | null>(null);
   const [hiding, setHiding] = useState<Category | null>(null);
   const [deleting, setDeleting] = useState<Category | null>(null);
   const [notEmpty, setNotEmpty] = useState<Category | null>(null);
@@ -436,10 +439,23 @@ export function CategoriesView() {
     }
   }
 
+  // The category as the list has it now: a picture uploaded in the form
+  // shows in the form at once.
+  const current = useMemo<CategoryEdit | null>(
+    () =>
+      edit?.mode === "edit"
+        ? {
+            mode: "edit",
+            category:
+              flat?.find((entry) => entry.id === edit.category.id) ??
+              edit.category,
+          }
+        : edit,
+    [edit, flat],
+  );
   const actions: Actions = {
     manage,
     edit: (category) => setEdit({ mode: "edit", category }),
-    picture: (category) => setPictureOf(category.id),
     addBelow: (category) => setEdit({ mode: "create", parentId: category.id }),
     setVisible: (category, visible) => void setVisible(category, visible),
     remove: (category) => {
@@ -560,14 +576,10 @@ export function CategoriesView() {
       </PageBody>
 
       <CategoryDialog
-        edit={edit}
+        edit={current}
         categories={flat ?? []}
         onClose={() => setEdit(null)}
-      />
-
-      <CategoryImageDialog
-        category={flat?.find((category) => category.id === pictureOf) ?? null}
-        onClose={() => setPictureOf(null)}
+        readSize={readSize}
       />
 
       <ConfirmDialog
