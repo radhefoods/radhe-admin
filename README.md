@@ -1,14 +1,15 @@
 # Radhe Foods Admin
 
-The back office of the Radhe Foods pre-order platform: the web application the shop team uses to run cargos, orders, payments, the catalogue, customers and communication. It talks to the admin API of `radhe-api`.
+The back office of the Radhe Foods shop: the web application the shop team uses to run stock, orders, refunds, the catalogue, customers and communication. The shop sells from stock and is paid at checkout; the panel talks to the admin API of `radhe-api`.
 
-| Document                                                                   | Content                                                                               |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| [CONTRIBUTING.md](CONTRIBUTING.md)                                         | How the panel is built: structure, conventions, checks                                |
-| [DECISIONS.md](DECISIONS.md)                                               | Design and technical decisions with their reasons; what the API cannot do; open items |
-| [doc/ADMIN_API_DOCUMENTATION.md](doc/ADMIN_API_DOCUMENTATION.md)           | The admin API. **The authority** for every endpoint, field, status and error          |
-| [doc/PROMPT_ADMIN_PANEL.md](doc/PROMPT_ADMIN_PANEL.md)                     | The brief the panel was built from                                                    |
-| [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md), `doc/Radhe_Foods_Preorder*.md` | The platform and the business behind it                                               |
+| Document                                                         | Content                                                                               |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                               | How the panel is built: structure, conventions, checks                                |
+| [DECISIONS.md](DECISIONS.md)                                     | Design and technical decisions with their reasons; what the API cannot do; open items |
+| [doc/ADMIN_API_DOCUMENTATION.md](doc/ADMIN_API_DOCUMENTATION.md) | The admin API. **The authority** for every endpoint, field, status and error          |
+| [doc/PROMPT_ADMIN_PANEL.md](doc/PROMPT_ADMIN_PANEL.md)           | The brief of the move to the shop that sells from stock and is paid at checkout       |
+| [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)                       | The platform behind the panel: modules, data model, status models, key flows          |
+| [doc/CSV_IMPORT_EXPORT.md](doc/CSV_IMPORT_EXPORT.md)             | The catalogue sheets: columns, rules, the import and export endpoints                 |
 
 ## Requirements
 
@@ -26,7 +27,7 @@ npm run dev           # the panel on http://localhost:3002
 
 Sign in with `owner@radhefoods.de` / `radhe-owner-2026` and the code `000000`.
 
-The mock keeps demo data in memory: cargos in every stage, orders, payments open and overdue, returns, refunds, failed messages. A restart brings it back. More sign-ins:
+The mock keeps demo data in memory: products with their stock, orders in every status from the open payment page to the delivered parcel, returns, refunds waiting for a decision, failed messages. A restart brings it back. More sign-ins:
 
 | Email                  | Password             | What it shows                                                                    |
 | ---------------------- | -------------------- | -------------------------------------------------------------------------------- |
@@ -37,7 +38,7 @@ The mock keeps demo data in memory: cargos in every stage, orders, payments open
 
 Every demo admin accepts the code `000000`; a real authenticator code works as well (scan the QR code of the newcomer).
 
-Switches of the mock: `MOCK_API_PORT` (default 3000), `MOCK_DELAY_MS` (default 150, to see loading states), `MOCK_STRIPE=on` (Stripe counts as connected: online payments and Stripe refunds), `MOCK_WHATSAPP=on`.
+Switches of the mock: `MOCK_API_PORT` (default 3000), `MOCK_DELAY_MS` (default 150, to see loading states), `MOCK_STRIPE=on` (Stripe counts as connected: refunds can go through Stripe), `MOCK_WHATSAPP=on`.
 
 ## Against the real API
 
@@ -71,32 +72,31 @@ Both are read when the panel is built: change them, then build again.
 
 ## Tests
 
-| Kind                                   | Where                        | What they cover                                                                                                                                                                                                                             |
-| -------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unit                                   | `src/lib/**/*.test.ts`       | Money (euros typed, integer cents sent), German time and deadlines across the clock change, permissions, the documented status transitions, the session (refresh once and retry, sign-out codes), every error code has a sentence           |
-| Component, against the mock in-process | `src/features/**/*.test.tsx` | The flows that lose money or data when wrong: cargo close and cancel, payment activation, cash, waive, refunds, quantity corrections, returns, announcements, legal publishing, roles and team, product form and prices, permission gating  |
-| Browser (Playwright)                   | `e2e/`                       | Sign-in with authenticator, first-time setup, lockout, a session that ends while a form is open, cargo close, payment activation, cash and refund, picture upload, the phone jobs, and axe (WCAG 2.1 A and AA) on every page in both themes |
+| Kind                                   | Where                        | What they cover                                                                                                                                                                                                                                                                                                                     |
+| -------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unit                                   | `src/lib/**/*.test.ts`       | Money (euros typed, integer cents sent), German time across the clock change, permissions, the documented status transitions, the session (refresh once and retry, sign-out codes), every error code has a sentence, the stock dialog's reading of what was typed                                                                   |
+| Component, against the mock in-process | `src/features/**/*.test.tsx` | The flows that lose money or data when wrong: the order steps with the tracking number, cancellation with the refund waiting, refunds by hand and through Stripe, quantity corrections, returns with the restock switch, stock changes, announcements, legal publishing, roles and team, product form and prices, permission gating |
+| Browser (Playwright)                   | `e2e/`                       | Sign-in with authenticator, first-time setup, lockout, a session that ends while a form is open, the way of a paid order to the door, the refund decision, picture upload, the catalogue sheets, the phone jobs, and axe (WCAG 2.1 A and AA) on every page in both themes                                                           |
 
 `npm run test:e2e` builds the panel and starts it with the mock API when they are not running. The tests reset the mock's data before each test, so do not run them against a mock you are working in.
 
 ## What is in the panel
 
-| Area          | Pages                                                                                                                                                                                                                                                                             |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sign-in       | Email and password, authenticator code, first-time setup with QR code, forced password change, re-sign-in over the page when a session ends                                                                                                                                       |
-| Today         | What needs a person now (returns, overdue payments, failed deliveries, refunds, failed messages), the cargos on their way with their next step, what is still to collect                                                                                                          |
-| Cargos        | List and overview; create and edit; the lifecycle with exactly the allowed transitions, rollover, cancel with order move; products and limits per cargo; bulk order actions; payment activation for the cargo                                                                     |
-| Orders        | List with the API's filters, search by words of the number, name, email or phone, sorting and the count; actions on chosen orders at once; detail with items, corrections of delivered quantities, status, delivery, move, cancel, payment, documents, returns, messages, history |
-| Returns       | List; approve (also fewer units), decline, complete                                                                                                                                                                                                                               |
-| Payments      | Orders by payment status; activation, cash, waive, reminders and refunds on the order; refund list and lifecycle; invoices and credit notes with PDF; the payment jobs by hand                                                                                                    |
-| Customers     | List with search by name, email or phone, sorting and the count; detail with orders, preferences, block and unblock, ordering decisions                                                                                                                                           |
-| Catalogue     | Products with bilingual content, pack sizes, prices, VAT, price history; image manager; categories as a tree; import of categories and products from CSV or Excel with a preview, and export as Excel or CSV                                                                      |
-| Communication | The log of every message with retry and cancel; announcements with preview and recipient counts                                                                                                                                                                                   |
-| Settings      | Company, delivery fee, order and return rules, payment defaults and the connected services; legal texts in versions; team with invitation emails; roles as permission matrices; the admin's own profile                                                                           |
+| Area          | Pages                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sign-in       | Email and password, authenticator code, first-time setup with QR code, forced password change, re-sign-in over the page when a session ends                                                                                                                                                                                                                                                                       |
+| Today         | What needs a person now: paid orders to process, refunds to decide, pending and failed refunds, return requests, products running low, failed messages; a warning while the shop cannot sell                                                                                                                                                                                                                      |
+| Orders        | List with the API's filters, the orders waiting for a refund, search by words of the number, name, email or phone, sorting and the count; actions on chosen orders at once; detail with items, corrections of delivered quantities, status steps from what the API allows, dispatch with the tracking number, delivery, cancel, the payment block with the refund decision, documents, returns, messages, history |
+| Returns       | List; approve (also fewer units), decline, complete with the restock switch                                                                                                                                                                                                                                                                                                                                       |
+| Payments      | Orders by payment status plus the ones waiting for a refund; the refund decision on the order (Stripe or by hand); refund list and lifecycle; invoices and credit notes with PDF                                                                                                                                                                                                                                  |
+| Customers     | List with search by name, email or phone, sorting and the count; detail with orders, preferences, block and unblock                                                                                                                                                                                                                                                                                               |
+| Catalogue     | Products with bilingual content, pack sizes, prices, VAT, price history; stock with its threshold, one dialog to set or adjust the count, and the movement ledger; image manager; categories as a tree; import of categories and products from CSV or Excel with a preview, and export as Excel or CSV                                                                                                            |
+| Communication | The log of every message with retry and cancel; announcements with preview and recipient counts                                                                                                                                                                                                                                                                                                                   |
+| Settings      | Company, delivery fee, the delivery method and estimate, order and return rules, the payment page and the connected services; legal texts in versions; team with invitation emails; roles as permission matrices; the admin's own profile                                                                                                                                                                         |
 
 Navigation and buttons follow the permissions of the signed-in admin; the API enforces them anyway.
 
-Keys: `/` or `Ctrl K` opens the search (orders and customers by words of the number, name, email or phone; a product; a cargo code; or a page), `Esc` closes what is open. `/styleguide` shows the parts every page is made of.
+Keys: `/` or `Ctrl K` opens the search (orders and customers by words of the number, name, email or phone; a product; or a page), `Esc` closes what is open. `/styleguide` shows the parts every page is made of.
 
 ## Deployment
 

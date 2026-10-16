@@ -11,7 +11,7 @@ The conventions every page of the Radhe Foods admin panel follows. Read this bef
 ```text
 src/app/(auth)/…            sign-in, forced password change
 src/app/(panel)/…           every page behind the sign-in; a page file only sets the title and renders a view
-src/features/<area>/        the views, dialogs, queries and tests of one area (cargos, orders, …)
+src/features/<area>/        the views, dialogs, queries and tests of one area (orders, catalogue, …)
 src/components/ui/          primitives: button, input, dialog, menu, badge, surface (card, alert, empty state), toast, scroll-x
 src/components/data/        data-table, filter-bar, pagination (page-based and "load more")
 src/components/form/        form.tsx (Field, useZodForm, useSubmit, FormError, TextField …), fields.tsx (MoneyField, BilingualField, …), reason-field.tsx
@@ -27,7 +27,7 @@ src/test/                   the test harness: the mock API behind fetch, render 
 e2e/                        browser tests (Playwright) against the mock API
 ```
 
-The reference feature is `src/features/cargos/`: list with URL state (`cargos-view.tsx`), form (`cargo-form.tsx`), detail frame with tabs (`cargo-frame.tsx`), a tab with inline edits (`cargo-products-tab.tsx`), bulk actions (`cargo-orders-tab.tsx`), confirmations (`cargo-transition-dialog.tsx`, `activate-payments-dialog.tsx`), queries (`queries.ts`) and tests (`cargo-flows.test.tsx`).
+The reference feature is `src/features/orders/`: list with URL state and bulk actions (`orders-list.tsx`, `orders-bulk.tsx`), detail (`order-view.tsx`), confirmations with the real numbers (`order-dialogs.tsx`), a card with its own permission and dialog (`order-payment.tsx`), queries (`queries.ts`) and tests (`order-flows.test.tsx`). The small reference for a panel with one dialog and a cursor list is the stock of a product (`src/features/catalogue/stock-panel.tsx`, `stock.ts`, `stock-flows.test.tsx`).
 
 ## Rules
 
@@ -35,9 +35,9 @@ The reference feature is `src/features/cargos/`: list with URL state (`cargos-vi
 
 **Permissions.** A page wraps its content in `<RequirePermission permission="x.read">`. A button that changes data is an `<ActionButton permission="x.manage">`: without the permission it stays visible, disabled, with a hint. Parts that need another permission than the page (`payments.read` inside an order) check `useCan()` and leave the part out or explain. The API enforces everything anyway; a `403` is still handled.
 
-**Statuses.** Always `<StatusBadge kind="order" value={status} />`. Six tones, one meaning each (see `src/lib/status/index.ts`); never a colour chosen by hand for a status. Buttons for status changes come from what the API allows (`allowedStatuses`, `canCancel`, `canActivate`, …), never from the panel's own guess.
+**Statuses.** Always `<StatusBadge kind="order" value={status} />`. Six tones, one meaning each (see `src/lib/status/index.ts`); never a colour chosen by hand for a status. Buttons for status changes come from what the API allows (`allowedStatuses`, `canCancel`, `needsRefund`, `refundable`, …), never from the panel's own guess. A pending order has no status button: its payment confirms it.
 
-**Lists.** Filters, search, sort and page live in the address (`useUrlState` with `param.*`). Only the filters, search and sorts the documentation states; nothing client-side on top unless the page holds all rows. Page-based lists (products, cargos, cargo products) use `<Pagination>`; cursor lists use `useInfiniteQuery` and `<LoadMore>` (they have no total). Every list has an empty state that says what belongs here and what to do next, and shows the API's error with a retry.
+**Lists.** Filters, search, sort and page live in the address (`useUrlState` with `param.*`). Only the filters, search and sorts the documentation states; nothing client-side on top unless the page holds all rows. Page-based lists (products) use `<Pagination>`; cursor lists use `useInfiniteQuery` and `<LoadMore>` (they have no total). Every list has an empty state that says what belongs here and what to do next, and shows the API's error with a retry.
 
 **Tables.** `<DataTable>` with `Column<T>[]`. Numbers and money right (`meta.align: "right"`), the first cell holds the real link, `rowHref` makes the row lead there too. Use `meta.from` to drop columns on narrow screens; give lists used on a phone a `card`. A plain `<table>` that can be wider than a phone sits in `<ScrollX label="…">` (`components/ui/scroll-x.tsx`): it scrolls inside its frame, the page never scrolls sideways, and the keyboard can reach it.
 
@@ -66,8 +66,8 @@ npx vitest run                         # unit and component tests
 npm run test:e2e                       # browser tests against the mock API
 ```
 
-A component test starts with `// @vitest-environment jsdom`, installs the mock API with `installTestApi()` and renders with `renderPanel()` (see `src/features/cargos/cargo-flows.test.tsx`). Test what loses money or data when wrong: the amounts shown before a confirmation, the request that is sent, the permission gating.
+A component test starts with `// @vitest-environment jsdom`, installs the mock API with `installTestApi()` and renders with `renderPanel()` (see `src/features/orders/order-flows.test.tsx`). Test what loses money or data when wrong: the amounts shown before a confirmation, the request that is sent, the permission gating.
 
 ## The mock API
 
-`npm run dev:mock` starts it on port 3000 with demo data (cargos in every stage, orders, payments, returns, refunds, messages). Sign in with `owner@radhefoods.de` / `radhe-owner-2026` and the code `000000`. More sign-ins (a read-only role, an order manager, a newcomer who must set up the authenticator and change the password) are in `mocks/seed.ts`. The mock keeps everything in memory: a restart brings the demo data back.
+`npm run dev:mock` starts it on port 3000 with demo data (products with their stock, orders in every status, returns, refunds, messages). Sign in with `owner@radhefoods.de` / `radhe-owner-2026` and the code `000000`. More sign-ins (a read-only role, an order manager, a newcomer who must set up the authenticator and change the password) are in `mocks/seed.ts`. The mock keeps everything in memory: a restart brings the demo data back.
