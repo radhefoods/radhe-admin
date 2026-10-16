@@ -1,9 +1,7 @@
 import type {
-  CargoStatus,
   Cents,
   CompanyMissingField,
   Id,
-  IsoDateTime,
   OrderStatus,
   Refundable,
   RefundMethod,
@@ -11,7 +9,7 @@ import type {
 } from "./types";
 
 /**
- * Every error code the admin API documents (section 18.3, without the codes
+ * Every error code the admin API documents (section 17.3, without the codes
  * only the shop can receive). The API's `message` is English and written
  * for developers; the panel maps the `code` to its own sentence
  * (`error-text.ts`) and shows the `message` with the request id only for
@@ -62,7 +60,7 @@ export const API_ERROR_CODES = [
   "CATEGORY_ORDER_INVALID",
   "CATEGORY_HAS_CHILDREN",
   "CATEGORY_HAS_PRODUCTS",
-  // products and images (8)
+  // products, stock and images (8)
   "PRODUCT_NOT_FOUND",
   "PRODUCT_PRICE_INVALID",
   "PRODUCT_QUANTITY_INVALID",
@@ -71,6 +69,8 @@ export const API_ERROR_CODES = [
   "PRODUCT_SLUG_TAKEN",
   "PRODUCT_IS_ACTIVE",
   "PRODUCT_IN_USE",
+  "STOCK_CHANGE_INVALID",
+  "STOCK_INSUFFICIENT",
   "IMAGE_REQUIRED",
   "IMAGE_INVALID",
   "IMAGE_FORMAT_NOT_ALLOWED",
@@ -80,41 +80,20 @@ export const API_ERROR_CODES = [
   "IMAGE_NOT_FOUND",
   "FILE_TOO_LARGE",
   "STORAGE_UNAVAILABLE",
-  // cargos (9)
-  "CARGO_NOT_FOUND",
-  "CARGO_DATES_INVALID",
-  "CARGO_WINDOW_PASSED",
-  "CARGO_WINDOW_OVERLAP",
-  "CARGO_TRANSITION_NOT_ALLOWED",
-  "CARGO_ANOTHER_TAKING_ORDERS",
-  "CARGO_CHANGED_MEANWHILE",
-  "CARGO_NOT_EDITABLE",
-  "CARGO_NOT_DELETABLE",
-  "CARGO_HAS_ORDERS",
-  "CARGO_CANNOT_TAKE_ORDERS",
-  "CARGO_PRODUCT_INVALID",
-  "CARGO_PRODUCT_NOT_FOUND",
-  "CARGO_PRODUCT_HAS_ORDERS",
-  // orders (10)
+  // orders (9)
   "ORDER_NOT_FOUND",
   "ORDER_ITEM_NOT_FOUND",
   "ORDER_QUANTITY_INVALID",
   "ORDER_TRANSITION_NOT_ALLOWED",
   "ORDER_CANNOT_BE_CANCELLED",
-  "ORDER_CANNOT_BE_MOVED",
   "ORDER_CANNOT_BE_CHANGED",
   "ORDER_CHANGED_MEANWHILE",
-  // returns (11)
+  // returns (10)
   "RETURN_NOT_FOUND",
   "RETURN_QUANTITY_INVALID",
   "RETURN_TRANSITION_NOT_ALLOWED",
-  // payments, refunds, invoices (12, 13)
+  // payments, refunds, invoices (11, 12)
   "COMPANY_DETAILS_MISSING",
-  "PAYMENT_NOT_ACTIVATED",
-  "PAYMENT_ALREADY_ACTIVATED",
-  "PAYMENT_NOT_POSSIBLE",
-  "PAYMENT_NOTHING_DUE",
-  "PAYMENT_AMOUNT_MISMATCH",
   "PAYMENTS_NOT_CONFIGURED",
   "PAYMENT_PROVIDER_ERROR",
   "REFUND_NOT_FOUND",
@@ -122,7 +101,7 @@ export const API_ERROR_CODES = [
   "REFUND_METHOD_INVALID",
   "REFUND_TRANSITION_NOT_ALLOWED",
   "INVOICE_NOT_FOUND",
-  // notifications and announcements (14, 15)
+  // notifications and announcements (13, 14)
   "NOTIFICATION_NOT_FOUND",
   "NOTIFICATION_TRANSITION_NOT_ALLOWED",
   "ANNOUNCEMENT_NOT_FOUND",
@@ -162,46 +141,28 @@ export interface ErrorDetails {
   ROLE_PERMISSION_UNKNOWN: { unknown: string[] };
   CATEGORY_ORDER_INVALID: { expected: Id[] };
   PRODUCT_PRICE_INVALID: { regularPrice?: Cents; salePrice?: Cents | null };
+  STOCK_INSUFFICIENT: {
+    productId: Id;
+    sku: string;
+    available: number;
+    wanted: number;
+  };
   IMAGE_FORMAT_NOT_ALLOWED: { accepted: string[] };
   IMAGE_DIMENSIONS_INVALID: { width: number; height: number; minimum: number };
   IMAGE_LIMIT_REACHED: { maximum: number; remaining: number };
   IMAGE_ORDER_INVALID: { expected: Id[] } | undefined;
-  CARGO_DATES_INVALID: string[];
-  CARGO_WINDOW_OVERLAP: {
-    cargo: string;
-    orderOpenAt: IsoDateTime;
-    orderCloseAt: IsoDateTime;
-  };
-  CARGO_TRANSITION_NOT_ALLOWED: {
-    from: CargoStatus;
-    to: CargoStatus;
-    allowed: CargoStatus[];
-  };
-  CARGO_ANOTHER_TAKING_ORDERS: { cargo: string; id: Id };
-  CARGO_NOT_EDITABLE: { status: CargoStatus };
-  CARGO_HAS_ORDERS: { orders: number };
-  CARGO_CANNOT_TAKE_ORDERS: {
-    cargo?: string;
-    status?: CargoStatus;
-    allowedIn?: CargoStatus[];
-  };
-  CARGO_PRODUCT_INVALID: { missing: Id[]; archived: Id[] };
   ORDER_TRANSITION_NOT_ALLOWED: {
     from: OrderStatus;
     to: OrderStatus;
     allowed: OrderStatus[];
   };
   ORDER_CANNOT_BE_CHANGED: { status: OrderStatus; allowedIn: OrderStatus[] };
-  ORDER_CANNOT_BE_MOVED: { status: OrderStatus; allowedIn: OrderStatus[] };
   ORDER_CANNOT_BE_CANCELLED: { status: OrderStatus };
   ORDER_QUANTITY_INVALID: { min: number; max: number };
   ORDER_ITEM_NOT_FOUND: { productIds?: Id[] } | undefined;
   RETURN_TRANSITION_NOT_ALLOWED: { from: string; to: string };
   RETURN_QUANTITY_INVALID: { productId?: Id; sku?: string } | undefined;
   COMPANY_DETAILS_MISSING: { missing: CompanyMissingField[] };
-  PAYMENT_NOT_POSSIBLE: { status?: OrderStatus } | undefined;
-  PAYMENT_ALREADY_ACTIVATED: { invoiceNumber: string };
-  PAYMENT_AMOUNT_MISMATCH: { amountDue: Cents; amount: Cents };
   REFUND_AMOUNT_INVALID: Refundable | undefined;
   REFUND_TRANSITION_NOT_ALLOWED: {
     status: RefundStatus;

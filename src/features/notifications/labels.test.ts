@@ -16,8 +16,8 @@ import {
 
 describe("the words of the log", () => {
   it("makes the API's type names readable", () => {
-    expect(typeLabel("payment_request")).toBe("Payment request");
-    expect(typeLabel("delivery_failed")).toBe("Delivery failed");
+    expect(typeLabel("payment_failed")).toBe("Payment failed");
+    expect(typeLabel("refund_completed")).toBe("Refund completed");
     expect(TYPE_OPTIONS.map((option) => option.value)).toEqual([
       ...NOTIFICATION_TYPES,
     ]);
@@ -44,7 +44,7 @@ describe("what can be done with a message", () => {
   });
 
   it("holds a WhatsApp retry back while WhatsApp is not configured", () => {
-    const whatsapp = { channel: "whatsapp", type: "payment_reminder" } as const;
+    const whatsapp = { channel: "whatsapp", type: "order_dispatched" } as const;
     expect(retryBlocked(whatsapp, false)).toMatch(/WhatsApp is not configured/);
     expect(retryBlocked(whatsapp, true)).toBeNull();
     // Not known yet: the API decides.
@@ -63,14 +63,14 @@ describe("what can be done with a message", () => {
   });
 
   it("explains the API's refusal", () => {
-    const email = { channel: "email", type: "payment_reminder" } as const;
+    const email = { channel: "email", type: "order_dispatched" } as const;
     expect(refusalText("retry", email, false)).toMatch(
       /sent or queued in the meantime/,
     );
     expect(
       refusalText(
         "retry",
-        { channel: "whatsapp", type: "payment_reminder" },
+        { channel: "whatsapp", type: "order_dispatched" },
         false,
       ),
     ).toMatch(/WhatsApp is not configured/);

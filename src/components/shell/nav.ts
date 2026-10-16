@@ -1,6 +1,5 @@
 import {
   Bell,
-  Container,
   CreditCard,
   FolderTree,
   HandCoins,
@@ -57,13 +56,6 @@ export const NAVIGATION: NavGroup[] = [
         requires: null,
         keywords: "dashboard start attention overview home",
       },
-      {
-        label: "Cargos",
-        href: routes.cargos,
-        icon: Container,
-        requires: "cargos.read",
-        keywords: "pre-order cycle delivery window deadline rollover",
-      },
     ],
   },
   {
@@ -74,8 +66,8 @@ export const NAVIGATION: NavGroup[] = [
         href: routes.orders,
         icon: ShoppingBag,
         requires: "orders.read",
-        count: (a) => ({ count: a.deliveries.failed, tone: "danger" }),
-        keywords: "pre-orders delivery dispatch tracking",
+        count: (a) => ({ count: a.orders.toProcess, tone: "attention" }),
+        keywords: "paid processing dispatch tracking delivery",
       },
       {
         label: "Returns",
@@ -96,8 +88,8 @@ export const NAVIGATION: NavGroup[] = [
         icon: CreditCard,
         requires: "payments.read",
         except: [routes.refunds, routes.invoices],
-        count: (a) => ({ count: a.payments.overdue, tone: "danger" }),
-        keywords: "overdue due cash reminders activate",
+        count: (a) => ({ count: a.refunds.needed, tone: "attention" }),
+        keywords: "stripe card paypal paid failed waiting refund",
       },
       {
         label: "Refunds",
@@ -127,7 +119,7 @@ export const NAVIGATION: NavGroup[] = [
         href: routes.customers,
         icon: Users,
         requires: "customers.read",
-        keywords: "accounts blocked ordering",
+        keywords: "accounts blocked",
       },
     ],
   },
@@ -139,7 +131,7 @@ export const NAVIGATION: NavGroup[] = [
         href: routes.products,
         icon: Tags,
         requires: "catalog.read",
-        keywords: "sku pack sizes prices images vat",
+        keywords: "sku pack sizes prices stock images vat",
       },
       {
         label: "Categories",
@@ -179,14 +171,14 @@ export const NAVIGATION: NavGroup[] = [
         icon: Settings,
         requires: "settings.read",
         except: [routes.legal, routes.team, routes.roles],
-        keywords: "company delivery fee returns payment deadline reminder",
+        keywords: "company delivery fee estimate returns payment page",
       },
       {
         label: "Legal texts",
         href: routes.legal,
         icon: ScrollText,
         requires: "legal.read",
-        keywords: "terms privacy pre-order versions publish",
+        keywords: "terms privacy versions publish",
       },
       {
         label: "Team",

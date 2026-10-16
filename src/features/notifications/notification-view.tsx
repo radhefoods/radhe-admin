@@ -257,15 +257,13 @@ function Related({ message }: { message: NotificationDetail }) {
   const customer = useRecordName("customer", message.customerId);
   const announcement = useRecordName("announcement", message.announcementId);
   const product = useRecordName("product", message.productId);
-  const cargo = useRecordName("cargo", message.cargoId);
   const nothing =
     !message.customerId &&
     !message.orderId &&
     !message.returnId &&
     !message.refundId &&
     !message.announcementId &&
-    !message.productId &&
-    !message.cargoId;
+    !message.productId;
 
   return (
     <Card>
@@ -312,11 +310,6 @@ function Related({ message }: { message: NotificationDetail }) {
                 href={routes.announcement(message.announcementId)}
               >
                 {announcement ?? "Open the announcement"}
-              </RelatedRow>
-            ) : null}
-            {message.cargoId ? (
-              <RelatedRow label="Cargo" href={routes.cargo(message.cargoId)}>
-                {cargo ?? `Cargo ${shortId(message.cargoId)}`}
               </RelatedRow>
             ) : null}
             {message.productId ? (

@@ -1,13 +1,13 @@
 "use client";
 
-import { FileText } from "lucide-react";
+import { ExternalLink, FileText } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { ActionButton } from "@/components/domain/permission";
 import { StatusBadge } from "@/components/domain/status-badge";
-import { AdminName, DateTime, Money } from "@/components/domain/values";
+import { CopyButton, DateTime, Money } from "@/components/domain/values";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Input, Select, Textarea } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import {
   Alert,
   Card,
@@ -16,265 +16,33 @@ import {
   Fact,
 } from "@/components/ui/surface";
 import { notify } from "@/components/ui/toast";
-import { useDefaultDeadlineDays } from "@/features/cargos/queries";
-import { hasErrorCode } from "@/lib/api/errors";
 import {
   MANUAL_REFUND_WAYS,
   REFUND_REASONS,
   type ManualRefundWay,
   type OrderDetail,
   type OrderPayment,
-  type PaymentBlockActive,
+  type PaymentType,
   type RefundMethod,
   type RefundReason,
   type Refundable,
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
-import { cn } from "@/lib/cn";
-import {
-  berlinToDate,
-  formatDeadline,
-  paymentDeadline,
-  toLocalInput,
-} from "@/lib/format/dates";
+import { formatDeadline } from "@/lib/format/dates";
 import { formatMoney, parseEuros, centsToInput } from "@/lib/format/money";
-import { personName, plural } from "@/lib/format/names";
-import { useNow } from "@/lib/hooks/use-now";
+import { plural } from "@/lib/format/names";
 import { routes } from "@/lib/routes";
 import { humanize } from "@/lib/status";
 import { Labelled, NoteField } from "./order-dialogs";
 import { useOrderPayment, type OrderActions } from "./queries";
 
-const METHOD: Record<string, string> = {
-  stripe: "Online (Stripe)",
-  cash: "Cash",
-  credit: "Settled by credit notes",
+/** How the customer paid on the Stripe page (11.1). */
+export const PAYMENT_TYPE_LABEL: Record<PaymentType, string> = {
+  card: "Card",
+  paypal: "PayPal",
 };
 
-// --- Dialogs ----------------------------------------------------------------
-
-/** Issues the invoice and sends the payment request for one order. */
-function ActivateDialog({
-  order,
-  open,
-  actions,
-  onOpenChange,
-}: {
-  order: OrderDetail;
-  open: boolean;
-  actions: OrderActions;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const fallback = useDefaultDeadlineDays();
-  const [days, setDays] = useState<string | null>(null);
-  const [note, setNote] = useState("");
-  const text = days ?? String(fallback);
-  const deadlineDays = /^\d{1,2}$/.test(text.trim())
-    ? Number(text)
-    : Number.NaN;
-  const valid = deadlineDays >= 1 && deadlineDays <= 60;
-
-  return (
-    <ConfirmDialog
-      open={open}
-      onOpenChange={(value) => {
-        if (!value) {
-          setDays(null);
-          setNote("");
-          actions.activatePayment.reset();
-        }
-        onOpenChange(value);
-      }}
-      title={`Activate payment for ${order.orderNumber}?`}
-      description="The invoice is issued from the final bill and emailed to the customer as a PDF with the payment link. A reminder follows every day until the order is paid."
-      facts={[
-        { label: "Customer", value: personName(order.customer) },
-        {
-          label: "Amount due",
-          value: formatMoney(order.finalTotal),
-          strong: true,
-        },
-        {
-          label: "Pay by",
-          value: valid ? (
-            <span className="text-gold">
-              {formatDeadline(paymentDeadline(deadlineDays))} German time
-            </span>
-          ) : (
-            "—"
-          ),
-        },
-      ]}
-      confirmLabel="Activate and send the invoice"
-      canConfirm={valid}
-      errorHelp={(error) =>
-        hasErrorCode(error, "COMPANY_DETAILS_MISSING") ? (
-          <Link href={routes.settingsCompany}>
-            Complete the company settings
-          </Link>
-        ) : null
-      }
-      onConfirm={async () => {
-        await actions.activatePayment.mutateAsync({
-          deadlineDays,
-          note: note.trim() || undefined,
-        });
-        notify.success(`Payment activated for ${order.orderNumber}`);
-      }}
-    >
-      <Labelled
-        label="Days to pay"
-        error={valid ? null : "Between 1 and 60 days."}
-        hint="The deadline is the end of that day in Germany."
-      >
-        {(id) => (
-          <Input
-            id={id}
-            inputMode="numeric"
-            value={text}
-            onChange={(event) => setDays(event.target.value)}
-            aria-invalid={valid ? undefined : true}
-            className="w-28 tabular"
-          />
-        )}
-      </Labelled>
-      <NoteField value={note} onChange={setNote} />
-    </ConfirmDialog>
-  );
-}
-
-/** Records the cash the driver collected: always the full amount due. */
-function CashDialog({
-  order,
-  payment,
-  open,
-  actions,
-  onOpenChange,
-}: {
-  order: OrderDetail;
-  payment: PaymentBlockActive;
-  open: boolean;
-  actions: OrderActions;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const [when, setWhen] = useState<string | null>(null);
-  const [note, setNote] = useState("");
-  const now = useNow();
-  const collected = when === null ? null : berlinToDate(when);
-  const valid =
-    when === null ||
-    (collected !== null && collected.getTime() <= now.getTime() + 60_000);
-
-  return (
-    <ConfirmDialog
-      open={open}
-      onOpenChange={(value) => {
-        if (!value) {
-          setWhen(null);
-          setNote("");
-        }
-        onOpenChange(value);
-      }}
-      title={`Record cash for ${order.orderNumber}?`}
-      description="The order is marked as paid in cash and the customer gets a receipt by email. Partial payments are not offered: the amount is the full amount due."
-      facts={[
-        { label: "Customer", value: personName(order.customer) },
-        { label: "Invoice", value: payment.invoice.number },
-        {
-          label: "Cash received",
-          value: formatMoney(payment.amountDue),
-          strong: true,
-        },
-      ]}
-      confirmLabel={`Record ${formatMoney(payment.amountDue)} in cash`}
-      canConfirm={valid}
-      onConfirm={async () => {
-        await actions.recordCash.mutateAsync({
-          amount: payment.amountDue,
-          collectedAt: collected ? collected.toISOString() : undefined,
-          note: note.trim() || undefined,
-        });
-        notify.success(`${formatMoney(payment.amountDue)} recorded as cash`);
-      }}
-    >
-      <Labelled
-        label="Collected at"
-        optional
-        hint="German time. Leave empty for now."
-        error={valid ? null : "This time lies in the future."}
-      >
-        {(id) => (
-          <Input
-            id={id}
-            type="datetime-local"
-            value={when ?? ""}
-            max={toLocalInput(new Date())}
-            onChange={(event) => setWhen(event.target.value || null)}
-            className="tabular"
-          />
-        )}
-      </Labelled>
-      <NoteField value={note} onChange={setNote} label="Note" />
-    </ConfirmDialog>
-  );
-}
-
-/** Lets the customer off what is owed. */
-function WaiveDialog({
-  order,
-  payment,
-  open,
-  actions,
-  onOpenChange,
-}: {
-  order: OrderDetail;
-  payment: PaymentBlockActive;
-  open: boolean;
-  actions: OrderActions;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const [reason, setReason] = useState("");
-  return (
-    <ConfirmDialog
-      open={open}
-      onOpenChange={(value) => {
-        if (!value) setReason("");
-        onOpenChange(value);
-      }}
-      title={`Waive the payment of ${order.orderNumber}?`}
-      description="The customer is let off what is owed. Reminders stop and the money is not collected. This cannot be taken back."
-      tone="danger"
-      facts={[
-        { label: "Customer", value: personName(order.customer) },
-        {
-          label: "Not collected",
-          value: formatMoney(payment.amountDue),
-          strong: true,
-        },
-      ]}
-      confirmLabel={`Waive ${formatMoney(payment.amountDue)}`}
-      cancelLabel="Keep the payment"
-      canConfirm={reason.trim().length > 0}
-      onConfirm={async () => {
-        await actions.waive.mutateAsync(reason.trim());
-        notify.success(`Payment of ${order.orderNumber} waived`);
-      }}
-    >
-      <Labelled label="Reason">
-        {(id) => (
-          <Textarea
-            id={id}
-            rows={2}
-            maxLength={1000}
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            className="min-h-0"
-          />
-        )}
-      </Labelled>
-    </ConfirmDialog>
-  );
-}
+// --- The refund dialog ------------------------------------------------------
 
 export interface RefundProblem {
   field: "amount" | "method" | "way";
@@ -309,7 +77,7 @@ export function readRefund(
       cents,
       problem: {
         field: "method",
-        message: "This order was not paid through Stripe.",
+        message: "Stripe cannot refund this order.",
       },
     };
   }
@@ -322,7 +90,11 @@ export function readRefund(
   return { cents, problem: null };
 }
 
-/** Decides a refund: through Stripe, or by hand. */
+/**
+ * Decides a refund (11): through Stripe, or by hand. The amount the
+ * cancellation or the credit notes call for is restated and prefilled;
+ * nothing goes back without the admin confirming it here.
+ */
 function RefundDialog({
   order,
   refundable,
@@ -390,10 +162,19 @@ function RefundDialog({
               },
             ]
           : []),
+        ...(refundable.suggested > 0
+          ? [
+              {
+                label: "Waits for a refund",
+                value: formatMoney(refundable.suggested),
+                strong: true,
+              },
+            ]
+          : []),
         {
           label: "Can be refunded",
           value: formatMoney(refundable.maximum),
-          strong: true,
+          strong: refundable.suggested <= 0,
         },
       ]}
       confirmLabel={
@@ -418,7 +199,11 @@ function RefundDialog({
           `Refund ${refund.refundNumber} decided`,
           refund.status === "pending"
             ? "Send the money, then mark it as complete under Refunds."
-            : "Stripe is working on it.",
+            : refund.status === "completed"
+              ? "Stripe confirmed it; the customer is told."
+              : refund.status === "failed"
+                ? "Stripe could not refund it. Withdraw it and refund by hand."
+                : "Stripe is working on it.",
         );
       }}
     >
@@ -428,7 +213,9 @@ function RefundDialog({
           error={read.problem?.field === "amount" ? read.problem.message : null}
           hint={
             refundable.suggested > 0
-              ? `Credit notes left ${formatMoney(refundable.suggested)} over.`
+              ? order.status === "cancelled"
+                ? "Everything that was paid for the cancelled order."
+                : "What the credit notes took off the bill."
               : undefined
           }
         >
@@ -474,7 +261,7 @@ function RefundDialog({
         hint={
           refundable.stripePossible
             ? undefined
-            : "Through Stripe is only possible for an order that was paid online."
+            : "Through Stripe is not possible for this order: it was not paid through Stripe, or Stripe is not connected."
         }
       >
         {(id) => (
@@ -540,8 +327,6 @@ function RefundDialog({
 
 // --- The card ---------------------------------------------------------------
 
-type DialogName = "activate" | "cash" | "waive" | "refund" | "remind" | null;
-
 function Documents({ data }: { data: OrderPayment }) {
   if (data.documents.length === 0 && data.refunds.length === 0) return null;
   return (
@@ -604,9 +389,10 @@ function Documents({ data }: { data: OrderPayment }) {
 }
 
 /**
- * The payment of an order: before activation what activating will do,
- * afterwards the invoice, what is owed, how it was paid, the reminders,
- * and every action the API allows right now (its `can…` flags decide).
+ * The payment of an order (11.1): paid at checkout through Stripe, so the
+ * card only reads what happened and offers the one decision that is the
+ * admin's, a refund. Money waits for it after a cancellation or a credit
+ * note (`needsRefund`).
  */
 export function OrderPaymentCard({
   order,
@@ -616,286 +402,181 @@ export function OrderPaymentCard({
   actions: OrderActions;
 }) {
   const can = useCan();
-  const [dialog, setDialog] = useState<DialogName>(null);
+  const [refunding, setRefunding] = useState(false);
   const payment = order.payment;
-  const active = payment.status !== "not_enabled" ? payment : null;
-  const details = useOrderPayment(order.id, active !== null).data;
-  const close = (open: boolean) => {
-    if (!open) setDialog(null);
-  };
-
-  if (!active) {
-    return (
-      <Card id="payment">
-        <CardHeader
-          title="Payment"
-          description="Nothing is collected when the customer orders. Payment begins after delivery, when it is activated."
-          actions={
-            <ActionButton
-              permission="payments.manage"
-              variant={payment.canActivate ? "primary" : "secondary"}
-              blocked={
-                payment.canActivate
-                  ? null
-                  : order.finalTotal <= 0
-                    ? "The final bill is 0: there is nothing to invoice."
-                    : "Payment can be activated once the order is delivered."
-              }
-              onClick={() => setDialog("activate")}
-            >
-              Activate payment
-            </ActionButton>
-          }
-        />
-        <CardBody>
-          <dl className="grid gap-4 sm:grid-cols-3">
-            <Fact label="Payment status">
-              <StatusBadge kind="payment" value="not_enabled" />
-            </Fact>
-            <Fact label="To invoice">
-              <Money
-                cents={order.finalTotal}
-                className="text-lg font-semibold"
-              />
-            </Fact>
-            <Fact label="Next step">
-              {payment.canActivate
-                ? "Activate payment: the invoice goes out."
-                : "Deliver the order first."}
-            </Fact>
-          </dl>
-        </CardBody>
-        <ActivateDialog
-          order={order}
-          open={dialog === "activate"}
-          actions={actions}
-          onOpenChange={close}
-        />
-      </Card>
-    );
-  }
-
-  const owing = active.status === "due" || active.status === "overdue";
+  const details = useOrderPayment(order.id).data;
   const refundable = details?.refundable;
+  const pending = order.status === "pending_payment";
+  const pageOpen = payment.checkout !== null;
 
   return (
     <Card id="payment">
       <CardHeader
         title="Payment"
         description={
-          <>
-            Invoice{" "}
-            <Link
-              href={routes.invoice(active.invoice.id)}
-              className="font-medium text-accent-text hover:underline"
-            >
-              {active.invoice.number}
-            </Link>
-            , activated <DateTime value={active.activatedAt} />
-            {active.activatedBy ? (
-              <>
-                {" "}
-                by{" "}
-                <AdminName
-                  id={active.activatedBy}
-                  admin={active.activatedByAdmin}
-                />
-              </>
-            ) : null}
-          </>
+          pending
+            ? "Paid at checkout on a Stripe page. The payment confirms the order; nothing is recorded by hand."
+            : payment.invoice
+              ? "Paid at checkout through Stripe. The invoice was issued the moment the money was captured."
+              : "Nothing was paid for this order."
         }
         actions={
-          <>
-            {active.canWaive ? (
-              <ActionButton
-                permission="payments.manage"
-                variant="ghost"
-                onClick={() => setDialog("waive")}
-              >
-                Waive
-              </ActionButton>
-            ) : null}
-            {refundable && refundable.maximum > 0 ? (
-              <ActionButton
-                permission="payments.manage"
-                onClick={() => setDialog("refund")}
-              >
-                Refund
-              </ActionButton>
-            ) : null}
-            {active.canRecordCash ? (
-              <ActionButton
-                permission="payments.manage"
-                variant="primary"
-                onClick={() => setDialog("cash")}
-              >
-                Record cash
-              </ActionButton>
-            ) : null}
-          </>
+          refundable && refundable.maximum > 0 ? (
+            <ActionButton
+              permission="payments.manage"
+              variant={payment.needsRefund ? "primary" : "secondary"}
+              onClick={() => setRefunding(true)}
+            >
+              Refund
+            </ActionButton>
+          ) : null
         }
       />
       <CardBody className="flex flex-col gap-5">
         <dl className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <Fact label="Amount due">
-            <Money
-              cents={active.amountDue}
-              className={cn(
-                "font-display text-2xl leading-tight",
-                active.amountDue === 0 && "text-ink-subtle",
-              )}
-            />
-          </Fact>
           <Fact label="Status">
-            <StatusBadge kind="payment" value={active.status} />
+            <StatusBadge kind="payment" value={payment.status} />
           </Fact>
-          <Fact label="Pay by">
-            <span
-              className={cn(
-                "font-medium",
-                active.isOverdue ? "text-danger-fg" : owing ? "text-gold" : "",
-              )}
-            >
-              {formatDeadline(active.deadline)}
-            </span>
-          </Fact>
-          <Fact label={active.paidAt ? "Paid" : "Paid so far"}>
-            {active.paidAt ? (
+          <Fact label={payment.paidAt ? "Paid" : "To pay"}>
+            {payment.paidAt ? (
               <span className="flex flex-col">
-                <Money cents={active.paidAmount} />
+                <Money cents={payment.paidAmount} className="font-medium" />
                 <span className="text-13 text-ink-muted">
-                  {METHOD[active.method ?? ""] ?? "—"} ·{" "}
-                  <DateTime value={active.paidAt} short />
+                  {payment.method ? PAYMENT_TYPE_LABEL[payment.method] : "—"}{" "}
+                  through Stripe · <DateTime value={payment.paidAt} short />
                 </span>
               </span>
             ) : (
-              <Money cents={active.paidAmount} muted />
+              <Money
+                cents={payment.amount}
+                className="font-display text-2xl leading-tight"
+              />
             )}
           </Fact>
-          <Fact label="Invoiced">
-            <Money cents={active.invoicedAmount} />
-          </Fact>
           <Fact label="Credited">
-            <Money cents={active.creditedAmount} muted />
+            <Money cents={payment.creditedAmount} muted />
           </Fact>
           <Fact label="Refunded">
-            <Money cents={active.refundedAmount} muted />
+            <Money cents={payment.refundedAmount} muted />
           </Fact>
-          <Fact label="Online payment">
-            {active.canPayOnline
-              ? "The customer can pay with the link."
-              : owing
-                ? "Not set up: Stripe is not connected. Cash only."
-                : "—"}
+          <Fact label="Invoice">
+            {payment.invoice && payment.invoiceId ? (
+              <Link
+                href={routes.invoice(payment.invoiceId)}
+                className="font-medium text-accent-text hover:underline"
+              >
+                {payment.invoice.number}
+              </Link>
+            ) : (
+              <span className="text-ink-subtle">Issued when paid</span>
+            )}
+          </Fact>
+          <Fact label="Receipt">
+            {payment.receiptUrl ? (
+              <a
+                href={payment.receiptUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-accent-text hover:underline"
+              >
+                Stripe receipt
+                <ExternalLink aria-hidden="true" className="size-3" />
+              </a>
+            ) : (
+              <span className="text-ink-subtle">—</span>
+            )}
+          </Fact>
+          <Fact label="Attempts">
+            {plural(payment.attempts, "payment page")}
+          </Fact>
+          <Fact label="Last failure">
+            {payment.lastFailure ? (
+              <span className="text-danger-fg">{payment.lastFailure}</span>
+            ) : (
+              <span className="text-ink-subtle">None</span>
+            )}
           </Fact>
         </dl>
 
-        {active.cash ? (
+        {payment.paymentIntentId ? (
           <p className="text-13 text-ink-muted">
-            Cash collected <DateTime value={active.cash.collectedAt} />,
-            recorded by{" "}
-            <AdminName
-              id={active.cash.recordedBy}
-              admin={active.cash.recordedByAdmin}
-            />
-            {active.cash.note ? <>: “{active.cash.note}”</> : null}
-          </p>
-        ) : null}
-        {active.stripe?.paymentIntentId ? (
-          <p className="text-13 text-ink-muted">
-            Paid by {active.stripe.paymentType ?? "card"} through Stripe (
-            <span className="font-mono text-xs">
-              {active.stripe.paymentIntentId}
-            </span>
-            )
-            {active.stripe.receiptUrl ? (
+            Stripe payment{" "}
+            <span className="font-mono text-xs">{payment.paymentIntentId}</span>
+            {payment.chargeId ? (
               <>
-                {" "}
-                ·{" "}
-                <a
-                  href={active.stripe.receiptUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-accent-text hover:underline"
-                >
-                  Receipt
-                </a>
+                , charge{" "}
+                <span className="font-mono text-xs">{payment.chargeId}</span>
               </>
             ) : null}
+            {payment.authorizedAt ? (
+              <>
+                , approved <DateTime value={payment.authorizedAt} short />
+              </>
+            ) : null}
+            .
           </p>
         ) : null}
-        {active.waivedReason ? (
-          <Alert tone="info" title="This payment was waived">
-            “{active.waivedReason}”
+
+        {pending ? (
+          <Alert
+            tone={pageOpen ? "time" : "info"}
+            title={
+              pageOpen
+                ? `The payment page is open until ${formatDeadline(payment.checkout!.expiresAt)}`
+                : payment.status === "failed"
+                  ? "The last attempt did not go through"
+                  : "The customer has not paid yet"
+            }
+            actions={
+              pageOpen ? (
+                <span className="flex items-center gap-1">
+                  <a
+                    href={payment.checkout!.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-13 font-medium text-accent-text hover:underline"
+                  >
+                    Open the payment page
+                    <ExternalLink aria-hidden="true" className="size-3" />
+                  </a>
+                  <CopyButton
+                    value={payment.checkout!.url}
+                    label="Copy the link to the payment page"
+                  />
+                </span>
+              ) : null
+            }
+          >
+            {pageOpen
+              ? "The customer pays on Stripe's page; the payment confirms the order. The link can be sent to a customer who lost the page."
+              : payment.canPayOnline
+                ? "The customer can open a new payment page from the order page in the shop. Nothing is reserved meanwhile."
+                : "The page expired. The shop gives the order up once the grace time has passed; nothing was charged."}
           </Alert>
         ) : null}
-        {refundable && refundable.suggested > 0 ? (
+
+        {payment.needsRefund && refundable ? (
           <Alert
             tone="time"
-            title={`${formatMoney(refundable.suggested)} to give back`}
+            title={`${formatMoney(refundable.suggested > 0 ? refundable.suggested : refundable.maximum)} waits for a refund`}
             actions={
               <ActionButton
                 permission="payments.manage"
                 size="sm"
-                onClick={() => setDialog("refund")}
+                onClick={() => setRefunding(true)}
               >
-                Refund {formatMoney(refundable.suggested)}
+                Decide the refund
               </ActionButton>
             }
           >
-            A credit note lowered the bill after it was paid. Refunding is your
-            decision.
+            {order.status === "cancelled"
+              ? "The order was cancelled after it was paid. Refunding is your decision: through Stripe, or by hand."
+              : "A credit note lowered the bill after it was paid. Refunding is your decision: through Stripe, or by hand."}
           </Alert>
-        ) : null}
-
-        {owing ? (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-sunken px-3.5 py-3 text-13">
-            <p className="text-ink-muted">
-              <span className="font-medium text-ink">
-                {active.reminders.paused
-                  ? "Reminders are paused."
-                  : active.reminders.nextAt
-                    ? `Next reminder ${formatDeadline(active.reminders.nextAt)}.`
-                    : "No reminder is planned."}
-              </span>{" "}
-              {plural(active.reminders.sentCount, "reminder")} sent
-              {active.reminders.lastSentAt ? (
-                <>
-                  , the last{" "}
-                  <DateTime value={active.reminders.lastSentAt} short />
-                </>
-              ) : null}
-              .
-            </p>
-            <div className="ml-auto flex flex-wrap gap-2">
-              <ActionButton
-                permission="payments.manage"
-                size="sm"
-                loading={actions.setRemindersPaused.isPending}
-                onClick={() =>
-                  actions.setRemindersPaused.mutate(!active.reminders.paused, {
-                    onSuccess: () =>
-                      notify.success(
-                        active.reminders.paused
-                          ? "Reminders resumed"
-                          : "Reminders paused",
-                      ),
-                  })
-                }
-              >
-                {active.reminders.paused
-                  ? "Resume reminders"
-                  : "Pause reminders"}
-              </ActionButton>
-              <ActionButton
-                permission="payments.manage"
-                size="sm"
-                onClick={() => setDialog("remind")}
-              >
-                Remind now
-              </ActionButton>
-            </div>
-          </div>
+        ) : payment.needsRefund && !can("payments.read") ? (
+          <Alert tone="time" title="Money waits for a refund">
+            Deciding it needs the permission “Payments: manage”.
+          </Alert>
         ) : null}
 
         {details ? <Documents data={details} /> : null}
@@ -906,48 +587,15 @@ export function OrderPaymentCard({
         ) : null}
       </CardBody>
 
-      <CashDialog
-        order={order}
-        payment={active}
-        open={dialog === "cash"}
-        actions={actions}
-        onOpenChange={close}
-      />
-      <WaiveDialog
-        order={order}
-        payment={active}
-        open={dialog === "waive"}
-        actions={actions}
-        onOpenChange={close}
-      />
       {refundable ? (
         <RefundDialog
           order={order}
           refundable={refundable}
-          open={dialog === "refund"}
+          open={refunding}
           actions={actions}
-          onOpenChange={close}
+          onOpenChange={setRefunding}
         />
       ) : null}
-      <ConfirmDialog
-        open={dialog === "remind"}
-        onOpenChange={close}
-        title={`Send a reminder for ${order.orderNumber} now?`}
-        description="The customer gets the payment reminder by email, and by WhatsApp when they asked for it. The daily reminders go on as planned."
-        facts={[
-          { label: "To", value: order.customer.email },
-          {
-            label: "Amount due",
-            value: formatMoney(active.amountDue),
-            strong: true,
-          },
-        ]}
-        confirmLabel="Send the reminder"
-        onConfirm={async () => {
-          await actions.remindNow.mutateAsync();
-          notify.success("Reminder sent");
-        }}
-      />
     </Card>
   );
 }

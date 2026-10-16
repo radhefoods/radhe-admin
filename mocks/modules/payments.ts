@@ -1,22 +1,17 @@
-// Sections 12 (payments and refunds) and 13 (invoices and credit notes).
+// Sections 11 (payments and refunds) and 12 (invoices and credit notes).
+// The admin records no payment: the shop is paid at checkout. What the
+// admin decides are refunds.
 
 import { z } from "zod";
-import type {
-  InvoiceDetail,
-  Refund,
-  Refundable,
-} from "../../src/lib/api/types/index.ts";
-import type { Db, OrderRecord } from "../db.ts";
+import type { InvoiceDetail, Refund } from "../../src/lib/api/types/index.ts";
+import type { Db } from "../db.ts";
 import {
-  activatePayment,
-  companyMissing,
   customerOf,
   invoiceSummary,
-  markPaid,
-  orderDetail,
   paymentBlock,
   pushHistory,
   queueMessage,
+  refundableOf,
 } from "../domain.ts";
 import {
   cursorPage,
@@ -31,7 +26,7 @@ import {
   zNote,
 } from "../http.ts";
 import type { Router } from "../router.ts";
-import { iso, nextReminder } from "../time.ts";
+import { iso } from "../time.ts";
 import { orderById } from "./orders.ts";
 
 const REFUND_STATUSES = [
@@ -42,63 +37,6 @@ const REFUND_STATUSES = [
   "cancelled",
 ] as const;
 
-function isOwing(order: OrderRecord): boolean {
-  return order.paymentStatus === "due" || order.paymentStatus === "overdue";
-}
-
-/** The payment of an order must be activated and still owing. */
-function owingPayment(order: OrderRecord) {
-  if (!order.payment) {
-    throw fail(
-      409,
-      "PAYMENT_NOT_ACTIVATED",
-      "Payment has not been activated for this order.",
-    );
-  }
-  if (order.payment.amountDue <= 0 && isOwing(order)) {
-    throw fail(409, "PAYMENT_NOTHING_DUE", "Nothing is owed on this order.");
-  }
-  if (!isOwing(order)) {
-    throw fail(
-      409,
-      order.payment.amountDue <= 0
-        ? "PAYMENT_NOTHING_DUE"
-        : "PAYMENT_NOT_POSSIBLE",
-      "The order is not owing.",
-      { status: order.status },
-    );
-  }
-  return order.payment;
-}
-
-export function refundableOf(db: Db, order: OrderRecord): Refundable {
-  const payment = order.payment;
-  const paidAmount = payment?.paidAmount ?? 0;
-  const refundedAmount = payment?.refundedAmount ?? 0;
-  const openAmount = db.refunds
-    .filter(
-      (refund) =>
-        refund.orderId === order.id &&
-        (refund.status === "pending" || refund.status === "processing"),
-    )
-    .reduce((sum, refund) => sum + refund.amount, 0);
-  const owedAfterCredits = payment
-    ? payment.invoicedAmount - payment.creditedAmount
-    : 0;
-  const maximum = Math.max(0, paidAmount - refundedAmount - openAmount);
-  return {
-    paidAmount,
-    refundedAmount,
-    openAmount,
-    maximum,
-    suggested: Math.min(
-      maximum,
-      Math.max(0, paidAmount - owedAfterCredits - refundedAmount - openAmount),
-    ),
-    stripePossible: db.config.stripe && payment?.method === "stripe",
-  };
-}
-
 function refundById(db: Db, id: string): Refund {
   const refund = db.refunds.find((entry) => entry.id === id);
   if (!refund) throw fail(404, "REFUND_NOT_FOUND", "The refund was not found.");
@@ -108,7 +46,7 @@ function refundById(db: Db, id: string): Refund {
 function moveRefund(
   refund: Refund,
   to: Refund["status"],
-  by: "admin" | "system",
+  by: "admin" | "stripe",
   adminId: string | null,
   note: string | null,
   now: number,
@@ -125,10 +63,10 @@ function moveRefund(
 }
 
 /** The money went back: the order carries it, and the customer hears of it. */
-function completeRefund(
+export function completeRefund(
   db: Db,
   refund: Refund,
-  by: "admin" | "system",
+  by: "admin" | "stripe",
   adminId: string | null,
   note: string | null,
   now: number,
@@ -136,23 +74,24 @@ function completeRefund(
   moveRefund(refund, "completed", by, adminId, note, now);
   refund.completedAt = iso(now);
   const order = db.orders.find((entry) => entry.id === refund.orderId);
-  if (!order?.payment) return;
+  if (!order) return;
   order.payment.refundedAmount += refund.amount;
+  pushHistory(
+    order,
+    {
+      field: "payment",
+      from: order.paymentStatus,
+      to: "refunded",
+      by: by === "stripe" ? "system" : "admin",
+      adminId,
+      note: refund.refundNumber,
+    },
+    now,
+  );
   if (
     order.payment.paidAmount > 0 &&
     order.payment.refundedAmount >= order.payment.paidAmount
   ) {
-    pushHistory(
-      order,
-      {
-        field: "payment",
-        from: order.paymentStatus,
-        to: "refunded",
-        by,
-        adminId,
-      },
-      now,
-    );
     order.paymentStatus = "refunded";
   }
   const customer = customerOf(db, order);
@@ -164,81 +103,11 @@ function completeRefund(
         customer,
         order,
         refundId: refund.id,
-        data: { amount: refund.amount },
-      },
-      now,
-    );
-  }
-}
-
-/** Overdue check and due reminders: what the hourly job does (7.7). */
-export function runPaymentJobs(
-  db: Db,
-  now: number,
-): { overdue: number; reminders: number } {
-  let overdue = 0;
-  let reminders = 0;
-  for (const order of db.orders) {
-    const payment = order.payment;
-    if (!payment) continue;
-    if (order.paymentStatus === "due" && Date.parse(payment.deadline) <= now) {
-      pushHistory(
-        order,
-        { field: "payment", from: "due", to: "overdue", by: "system" },
-        now,
-      );
-      order.paymentStatus = "overdue";
-      overdue += 1;
-    }
-    const due =
-      isOwing(order) &&
-      !payment.reminders.paused &&
-      payment.reminders.nextAt !== null &&
-      Date.parse(payment.reminders.nextAt) <= now;
-    if (due) {
-      sendReminder(db, order, "system", null, now);
-      reminders += 1;
-    }
-  }
-  return { overdue, reminders };
-}
-
-function sendReminder(
-  db: Db,
-  order: OrderRecord,
-  by: "admin" | "system",
-  adminId: string | null,
-  now: number,
-): void {
-  const payment = order.payment;
-  if (!payment) return;
-  // The next time is written before the message goes out: never twice.
-  payment.reminders.nextAt = nextReminder(
-    db.settings.payments.reminderHour,
-    now,
-  );
-  payment.reminders.sentCount += 1;
-  payment.reminders.lastSentAt = iso(now);
-  pushHistory(
-    order,
-    {
-      field: "payment",
-      from: order.paymentStatus,
-      to: "reminder_sent",
-      by,
-      adminId,
-    },
-    now,
-  );
-  const customer = customerOf(db, order);
-  if (customer) {
-    queueMessage(
-      db,
-      {
-        type: "payment_reminder",
-        customer,
-        order,
-        data: { amountDue: payment.amountDue, deadline: payment.deadline },
+        data: {
+          amount: refund.amount,
+          method: refund.method,
+          way: refund.manual?.way ?? null,
+        },
       },
       now,
     );
@@ -290,10 +159,10 @@ export function invoicePdf(invoice: InvoiceDetail): Uint8Array {
             },
           ]
         : []),
-      ...(invoice.dueAt
+      ...(invoice.paidAt
         ? [
             {
-              text: `${german ? "Zahlbar bis" : "Due by"}: ${invoice.dueAt.slice(0, 10)}`,
+              text: `${german ? "Bezahlt am" : "Paid on"}: ${invoice.paidAt.slice(0, 10)}`,
             },
           ]
         : []),
@@ -362,7 +231,9 @@ export function registerPayments(router: Router): void {
       const order = orderById(ctx.db, ctx.params.id ?? "");
       return json({
         orderNumber: order.orderNumber,
-        payment: paymentBlock(ctx.db, order),
+        status: order.status,
+        payment: paymentBlock(ctx.db, order, ctx.now),
+        refundable: refundableOf(ctx.db, order),
         documents: ctx.db.invoices
           .filter((invoice) => invoice.orderId === order.id)
           .sort((a, b) => (a.id < b.id ? -1 : 1))
@@ -370,194 +241,7 @@ export function registerPayments(router: Router): void {
         refunds: ctx.db.refunds
           .filter((refund) => refund.orderId === order.id)
           .sort((a, b) => (a.id < b.id ? 1 : -1)),
-        refundable: refundableOf(ctx.db, order),
       });
-    },
-  );
-
-  router.post(
-    `${orders}/:id/payment/activate`,
-    { permission: "payments.manage" },
-    async (ctx) => {
-      const input = await ctx.body(
-        z.strictObject({
-          deadlineDays: z.number().int().min(1).max(60),
-          note: zNote(500),
-        }),
-      );
-      const order = orderById(ctx.db, ctx.params.id ?? "");
-      if (order.payment) {
-        throw fail(
-          409,
-          "PAYMENT_ALREADY_ACTIVATED",
-          "Payment is already activated.",
-          {
-            invoiceNumber: order.payment.invoice.number,
-          },
-        );
-      }
-      if (order.status !== "delivered") {
-        throw fail(
-          409,
-          "PAYMENT_NOT_POSSIBLE",
-          "Payment begins after delivery.",
-          {
-            status: order.status,
-          },
-        );
-      }
-      if (order.finalTotals.total <= 0) {
-        throw fail(409, "PAYMENT_NOTHING_DUE", "The final bill is 0.");
-      }
-      const missing = companyMissing(ctx.db);
-      if (missing.length > 0) {
-        throw fail(
-          409,
-          "COMPANY_DETAILS_MISSING",
-          "Complete the company settings first.",
-          { missing },
-        );
-      }
-      const invoice = activatePayment(
-        ctx.db,
-        order,
-        input.deadlineDays,
-        ctx.admin.id,
-        ctx.now,
-      );
-      const customer = customerOf(ctx.db, order);
-      if (customer) {
-        queueMessage(
-          ctx.db,
-          {
-            type: "payment_request",
-            customer,
-            order,
-            attachInvoiceId: invoice.id,
-            data: { amountDue: invoice.total, deadline: invoice.dueAt },
-          },
-          ctx.now,
-        );
-      }
-      return json({ order: orderDetail(ctx.db, order) });
-    },
-  );
-
-  router.post(
-    `${orders}/:id/payment/cash`,
-    { permission: "payments.manage" },
-    async (ctx) => {
-      const input = await ctx.body(
-        z.strictObject({
-          amount: zCents(1),
-          collectedAt: z.iso.datetime({ offset: true }).optional(),
-          note: zNote(500),
-        }),
-      );
-      const order = orderById(ctx.db, ctx.params.id ?? "");
-      const payment = owingPayment(order);
-      if (input.amount !== payment.amountDue) {
-        throw fail(
-          400,
-          "PAYMENT_AMOUNT_MISMATCH",
-          "The amount must be the full amount due.",
-          {
-            amountDue: payment.amountDue,
-            amount: input.amount,
-          },
-        );
-      }
-      markPaid(ctx.db, order, "cash", ctx.now, "admin", ctx.admin.id);
-      payment.cash = {
-        collectedAt: input.collectedAt
-          ? iso(Date.parse(input.collectedAt))
-          : iso(ctx.now),
-        recordedBy: ctx.admin.id,
-        note: input.note ?? null,
-      };
-      const customer = customerOf(ctx.db, order);
-      if (customer)
-        queueMessage(
-          ctx.db,
-          { type: "payment_received", customer, order },
-          ctx.now,
-        );
-      return json({ order: orderDetail(ctx.db, order) });
-    },
-  );
-
-  router.post(
-    `${orders}/:id/payment/waive`,
-    { permission: "payments.manage" },
-    async (ctx) => {
-      const input = await ctx.body(
-        z.strictObject({ reason: z.string().min(1).max(1000) }),
-      );
-      const order = orderById(ctx.db, ctx.params.id ?? "");
-      const payment = owingPayment(order);
-      pushHistory(
-        order,
-        {
-          field: "payment",
-          from: order.paymentStatus,
-          to: "waived",
-          adminId: ctx.admin.id,
-          note: input.reason,
-        },
-        ctx.now,
-      );
-      order.paymentStatus = "waived";
-      payment.waivedReason = input.reason;
-      payment.amountDue = 0;
-      payment.reminders.nextAt = null;
-      return json({ order: orderDetail(ctx.db, order) });
-    },
-  );
-
-  router.patch(
-    `${orders}/:id/payment/reminders`,
-    { permission: "payments.manage" },
-    async (ctx) => {
-      const input = await ctx.body(z.strictObject({ paused: z.boolean() }));
-      const order = orderById(ctx.db, ctx.params.id ?? "");
-      if (!order.payment) {
-        throw fail(
-          409,
-          "PAYMENT_NOT_ACTIVATED",
-          "Payment has not been activated for this order.",
-        );
-      }
-      if (order.payment.reminders.paused !== input.paused) {
-        order.payment.reminders.paused = input.paused;
-        if (!input.paused && isOwing(order)) {
-          order.payment.reminders.nextAt = nextReminder(
-            ctx.db.settings.payments.reminderHour,
-            ctx.now,
-          );
-        }
-        pushHistory(
-          order,
-          {
-            field: "payment",
-            from: order.paymentStatus,
-            to: input.paused ? "reminders_paused" : "reminders_resumed",
-            adminId: ctx.admin.id,
-          },
-          ctx.now,
-        );
-      }
-      return json({ payment: paymentBlock(ctx.db, order) });
-    },
-  );
-
-  router.post(
-    `${orders}/:id/payment/remind`,
-    { permission: "payments.manage" },
-    (ctx) => {
-      const order = orderById(ctx.db, ctx.params.id ?? "");
-      owingPayment(order);
-      sendReminder(ctx.db, order, "admin", ctx.admin.id, ctx.now);
-      return json({ payment: paymentBlock(ctx.db, order) });
     },
   );
 
@@ -603,7 +287,7 @@ export function registerPayments(router: Router): void {
         );
       }
       if (input.method === "stripe") {
-        if (order.payment?.method !== "stripe") {
+        if (order.payment.paymentIntentId === null) {
           throw fail(
             400,
             "REFUND_METHOD_INVALID",
@@ -619,26 +303,29 @@ export function registerPayments(router: Router): void {
         }
       }
       if (input.method === "manual" && !input.manual) {
-        throw fail(
-          400,
-          "REFUND_METHOD_INVALID",
-          "A manual refund needs the way it is paid.",
-        );
+        throw validationFailed([
+          {
+            field: "manual",
+            problems: ["manual is required for method manual"],
+          },
+        ]);
       }
       const count = ctx.db.refunds.filter(
         (refund) => refund.orderId === order.id,
       ).length;
-      const status = input.method === "stripe" ? "processing" : "pending";
+      // The stand-in for Stripe confirms at once.
+      const status = input.method === "stripe" ? "completed" : "pending";
       const refund: Refund = {
         id: newId(ctx.now),
         refundNumber: `${order.orderNumber}-RF${count + 1}`,
         orderId: order.id,
         orderNumber: order.orderNumber,
-        invoiceNumber: order.payment?.invoice.number ?? null,
+        customerId: order.customer.id,
+        invoiceNumber: order.payment.invoiceNumber,
         amount: input.amount,
         reason: input.reason,
         method: input.method,
-        status,
+        status: "pending",
         manual:
           input.method === "manual" && input.manual
             ? {
@@ -651,7 +338,7 @@ export function registerPayments(router: Router): void {
           input.method === "stripe"
             ? {
                 refundId: `re_3Demo${newId(ctx.now).slice(-10)}`,
-                paymentIntentId: order.payment?.stripe?.paymentIntentId ?? null,
+                paymentIntentId: order.payment.paymentIntentId,
                 stripeStatus: "pending",
                 failureReason: null,
               }
@@ -663,7 +350,7 @@ export function registerPayments(router: Router): void {
         statusHistory: [
           {
             from: null,
-            to: status,
+            to: "pending",
             at: iso(ctx.now),
             by: "admin",
             adminId: ctx.admin.id,
@@ -672,6 +359,17 @@ export function registerPayments(router: Router): void {
         ],
       };
       ctx.db.refunds.push(refund);
+      if (status === "completed" && refund.stripe) {
+        refund.stripe.stripeStatus = "succeeded";
+        completeRefund(
+          ctx.db,
+          refund,
+          "stripe",
+          null,
+          "Stripe: succeeded",
+          ctx.now + 1000,
+        );
+      }
       return json({ refund }, 201);
     },
   );
@@ -719,6 +417,7 @@ export function registerPayments(router: Router): void {
         }),
       );
       const refund = refundById(ctx.db, ctx.params.id ?? "");
+      if (refund.status === "completed") return json({ refund });
       if (
         refund.method !== "manual" ||
         refund.status !== "pending" ||
@@ -795,23 +494,25 @@ export function registerPayments(router: Router): void {
       // The stand-in for Stripe says "succeeded" when it is asked.
       if (
         refund.method === "stripe" &&
-        refund.status === "processing" &&
+        (refund.status === "processing" || refund.status === "failed") &&
         refund.stripe
       ) {
         refund.stripe.stripeStatus = "succeeded";
-        completeRefund(ctx.db, refund, "system", null, null, ctx.now);
+        refund.stripe.failureReason = null;
+        completeRefund(
+          ctx.db,
+          refund,
+          "stripe",
+          null,
+          "Stripe: succeeded",
+          ctx.now,
+        );
       }
       return json({ refund });
     },
   );
 
-  router.post(
-    "/v1/admin/payments/run-jobs",
-    { permission: "payments.manage" },
-    (ctx) => json(runPaymentJobs(ctx.db, ctx.now)),
-  );
-
-  // --- Invoices and credit notes (13) ---------------------------------------
+  // --- Invoices and credit notes (12) ---------------------------------------
   const invoices = "/v1/admin/invoices";
 
   const invoiceById = (db: Db, id: string): InvoiceDetail => {
@@ -828,7 +529,7 @@ export function registerPayments(router: Router): void {
     ] as const);
     const customerId = idParam(ctx.query, "customerId");
     const orderNumber = ctx.query.get("orderNumber")?.trim().toUpperCase();
-    // One document by its number, or the beginning of a number (13).
+    // One document by its number, or the beginning of a number (12).
     const number = ctx.query.get("number")?.trim().toUpperCase();
     if (number && !/^(INV|CN)-\d{4}-\d{6}$/.test(number)) {
       throw validationFailed([

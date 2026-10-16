@@ -12,7 +12,7 @@ import { AnnouncementsView } from "./announcements-view";
 let api: TestApi;
 
 const SUBJECT = "Fresh curry leaves this week";
-const MESSAGE = "A small batch arrived.\n\nOrder with the current cargo.";
+const MESSAGE = "A small batch arrived.\n\nOrder while it is in stock.";
 
 /** The customers an announcement goes to: active, and opted in to news. */
 const optedIn = () =>
@@ -229,14 +229,12 @@ describe("writing an announcement", () => {
     expect(writes()).toHaveLength(0);
   });
 
-  it("sends the link, the button label, the cargo and the product that were chosen", async () => {
+  it("sends the link, the button label and the product that were chosen", async () => {
     const db = api.mock.db();
-    const cargo = db.cargos.find((entry) => entry.status === "taking_orders");
     const product = db.products.find(
       (entry) => entry.name.en === "Kesar Mango Box",
     );
-    if (!cargo || !product)
-      throw new Error("The demo data lacks the cargo or the product");
+    if (!product) throw new Error("The demo data lacks the product");
     const { user } = compose();
     await write(user);
     await user.type(
@@ -245,11 +243,6 @@ describe("writing an announcement", () => {
     );
     const english = screen.getAllByLabelText("EN English");
     await user.type(english[2] as HTMLElement, "See the mangoes");
-    await user.selectOptions(
-      await screen.findByRole("combobox", { name: /^Cargo/ }),
-      cargo.id,
-    );
-
     await user.click(screen.getByRole("button", { name: /^Product/ }));
     await user.type(
       await screen.findByPlaceholderText("Name or article number"),
@@ -270,7 +263,6 @@ describe("writing an announcement", () => {
           link: "https://www.radhefoods.de/mango",
           linkLabel: { en: "See the mangoes" },
           productId: product.id,
-          cargoId: cargo.id,
           channels: ["email"],
         },
       },
@@ -282,7 +274,6 @@ describe("writing an announcement", () => {
     expect(
       screen.getByText(`Kesar Mango Box (${product.sku})`),
     ).toBeInTheDocument();
-    expect(screen.getByText(cargo.code)).toBeInTheDocument();
   });
 });
 
@@ -550,28 +541,28 @@ describe("permissions and the history", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("narrows the history to a cargo from the address, as a chip that can be removed", async () => {
-    const withCargo = api.mock
+  it("narrows the history to a product from the address, as a chip that can be removed", async () => {
+    const withProduct = api.mock
       .db()
-      .announcements.find((entry) => entry.cargoId);
-    if (!withCargo?.cargoId)
-      throw new Error("No announcement about a cargo in the demo data");
+      .announcements.find((entry) => entry.productId);
+    if (!withProduct?.productId)
+      throw new Error("No announcement about a product in the demo data");
     const { user } = renderPanel(<AnnouncementsView />, {
-      path: `/communication/announcements?cargoId=${withCargo.cargoId}`,
+      path: `/communication/announcements?productId=${withProduct.productId}`,
     });
     await waitFor(() =>
       expect(api.calls.map((call) => call.path)).toContain(
-        `/v1/admin/announcements?cargoId=${withCargo.cargoId}&limit=25`,
+        `/v1/admin/announcements?productId=${withProduct.productId}&limit=25`,
       ),
     );
     expect(
-      await screen.findByRole("link", { name: withCargo.subject.en }),
+      await screen.findByRole("link", { name: withProduct.subject.en }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "New announcement" }),
     ).toHaveAttribute("href", "/communication/announcements/new");
     await user.click(
-      screen.getByRole("button", { name: "Remove the filter Cargo" }),
+      screen.getByRole("button", { name: "Remove the filter Product" }),
     );
     await waitFor(() =>
       expect(testNavigation.location).toBe("/communication/announcements"),

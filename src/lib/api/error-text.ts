@@ -75,7 +75,7 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
     "The category still has sub-categories. Move or delete them first.",
   CATEGORY_HAS_PRODUCTS:
     "The category still has products. Move them first, or hide the category instead.",
-  // products and images
+  // products, stock and images
   PRODUCT_NOT_FOUND: "This product does not exist (any more).",
   PRODUCT_PRICE_INVALID:
     "The sale price must be below the regular price, and a sale is given either as a price or as a percentage.",
@@ -86,7 +86,10 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   PRODUCT_SLUG_TAKEN: "Another product already uses this address (slug).",
   PRODUCT_IS_ACTIVE: "Archive the product before deleting it.",
   PRODUCT_IN_USE:
-    "The product was part of a cargo and cannot be deleted. Archive it instead.",
+    "The product is part of an order and cannot be deleted. Archive it instead.",
+  STOCK_CHANGE_INVALID:
+    "Give either the counted number or the units to add or remove, not both.",
+  STOCK_INSUFFICIENT: "More units would be removed than are in stock.",
   IMAGE_REQUIRED: "Choose a picture first.",
   IMAGE_INVALID: "The file is not a picture the API can read.",
   IMAGE_FORMAT_NOT_ALLOWED: "Only JPEG, PNG and WebP pictures are accepted.",
@@ -99,37 +102,14 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   FILE_TOO_LARGE: "The file is too large. A picture may have 10 MB at most.",
   STORAGE_UNAVAILABLE:
     "The picture storage is not available at the moment. Try again shortly.",
-  // cargos
-  CARGO_NOT_FOUND: "This cargo does not exist (any more).",
-  CARGO_DATES_INVALID: "The dates of the cargo do not fit together.",
-  CARGO_WINDOW_PASSED: "The order deadline of this cargo lies in the past.",
-  CARGO_WINDOW_OVERLAP:
-    "The order window overlaps with another scheduled or open cargo.",
-  CARGO_TRANSITION_NOT_ALLOWED:
-    "The cargo cannot take this step from where it is now.",
-  CARGO_ANOTHER_TAKING_ORDERS:
-    "Another cargo is taking orders. Only one cargo can be open at a time.",
-  CARGO_CHANGED_MEANWHILE:
-    "The cargo changed in the meantime. It was loaded again: check and repeat.",
-  CARGO_NOT_EDITABLE: "This can no longer be changed in the cargo's status.",
-  CARGO_NOT_DELETABLE: "Only a draft can be deleted. Cancel the cargo instead.",
-  CARGO_HAS_ORDERS:
-    "The cargo has orders. Name the cargo that takes them over, and look at orders that are already on their way first.",
-  CARGO_CANNOT_TAKE_ORDERS:
-    "The chosen cargo cannot take orders in its status.",
-  CARGO_PRODUCT_INVALID: "Some products are missing or archived.",
-  CARGO_PRODUCT_NOT_FOUND: "The product has no setting in this cargo.",
-  CARGO_PRODUCT_HAS_ORDERS:
-    "The product was ordered in this cargo. Disable it instead of removing it.",
   // orders
   ORDER_NOT_FOUND: "This order does not exist.",
   ORDER_ITEM_NOT_FOUND: "The order does not contain this product.",
   ORDER_QUANTITY_INVALID: "The quantity is outside of what is possible.",
   ORDER_TRANSITION_NOT_ALLOWED:
     "The order cannot take this step from where it is now.",
-  ORDER_CANNOT_BE_CANCELLED: "The order can no longer be cancelled.",
-  ORDER_CANNOT_BE_MOVED:
-    "The order cannot be moved in its status. Only orders that are not on their way can move.",
+  ORDER_CANNOT_BE_CANCELLED:
+    "The order can no longer be cancelled. After delivery, the way back is a return.",
   ORDER_CANNOT_BE_CHANGED: "The order can no longer be changed in its status.",
   ORDER_CHANGED_MEANWHILE:
     "The order changed in the meantime. It was loaded again: check and repeat.",
@@ -141,14 +121,8 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   // payments
   COMPANY_DETAILS_MISSING:
     "Invoices cannot be issued yet: the company details are incomplete.",
-  PAYMENT_NOT_ACTIVATED: "Payment has not been activated for this order.",
-  PAYMENT_ALREADY_ACTIVATED: "Payment is already activated for this order.",
-  PAYMENT_NOT_POSSIBLE: "This is not possible in the order's status.",
-  PAYMENT_NOTHING_DUE: "Nothing is owed on this order.",
-  PAYMENT_AMOUNT_MISMATCH:
-    "The amount must be the full amount due. Partial payments are not offered.",
   PAYMENTS_NOT_CONFIGURED:
-    "Online payment is not set up yet (Stripe is not connected). Cash, waiving, reminders and manual refunds work.",
+    "Online payment is not set up yet (Stripe is not connected). The shop cannot sell, and a refund through Stripe is not possible; refunds by hand work.",
   PAYMENT_PROVIDER_ERROR: "Stripe refused or failed. Try again shortly.",
   REFUND_NOT_FOUND: "This refund does not exist.",
   REFUND_AMOUNT_INVALID: "The amount is more than can be refunded.",
@@ -206,42 +180,24 @@ export function errorMessage(error: unknown): string {
       return `A product holds ${d.maximum} pictures at most. There is room for ${d.remaining} more.`;
     }
   }
-  if (hasErrorCode(error, "CARGO_DATES_INVALID")) {
-    if (Array.isArray(error.details) && error.details.length > 0) {
-      return error.details.join(" ");
+  if (hasErrorCode(error, "STOCK_INSUFFICIENT")) {
+    const d = error.details;
+    if (d && typeof d.available === "number") {
+      return `Only ${d.available} unit${d.available === 1 ? " is" : "s are"} in stock; ${d.wanted} cannot be removed.`;
     }
   }
-  if (hasErrorCode(error, "CARGO_WINDOW_OVERLAP")) {
-    const cargo = error.details?.cargo;
-    if (cargo) return `The order window overlaps with cargo ${cargo}.`;
-  }
-  if (hasErrorCode(error, "CARGO_ANOTHER_TAKING_ORDERS")) {
-    const cargo = error.details?.cargo;
-    if (cargo) {
-      return `Cargo ${cargo} is taking orders. Close it first: only one cargo can be open at a time.`;
-    }
-  }
-  if (
-    hasErrorCode(error, "CARGO_TRANSITION_NOT_ALLOWED") ||
-    hasErrorCode(error, "ORDER_TRANSITION_NOT_ALLOWED")
-  ) {
+  if (hasErrorCode(error, "ORDER_TRANSITION_NOT_ALLOWED")) {
     const d = error.details;
     if (d && Array.isArray(d.allowed)) {
+      if (d.from === "pending_payment") {
+        return "The order waits for its payment. The payment confirms it; nothing can be set by hand.";
+      }
       const possible =
         d.allowed.length > 0 ? list(d.allowed) : "nothing further";
       return `From "${humanize(String(d.from)).toLowerCase()}" this step is not possible. Possible: ${possible}.`;
     }
   }
-  if (hasErrorCode(error, "CARGO_HAS_ORDERS")) {
-    const orders = error.details?.orders;
-    if (typeof orders === "number") {
-      return `The cargo has ${orders} order${orders === 1 ? "" : "s"}. Name the cargo that takes them over; orders already on their way must be looked at first.`;
-    }
-  }
-  if (
-    hasErrorCode(error, "ORDER_CANNOT_BE_CHANGED") ||
-    hasErrorCode(error, "ORDER_CANNOT_BE_MOVED")
-  ) {
+  if (hasErrorCode(error, "ORDER_CANNOT_BE_CHANGED")) {
     const d = error.details;
     if (d && Array.isArray(d.allowedIn)) {
       return `Not possible while the order is "${humanize(String(d.status)).toLowerCase()}". Possible in: ${list(d.allowedIn)}.`;
@@ -257,16 +213,6 @@ export function errorMessage(error: unknown): string {
     const missing = error.details?.missing;
     if (Array.isArray(missing) && missing.length > 0) {
       return `Invoices cannot be issued yet. Missing in the company settings: ${missing.join(", ")}.`;
-    }
-  }
-  if (hasErrorCode(error, "PAYMENT_ALREADY_ACTIVATED")) {
-    const invoice = error.details?.invoiceNumber;
-    if (invoice) return `Payment is already activated (invoice ${invoice}).`;
-  }
-  if (hasErrorCode(error, "PAYMENT_AMOUNT_MISMATCH")) {
-    const d = error.details;
-    if (d && typeof d.amountDue === "number") {
-      return `The amount must be the full amount due, ${formatMoney(d.amountDue)}. Partial payments are not offered.`;
     }
   }
   if (hasErrorCode(error, "REFUND_AMOUNT_INVALID")) {

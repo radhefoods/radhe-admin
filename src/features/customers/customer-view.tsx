@@ -45,9 +45,8 @@ import { cn } from "@/lib/cn";
 import { formatDate, formatDateTime } from "@/lib/format/dates";
 import { LOCALE_LABEL, personName } from "@/lib/format/names";
 import { routes, withQuery } from "@/lib/routes";
-import { CustomerOrdering } from "./customer-ordering";
 import { CustomerStatusDialog } from "./customer-status-dialog";
-import { OptIn, OrderingBadge } from "./customers-view";
+import { OptIn } from "./customers-view";
 import { NEWEST_ORDERS, useCustomer, useCustomerOrders } from "./queries";
 import { SIGNUP_METHOD_LABEL } from "./schemas";
 
@@ -155,7 +154,7 @@ function Communication({ customer }: { customer: Customer }) {
     <Card>
       <CardHeader
         title="Communication"
-        description="Emails about orders and payments are always sent. WhatsApp and news need the customer's opt-in."
+        description="Emails about orders, returns and refunds are always sent. WhatsApp and news need the customer's opt-in."
       />
       <CardBody>
         <dl className="grid gap-4 sm:grid-cols-2">
@@ -411,12 +410,7 @@ export function CustomerView() {
       <PageHeader
         back={back}
         title={name}
-        badges={
-          <>
-            <StatusBadge kind="customer" value={data.status} />
-            <OrderingBadge customer={data} />
-          </>
-        }
+        badges={<StatusBadge kind="customer" value={data.status} />}
         description={
           <>
             {name === data.email ? null : <>{data.email} · </>}
@@ -441,7 +435,7 @@ export function CustomerView() {
           >
             <p>
               The customer is signed out everywhere and can neither sign in nor
-              order.
+              check out.
             </p>
             <p className="mt-1 text-ink">
               {data.blockedReason ? (
@@ -457,7 +451,6 @@ export function CustomerView() {
 
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
           <div className="flex min-w-0 flex-col gap-6">
-            <CustomerOrdering customer={data} />
             {can("orders.read") ? <NewestOrders customer={data} /> : null}
           </div>
           <div className="flex min-w-0 flex-col gap-6">

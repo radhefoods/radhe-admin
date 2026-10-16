@@ -6,15 +6,11 @@ import type {
   TranslatedOptional,
 } from "@/lib/api/types";
 
-// The legal texts of the shop (documentation, 6): three types, each in
+// The legal texts of the shop (documentation, 6): two types, each in
 // versions. A version is a draft until it is published, and never changes
-// afterwards.
+// afterwards. Both must be published before anyone can check out.
 
-export const LEGAL_TYPES: readonly LegalType[] = [
-  "terms",
-  "preorder_terms",
-  "privacy",
-];
+export const LEGAL_TYPES: readonly LegalType[] = ["terms", "privacy"];
 
 export const LEGAL_TYPE: Record<
   LegalType,
@@ -23,14 +19,8 @@ export const LEGAL_TYPE: Record<
   terms: {
     label: "Terms and conditions",
     short: "terms",
-    description: "What customers agree to with every order.",
+    description: "What customers agree to at checkout.",
     defaultTitle: "Terms and Conditions",
-  },
-  preorder_terms: {
-    label: "Pre-order terms",
-    short: "pre-order terms",
-    description: "The rules of ordering ahead and paying after delivery.",
-    defaultTitle: "Pre-Order and Payment Terms",
   },
   privacy: {
     label: "Privacy policy",
@@ -50,7 +40,6 @@ export function groupByType(
 ): Record<LegalType, LegalDocumentSummary[]> {
   const groups: Record<LegalType, LegalDocumentSummary[]> = {
     terms: [],
-    preorder_terms: [],
     privacy: [],
   };
   for (const item of items) groups[item.type]?.push(item);
@@ -59,7 +48,7 @@ export function groupByType(
   return groups;
 }
 
-/** The required types that have no published version: orders are refused meanwhile. */
+/** The required types that have no published version: checkout is refused meanwhile. */
 export function unpublishedRequiredTypes(
   items: readonly LegalDocumentSummary[],
   requiredTypes: readonly LegalType[],

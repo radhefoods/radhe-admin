@@ -1,4 +1,4 @@
-// Sections 14 (notifications), 15 (announcements) and 16 (attention).
+// Sections 13 (notifications), 14 (announcements) and 15 (attention).
 
 import { z } from "zod";
 import type {
@@ -10,7 +10,13 @@ import type {
   NotificationStatus,
 } from "../../src/lib/api/types/index.ts";
 import type { Db } from "../db.ts";
-import { orderSummary, queueMessage } from "../domain.ts";
+import {
+  orderNeedsRefund,
+  orderSummary,
+  productSummary,
+  queueMessage,
+  stockView,
+} from "../domain.ts";
 import {
   cursorPage,
   enumParam,
@@ -24,7 +30,7 @@ import {
   zTranslated,
 } from "../http.ts";
 import type { Router } from "../router.ts";
-import { DAY, iso } from "../time.ts";
+import { iso } from "../time.ts";
 
 const STATUSES = [
   "queued",
@@ -38,27 +44,17 @@ const CHANNELS = ["email", "whatsapp"] as const;
 const TYPES = [
   "order_confirmed",
   "order_cancelled",
-  "order_moved",
   "order_dispatched",
   "order_delivered",
-  "delivery_failed",
   "return_requested",
   "return_approved",
   "return_rejected",
   "return_completed",
-  "payment_request",
-  "payment_reminder",
-  "payment_received",
   "payment_failed",
   "refund_completed",
   "announcement",
 ] as const;
-const WHATSAPP_TYPES = [
-  "order_dispatched",
-  "payment_request",
-  "payment_reminder",
-  "announcement",
-];
+const WHATSAPP_TYPES = ["order_dispatched", "announcement"];
 
 function emptyCounts(): Record<NotificationStatus, number> {
   return {
@@ -116,7 +112,6 @@ const announcementBody = z.strictObject({
   link: z.url().max(500).optional(),
   linkLabel: zTranslated(80).optional(),
   productId: zId.optional(),
-  cargoId: zId.optional(),
   channels: z.array(z.enum(CHANNELS)).min(1).max(2).optional(),
 });
 type AnnouncementBody = z.output<typeof announcementBody>;
@@ -135,18 +130,12 @@ function resolveAnnouncement(db: Db, input: AnnouncementBody) {
   if (input.productId && !product) {
     throw fail(404, "PRODUCT_NOT_FOUND", "The product was not found.");
   }
-  const cargo = input.cargoId
-    ? db.cargos.find((entry) => entry.id === input.cargoId)
-    : undefined;
-  if (input.cargoId && !cargo)
-    throw fail(404, "CARGO_NOT_FOUND", "The cargo was not found.");
   const shop = "https://www.radhefoods.de";
   const channels = [
     ...new Set<NotificationChannel>(input.channels ?? ["email"]),
   ];
   return {
     product,
-    cargo,
     channels,
     link:
       input.link ?? (product ? `${shop}/products/${product.slug.en}` : shop),
@@ -305,7 +294,7 @@ export function registerCommunication(router: Router): void {
     },
   );
 
-  // --- Announcements (15) ---------------------------------------------------
+  // --- Announcements (14) ---------------------------------------------------
   const announcements = "/v1/admin/announcements";
 
   router.post(
@@ -369,10 +358,7 @@ export function registerCommunication(router: Router): void {
     { permission: "notifications.manage" },
     async (ctx) => {
       const input = await ctx.body(announcementBody);
-      const { product, cargo, channels, link } = resolveAnnouncement(
-        ctx.db,
-        input,
-      );
+      const { product, channels, link } = resolveAnnouncement(ctx.db, input);
       const recipients = recipientsOf(ctx.db);
       if (recipients.length === 0) {
         throw fail(
@@ -408,8 +394,6 @@ export function registerCommunication(router: Router): void {
         linkLabel: input.linkLabel ?? null,
         productId: product?.id ?? null,
         productName: product?.name.en ?? null,
-        cargoId: cargo?.id ?? null,
-        cargoCode: cargo?.code ?? null,
         channels,
         recipients: recipients.length,
         queued: ctx.db.notifications.length - before,
@@ -424,11 +408,8 @@ export function registerCommunication(router: Router): void {
 
   router.get(announcements, { permission: "notifications.read" }, (ctx) => {
     const productId = idParam(ctx.query, "productId");
-    const cargoId = idParam(ctx.query, "cargoId");
     const rows = ctx.db.announcements.filter(
-      (entry) =>
-        (!productId || entry.productId === productId) &&
-        (!cargoId || entry.cargoId === cargoId),
+      (entry) => !productId || entry.productId === productId,
     );
     const result = cursorPage(rows, ctx.query);
     // Each item carries its progress, counted for the page (15).
@@ -488,51 +469,46 @@ export function registerCommunication(router: Router): void {
     },
   );
 
-  // --- Attention (16) -------------------------------------------------------
+  // --- Attention (15) -------------------------------------------------------
 
   router.get("/v1/admin/attention", { permission: "orders.read" }, (ctx) => {
     const newest = <T extends { id: string }>(rows: T[]) =>
       [...rows].sort((a, b) => (a.id < b.id ? 1 : -1)).slice(0, 5);
     const { db } = ctx;
-    const requested = db.returns.filter(
-      (entry) => entry.status === "requested",
-    );
-    const overdue = db.orders.filter(
-      (order) => order.paymentStatus === "overdue",
-    );
-    const failedRecently = db.orders.filter(
-      (order) =>
-        order.payment?.failedAt &&
-        Date.parse(order.payment.failedAt) > ctx.now - 7 * DAY &&
-        (order.paymentStatus === "due" || order.paymentStatus === "overdue"),
-    );
-    const failedDeliveries = db.orders.filter(
-      (order) => order.status === "delivery_failed",
-    );
+    const toProcess = db.orders.filter((order) => order.status === "confirmed");
+    const needRefund = db.orders.filter((order) => orderNeedsRefund(order));
     const pendingRefunds = db.refunds.filter(
       (refund) => refund.status === "pending",
     );
     const failedRefunds = db.refunds.filter(
       (refund) => refund.status === "failed",
     );
+    const requested = db.returns.filter(
+      (entry) => entry.status === "requested",
+    );
+    const low = db.products.filter((product) => stockView(product.stock).isLow);
     const failedMessages = db.notifications.filter(
       (entry) => entry.status === "failed",
     );
     return json({
-      returns: { requested: requested.length, items: newest(requested) },
-      payments: {
-        overdue: overdue.length,
-        items: newest(overdue).map(orderSummary),
-        failedRecently: newest(failedRecently).map(orderSummary),
-      },
-      deliveries: {
-        failed: failedDeliveries.length,
-        items: newest(failedDeliveries).map(orderSummary),
+      orders: {
+        toProcess: toProcess.length,
+        items: newest(toProcess).map(orderSummary),
       },
       refunds: {
+        needed: needRefund.length,
+        orders: newest(needRefund).map(orderSummary),
         pending: pendingRefunds.length,
         failed: failedRefunds.length,
-        items: newest([...failedRefunds, ...pendingRefunds]),
+        items: newest(pendingRefunds),
+      },
+      returns: { requested: requested.length, items: newest(requested) },
+      stock: {
+        low: low.length,
+        items: [...low]
+          .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+          .slice(0, 5)
+          .map((product) => productSummary(db, product)),
       },
       notifications: {
         failed: failedMessages.length,

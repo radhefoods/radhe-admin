@@ -2,7 +2,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Customer } from "@/lib/api/types";
-import { formatMoney } from "@/lib/format/money";
 import { installTestApi, type TestApi } from "@/test/api";
 import { renderPanel, testNavigation } from "@/test/render";
 import { CustomerView } from "./customer-view";
@@ -19,29 +18,15 @@ const stored = (id: string) => {
 const name = (customer: Customer) =>
   `${customer.firstName} ${customer.lastName}`;
 
-/** A customer who is active, with no decision and nothing overdue. */
+/** An active customer with at least one order. */
 function plainCustomer(): Customer {
   const db = api.mock.db();
   const customer = db.customers.find(
     (entry) =>
       entry.status === "active" &&
-      entry.orderingOverride === null &&
-      !db.orders.some(
-        (order) =>
-          order.customer.id === entry.id && order.paymentStatus === "overdue",
-      ),
+      db.orders.some((order) => order.customer.id === entry.id),
   );
   if (!customer) throw new Error("No plain customer in the demo data");
-  return customer;
-}
-
-/** The customer who was allowed to order although a payment is overdue. */
-function allowedCustomer(): Customer {
-  const customer = customers().find(
-    (entry) => entry.orderingOverride?.mode === "allowed",
-  );
-  if (!customer)
-    throw new Error("No customer with an ordering decision in the demo data");
   return customer;
 }
 
@@ -75,7 +60,7 @@ describe("blocking a customer", () => {
     // What blocking does, before it happens.
     expect(
       within(dialog).getByText(
-        "Blocking signs the customer out everywhere and refuses sign-in and ordering, until the account is unblocked.",
+        "Blocking signs the customer out everywhere and refuses sign-in and checkout, until the account is unblocked.",
       ),
     ).toBeInTheDocument();
     expect(within(dialog).getByText(customer.email)).toBeInTheDocument();
@@ -163,11 +148,6 @@ describe("blocking a customer", () => {
     expect(
       screen.getByText(`Reason: ${customer.blockedReason}`),
     ).toBeInTheDocument();
-    // The ordering decision names the block as what stands in the way.
-    expect(
-      await screen.findByText("Cannot place a new order"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("The account is blocked.")).toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", { name: "Unblock the account" }),
@@ -189,202 +169,9 @@ describe("blocking a customer", () => {
   });
 });
 
-describe("the ordering decision", () => {
-  it("shows the overdue payments with a link to each order", async () => {
-    const customer = allowedCustomer();
-    const overdue = api.mock
-      .db()
-      .orders.filter(
-        (order) =>
-          order.customer.id === customer.id &&
-          order.paymentStatus === "overdue",
-      );
-    expect(overdue.length).toBeGreaterThan(0);
-    show(customer);
-
-    // Allowed by a decision although a payment is overdue.
-    expect(
-      await screen.findByText("May place a new order"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Decision in force: may order until/),
-    ).toBeInTheDocument();
-    const table = screen.getByRole("table", {
-      name: "Overdue payments of this customer",
-    });
-    for (const order of overdue) {
-      const link = within(table).getByRole("link", { name: order.orderNumber });
-      // Straight to the order and to its invoice: the ids come along (4).
-      expect(link).toHaveAttribute("href", `/orders/${order.id}`);
-      expect(
-        within(table).getByRole("link", {
-          name: order.payment?.invoice.number ?? "",
-        }),
-      ).toHaveAttribute(
-        "href",
-        `/payments/invoices/${order.payment?.invoice.id}`,
-      );
-      expect(
-        within(table).getByText(formatMoney(order.payment?.amountDue ?? 0)),
-      ).toBeInTheDocument();
-      expect(
-        within(table).getByText(order.payment?.invoice.number ?? ""),
-      ).toBeInTheDocument();
-    }
-    // The decision in the history, with its reason.
-    expect(screen.getByText("Allowed to order for 7 days")).toBeInTheDocument();
-    expect(
-      screen.getAllByText(/Promised to pay on Friday\./).length,
-    ).toBeGreaterThan(0);
-  });
-
-  it("allows ordering for the days typed, with a reason", async () => {
-    const customer = plainCustomer();
-    const { user } = show(customer);
-
-    await user.click(
-      await screen.findByRole("button", { name: "Allow for a while" }),
-    );
-    const dialog = await screen.findByRole("alertdialog");
-    const confirm = () =>
-      within(dialog).getByRole("button", { name: /^Allow/ });
-    // A reason is required: nothing can be sent without it.
-    expect(confirm()).toBeDisabled();
-
-    const days = within(dialog).getByRole("textbox", { name: /Allow for/ });
-    await user.clear(days);
-    await user.type(days, "400");
-    expect(within(dialog).getByText("Between 1 and 365.")).toBeInTheDocument();
-    await user.type(
-      within(dialog).getByRole("textbox", { name: /Reason/ }),
-      "Promised to pay Friday",
-    );
-    expect(confirm()).toBeDisabled();
-
-    await user.clear(days);
-    await user.type(days, "14");
-    expect(
-      within(dialog).queryByText("Between 1 and 365."),
-    ).not.toBeInTheDocument();
-    await user.click(
-      within(dialog).getByRole("button", { name: "Allow for 14 days" }),
-    );
-
-    await waitFor(() =>
-      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
-    );
-    expect(writes()).toEqual([
-      {
-        method: "POST",
-        path: `/v1/admin/customers/${customer.id}/ordering`,
-        body: {
-          action: "allow",
-          reason: "Promised to pay Friday",
-          allowDays: 14,
-        },
-      },
-    ]);
-    expect(stored(customer.id).orderingOverride?.mode).toBe("allowed");
-    // The decision appears in the history with the reason.
-    expect(
-      await screen.findByText("Allowed to order for 14 days"),
-    ).toBeInTheDocument();
-  });
-
-  it("blocks ordering with a reason and leaves the account active", async () => {
-    const customer = plainCustomer();
-    const { user } = show(customer);
-
-    await user.click(
-      await screen.findByRole("button", { name: "Block ordering" }),
-    );
-    const dialog = await screen.findByRole("alertdialog");
-    expect(
-      within(dialog).getByRole("heading", {
-        name: `Block ordering for ${name(customer)}?`,
-      }),
-    ).toBeInTheDocument();
-    const confirm = within(dialog).getByRole("button", {
-      name: "Block ordering",
-    });
-    expect(confirm).toBeDisabled();
-    await user.type(
-      within(dialog).getByRole("textbox", { name: /Reason/ }),
-      "Suspected misuse",
-    );
-    await user.click(confirm);
-
-    await waitFor(() =>
-      expect(writes()).toEqual([
-        {
-          method: "POST",
-          path: `/v1/admin/customers/${customer.id}/ordering`,
-          body: { action: "block", reason: "Suspected misuse" },
-        },
-      ]),
-    );
-    expect(stored(customer.id).status).toBe("active");
-    expect(
-      await screen.findByText("Cannot place a new order"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Ordering is blocked by a decision of the team."),
-    ).toBeInTheDocument();
-  });
-
-  it("clears a decision that is in force", async () => {
-    const customer = allowedCustomer();
-    const { user } = show(customer);
-
-    await user.click(
-      await screen.findByRole("button", { name: "Clear the decision" }),
-    );
-    const dialog = await screen.findByRole("alertdialog");
-    // What clearing means for this customer: the payment is still overdue.
-    expect(
-      within(dialog).getByText(
-        /A payment is overdue, so the customer cannot order/,
-      ),
-    ).toBeInTheDocument();
-    await user.type(
-      within(dialog).getByRole("textbox", { name: /Reason/ }),
-      "Did not pay",
-    );
-    await user.click(
-      within(dialog).getByRole("button", { name: "Clear the decision" }),
-    );
-
-    await waitFor(() =>
-      expect(writes()).toEqual([
-        {
-          method: "POST",
-          path: `/v1/admin/customers/${customer.id}/ordering`,
-          body: { action: "clear", reason: "Did not pay" },
-        },
-      ]),
-    );
-    expect(stored(customer.id).orderingOverride).toBeNull();
-    expect(
-      await screen.findByText("Cannot place a new order"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("A payment is overdue.")).toBeInTheDocument();
-  });
-
-  it("offers no clearing when no decision is in force", async () => {
-    show(plainCustomer());
-    const clear = await screen.findByRole("button", {
-      name: "Clear the decision",
-    });
-    expect(clear).toBeDisabled();
-    expect(
-      screen.getByLabelText("No decision is in force."),
-    ).toBeInTheDocument();
-  });
-});
-
 describe("the customer page", () => {
   it("links to everything of the customer and lists the newest orders", async () => {
-    const customer = allowedCustomer();
+    const customer = plainCustomer();
     show(customer);
     const records = await screen.findByRole("navigation", {
       name: `Records of ${name(customer)}`,
@@ -429,25 +216,18 @@ describe("the customer page", () => {
 
 describe("permissions", () => {
   it("keeps every change visible but disabled without customers.manage", async () => {
-    const customer = allowedCustomer();
+    const customer = plainCustomer();
     show(customer, ["customers.read"]);
 
     expect(
       await screen.findByRole("button", { name: "Block the account" }),
     ).toBeDisabled();
-    for (const label of [
-      "Allow for a while",
-      "Block ordering",
-      "Clear the decision",
-    ]) {
-      expect(await screen.findByRole("button", { name: label })).toBeDisabled();
-    }
-    // Each says what is missing.
+    // It says what is missing.
     expect(
       screen.getAllByLabelText(
         'Your role does not include "Customers: manage".',
       ),
-    ).toHaveLength(4);
+    ).toHaveLength(1);
     // Orders, invoices, returns and messages need their own permissions.
     expect(screen.queryByText("Newest orders")).not.toBeInTheDocument();
     expect(

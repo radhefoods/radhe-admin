@@ -23,7 +23,6 @@ import { Kbd } from "@/components/ui/surface";
 import { useAdmin, useAuth } from "@/lib/auth/auth-provider";
 import { initials } from "@/lib/format/names";
 import { routes } from "@/lib/routes";
-import { CargoPill } from "./cargo-pill";
 import { useTheme, type ThemeChoice } from "./theme";
 
 const THEMES: { value: ThemeChoice; label: string; icon: typeof Sun }[] = [
@@ -65,7 +64,6 @@ export function Topbar({
       </button>
 
       <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
-        <CargoPill />
         <UserMenu />
       </div>
     </header>

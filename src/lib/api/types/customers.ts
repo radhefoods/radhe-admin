@@ -1,14 +1,6 @@
 // Section 4: customers.
 
-import type {
-  AdminRef,
-  Cents,
-  CursorQuery,
-  Id,
-  IsoDateTime,
-  Locale,
-  SortParam,
-} from "./common";
+import type { CursorQuery, Id, IsoDateTime, Locale, SortParam } from "./common";
 
 export type CustomerStatus = "active" | "blocked";
 export type SignupMethod = "email_otp" | "google";
@@ -37,27 +29,6 @@ export interface CustomerCommunication {
   marketingOptOutAt: IsoDateTime | null;
 }
 
-export type OrderingMode = "blocked" | "allowed";
-export type OrderingAction = "block" | "allow" | "clear";
-
-export interface OrderingOverride {
-  mode: OrderingMode;
-  reason: string;
-  adminId: Id;
-  admin?: AdminRef | null;
-  at: IsoDateTime;
-  until: IsoDateTime | null;
-}
-
-export interface OrderingHistoryEntry {
-  action: OrderingAction;
-  reason: string;
-  adminId: Id;
-  admin?: AdminRef | null;
-  at: IsoDateTime;
-  until: IsoDateTime | null;
-}
-
 /** 4.1. */
 export interface Customer {
   id: Id;
@@ -77,8 +48,6 @@ export interface Customer {
   lastLoginAt: IsoDateTime | null;
   updatedAt: IsoDateTime;
   addresses: CustomerAddress[];
-  orderingOverride: OrderingOverride | null;
-  orderingHistory: OrderingHistoryEntry[];
 }
 
 export const CUSTOMER_SORT_FIELDS = ["createdAt", "email", "status"] as const;
@@ -94,32 +63,8 @@ export interface CustomerQuery extends CursorQuery {
   sort?: SortParam<CustomerSortField>;
 }
 
-export type CannotOrderReason =
-  "account_blocked" | "ordering_blocked" | "payment_overdue";
-
-export interface OverduePayment {
-  orderId: Id;
-  orderNumber: string;
-  invoiceId: Id;
-  invoiceNumber: string;
-  amountDue: Cents;
-  deadlineAt: IsoDateTime;
-}
-
-export interface CustomerOrdering {
-  ordering: {
-    canOrder: boolean;
-    reason: CannotOrderReason | null;
-    /** Shown only while it applies. */
-    override: { mode: OrderingMode; until: IsoDateTime | null } | null;
-    overdue: OverduePayment[];
-  };
-  history: OrderingHistoryEntry[];
-}
-
-export interface OrderingDecisionInput {
-  action: OrderingAction;
-  reason: string;
-  /** Required for `allow`, 1 to 365. */
-  allowDays?: number;
+export interface CustomerStatusInput {
+  status: CustomerStatus;
+  /** Stored when blocking, at most 500 characters. */
+  reason?: string;
 }

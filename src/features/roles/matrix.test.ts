@@ -25,7 +25,6 @@ describe("the rows of the matrix", () => {
   it("has one row per resource, in the order of the navigation, with both columns", () => {
     expect(catalogue.rows.map((row) => row.resource)).toEqual([
       "orders",
-      "cargos",
       "payments",
       "customers",
       "catalog",
@@ -39,7 +38,7 @@ describe("the rows of the matrix", () => {
       resource: "orders",
       label: "Orders",
       covers:
-        "Orders, returns, bulk order actions per cargo, the Today overview",
+        "Orders and their status, actions on chosen orders, returns, the Today overview",
       read: "orders.read",
       manage: "orders.manage",
     });
@@ -72,18 +71,18 @@ describe("the rows of the matrix", () => {
 
 describe("a permission list as a matrix, and back", () => {
   it("round-trips single permissions in the API's order", () => {
-    const permissions = ["orders.manage", "cargos.read", "orders.read"];
+    const permissions = ["orders.manage", "payments.read", "orders.read"];
     const state = toMatrix(permissions, catalogue);
     expect(state).toEqual({
       all: false,
       wildcards: [],
-      granted: ["orders.manage", "cargos.read", "orders.read"],
+      granted: ["orders.manage", "payments.read", "orders.read"],
       unknown: [],
     });
     expect(fromMatrix(state, catalogue)).toEqual([
-      "cargos.read",
       "orders.read",
       "orders.manage",
+      "payments.read",
     ]);
     expect(samePermissions(fromMatrix(state, catalogue), permissions)).toBe(
       true,
@@ -120,7 +119,7 @@ describe("a permission list as a matrix, and back", () => {
   });
 
   it("shows a resource wildcard as such and keeps it", () => {
-    const permissions = ["orders.*", "cargos.read"];
+    const permissions = ["orders.*", "customers.read"];
     const state = toMatrix(permissions, catalogue);
     expect(state.wildcards).toEqual(["orders"]);
     expect(cellState(state, "orders.read")).toEqual({
@@ -131,11 +130,11 @@ describe("a permission list as a matrix, and back", () => {
       checked: true,
       lockedBy: "orders.*",
     });
-    expect(cellState(state, "cargos.read")).toEqual({
+    expect(cellState(state, "customers.read")).toEqual({
       checked: true,
       lockedBy: null,
     });
-    expect(cellState(state, "cargos.manage")).toEqual({
+    expect(cellState(state, "customers.manage")).toEqual({
       checked: false,
       lockedBy: null,
     });
@@ -147,7 +146,7 @@ describe("a permission list as a matrix, and back", () => {
     );
     expect(fromMatrix(edited, catalogue)).toEqual([
       "orders.*",
-      "cargos.read",
+      "customers.read",
       "payments.read",
     ]);
   });
@@ -215,7 +214,7 @@ describe("what a role allows", () => {
   it("warns about manage without read", () => {
     const blind = manageWithoutRead(
       toMatrix(
-        ["orders.manage", "cargos.read", "cargos.manage", "payments.read"],
+        ["orders.manage", "payments.read", "payments.manage", "payments.read"],
         catalogue,
       ),
       catalogue,
@@ -232,20 +231,20 @@ describe("what a role allows", () => {
   it("summarizes a role in words", () => {
     expect(
       summarizeAccess(
-        ["orders.read", "orders.manage", "cargos.read", "payments.manage"],
+        ["orders.read", "orders.manage", "customers.read", "payments.manage"],
         catalogue,
       ),
     ).toEqual({
       everything: false,
       granted: 4,
-      total: 20,
+      total: 18,
       manages: ["Orders"],
-      readsOnly: ["Cargos"],
+      readsOnly: ["Customers"],
       managesBlind: ["Payments"],
     });
     const superAdmin = summarizeAccess(["*"], catalogue);
     expect(superAdmin.everything).toBe(true);
-    expect(superAdmin.granted).toBe(20);
+    expect(superAdmin.granted).toBe(18);
     expect(summarizeAccess(["orders.*"], catalogue).manages).toEqual([
       "Orders",
     ]);

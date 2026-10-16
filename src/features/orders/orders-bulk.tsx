@@ -27,9 +27,9 @@ import {
 } from "@/lib/api/types";
 import { DELIVERY_METHOD_LABEL, plural } from "@/lib/format/names";
 
-/** From which statuses a status change takes orders (documentation, 10). */
+/** The forward steps of the normal way (documentation, 9). */
 const STATUS_LABEL: Record<BulkChosenStatus, string> = {
-  preparing: "Mark preparing",
+  processing: "Mark processing",
   dispatched: "Mark dispatched",
   delivered: "Mark delivered",
 };
@@ -46,8 +46,8 @@ interface Outcome {
 /**
  * The bar above the orders when some are ticked, and the dialogs behind
  * its buttons. The API takes the chosen orders and answers every one of
- * them (10): what it refused is listed with the reason, nothing is hidden
- * in a count.
+ * them (9): when any was left as it is, every order is listed with what
+ * happened to it, nothing is hidden in a count.
  */
 export function OrdersBulkBar({
   orders,
@@ -161,8 +161,8 @@ export function OrdersBulkBar({
           }
           description={
             action.kind === "status"
-              ? "Each customer is told. An order whose status does not allow the step is left as it is and named afterwards."
-              : "Tracking numbers of orders whose method changes are removed. A delivered, cancelled or returned order is left as it is and named afterwards."
+              ? "Only orders on the normal way take the step: processing from confirmed, dispatched from confirmed or processing, delivered from dispatched. Dispatched and delivered customers are told. Every other order is left as it is and named afterwards."
+              : "Tracking numbers of orders whose method changes are removed. A pending, cancelled or returned order is left as it is and named afterwards."
           }
           facts={[
             {
@@ -245,19 +245,26 @@ export function OrdersBulkBar({
             <>
               <DialogHeader
                 title={`${plural(outcome.changed, "order")} changed, ${plural(refused.length, "order")} not`}
-                description={`${outcome.what[0]?.toUpperCase()}${outcome.what.slice(1)}: the API answered every chosen order. These were left as they are.`}
+                description={`${outcome.what[0]?.toUpperCase()}${outcome.what.slice(1)}: the API answered every chosen order.`}
               />
               <DialogBody>
                 <ul
-                  aria-label="Orders that were not changed"
+                  aria-label="What happened to each chosen order"
                   className="flex flex-col divide-y divide-line text-13"
                 >
-                  {refused.map((entry) => (
+                  {outcome.results.map((entry) => (
                     <li key={entry.orderId} className="flex gap-3 py-2">
                       <span className="w-20 shrink-0 font-semibold text-ink tabular">
                         {entry.orderNumber ?? "Unknown"}
                       </span>
-                      <span className="text-ink-muted">{entry.reason}</span>
+                      {entry.changed ? (
+                        <span className="flex items-center gap-1 text-success-fg">
+                          <Check aria-hidden="true" className="size-3.5" />
+                          Changed
+                        </span>
+                      ) : (
+                        <span className="text-ink-muted">{entry.reason}</span>
+                      )}
                     </li>
                   ))}
                 </ul>

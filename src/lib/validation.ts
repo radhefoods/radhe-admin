@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { berlinToIso, isCalendarDay } from "@/lib/format/dates";
+import { berlinToIso } from "@/lib/format/dates";
 import { parseEuros, parseVatRate } from "@/lib/format/money";
 import { formatMoney } from "@/lib/format/money";
 
@@ -183,11 +183,6 @@ export const zBerlinDateTime = z.string().transform((value, context) => {
   }
   return iso;
 });
-
-/** A calendar day (`YYYY-MM-DD`, the value of a `date` input). */
-export const zDay = z
-  .string()
-  .refine((value) => isCalendarDay(value), "Enter a date.");
 
 /** The id of a record chosen in a select. */
 export const zId = z.string().regex(/^[0-9a-f]{24}$/, "Choose one.");

@@ -1,4 +1,4 @@
-// Sections 14 (notifications) and 15 (announcements).
+// Sections 13 (notifications) and 14 (announcements).
 
 import type {
   AdminRef,
@@ -15,29 +15,21 @@ import type {
 export const NOTIFICATION_TYPES = [
   "order_confirmed",
   "order_cancelled",
-  "order_moved",
-  "delivery_rescheduled",
   "order_dispatched",
   "order_delivered",
-  "delivery_failed",
   "return_requested",
   "return_approved",
   "return_rejected",
   "return_completed",
-  "payment_request",
-  "payment_reminder",
-  "payment_received",
   "payment_failed",
   "refund_completed",
   "announcement",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
-/** The types that are also sent by WhatsApp (14.1). */
+/** The types that are also sent by WhatsApp (13.1). */
 export const WHATSAPP_NOTIFICATION_TYPES: readonly NotificationType[] = [
   "order_dispatched",
-  "payment_request",
-  "payment_reminder",
   "announcement",
 ];
 
@@ -54,7 +46,7 @@ export const NOTIFICATION_STATUSES = [
 ] as const;
 export type NotificationStatus = (typeof NOTIFICATION_STATUSES)[number];
 
-/** 14.2. */
+/** 13.2. */
 export interface Notification {
   id: Id;
   type: NotificationType;
@@ -65,7 +57,6 @@ export interface Notification {
   customer?: CustomerRef | null;
   orderId: Id | null;
   orderNumber: string | null;
-  cargoId: Id | null;
   productId: Id | null;
   returnId: Id | null;
   refundId: Id | null;
@@ -128,7 +119,7 @@ export interface NotificationRunResult {
   recovered: number;
 }
 
-// --- Announcements (15) -----------------------------------------------------
+// --- Announcements (14) -----------------------------------------------------
 
 export interface Announcement {
   id: Id;
@@ -138,8 +129,6 @@ export interface Announcement {
   linkLabel: TranslatedOptional | null;
   productId: Id | null;
   productName: string | null;
-  cargoId: Id | null;
-  cargoCode: string | null;
   channels: NotificationChannel[];
   recipients: number;
   queued: number;
@@ -149,7 +138,7 @@ export interface Announcement {
   cancelledByAdmin?: AdminRef | null;
   cancelledAt: IsoDateTime | null;
   createdAt: IsoDateTime;
-  /** In the list: the same counts as the detail (15). */
+  /** In the list: the same counts as the detail (14). */
   progress?: AnnouncementProgress;
 }
 
@@ -165,7 +154,6 @@ export interface AnnouncementInput {
   link?: string;
   linkLabel?: Translated;
   productId?: Id;
-  cargoId?: Id;
   /** Default `["email"]`. */
   channels?: NotificationChannel[];
 }
@@ -191,5 +179,4 @@ export interface AnnouncementWithProgress {
 
 export interface AnnouncementQuery extends CursorQuery {
   productId?: Id;
-  cargoId?: Id;
 }

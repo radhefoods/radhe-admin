@@ -9,7 +9,7 @@ export function OrdersView() {
     <RequirePermission permission="orders.read">
       <PageHeader
         title="Orders"
-        description="Every pre-order and its way to the customer. Open an order to change its status, its delivery, its cargo or what was really delivered."
+        description="Every order and its way to the customer. The payment confirms an order; open one to prepare it, dispatch it with a tracking number, mark it delivered, correct what was delivered, or cancel it."
       />
       <PageBody>
         <OrdersList />

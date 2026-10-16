@@ -59,19 +59,16 @@ describe("the list of legal texts", () => {
     expect(rows[1]).toHaveTextContent("Version 2");
     expect(rows[1]).toHaveTextContent("Published");
     expect(rows[1]).toHaveTextContent("Current");
-    expect(rows[1]).toHaveTextContent("Payment deadline clarified");
+    expect(rows[1]).toHaveTextContent("Checkout and payment wording");
     expect(rows[2]).not.toHaveTextContent("Current");
     expect(
       within(terms).getByText(/Customers accept version 2\./),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("region", { name: "Pre-order terms" }),
-    ).toBeInTheDocument();
-    expect(
       screen.getByRole("region", { name: "Privacy policy" }),
     ).toBeInTheDocument();
-    // Terms and privacy are published: nothing blocks orders.
-    expect(screen.queryByText(/Orders are refused/)).not.toBeInTheDocument();
+    // Terms and privacy are published: nothing blocks the checkout.
+    expect(screen.queryByText(/Checkout is refused/)).not.toBeInTheDocument();
   });
 
   it("warns while a required text has no published version", async () => {
@@ -81,7 +78,7 @@ describe("the list of legal texts", () => {
     renderPanel(<LegalView />);
     expect(
       await screen.findByText(
-        "Orders are refused: the privacy policy is not published",
+        "Checkout is refused: the privacy policy is not published",
       ),
     ).toBeInTheDocument();
     expect(
@@ -173,7 +170,7 @@ describe("the list of legal texts", () => {
       screen.getAllByLabelText(
         'Your role does not include "Legal texts: manage".',
       ),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
   });
 });
 
@@ -379,8 +376,9 @@ describe("a draft", () => {
       }),
     ).toBeInTheDocument();
     expect(
-      within(english).getByText("No payment is collected when you order.")
-        .tagName,
+      within(english).getByText(
+        "The order is confirmed once your payment is captured.",
+      ).tagName,
     ).toBe("STRONG");
   });
 
@@ -430,12 +428,12 @@ describe("a published version", () => {
       await screen.findByRole("tab", { name: "Changes since version 1" }),
     );
 
-    // Version 2 added the clause about the five days, and counts as "2".
+    // Version 2 added the clause about the PDF, and counts as "2".
     expect(await screen.findByText(/words? added/)).toBeInTheDocument();
     const added = document.querySelectorAll("ins");
     const removed = document.querySelectorAll("del");
     expect([...added].map((node) => node.textContent).join("")).toContain(
-      "at the earliest five days after the invoice",
+      ", as a PDF",
     );
     expect([...removed].map((node) => node.textContent).join("")).toContain(
       "1",
@@ -454,7 +452,7 @@ describe("a published version", () => {
         [...document.querySelectorAll("ins")]
           .map((node) => node.textContent)
           .join(""),
-      ).toContain("frühestens fünf Tage nach der Rechnung"),
+      ).toContain(", als PDF"),
     );
   });
 

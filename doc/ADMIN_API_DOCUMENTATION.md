@@ -1,8 +1,10 @@
 # Radhe Foods – Admin API Documentation
 
-For the Next.js Admin Panel. Generated from the implemented NestJS backend (`radhe-api`) on 2026-09-30 and brought up to date on 2026-10-14 (search, sorting and counts on the lists, names next to ids, bulk actions on chosen orders, and the answers of section 20); every route, field, status and error below exists in the code as of this date. Customer-facing APIs are documented separately in `CUSTOMER_WEB_API_DOCUMENTATION.md`.
+For the Next.js Admin Panel. Generated from the implemented NestJS backend (`radhe-api`); every route, field, status and error below exists in the code as of 2026-10-16. Customer-facing APIs are documented separately in `CUSTOMER_WEB_API_DOCUMENTATION.md`.
 
-**What the admin panel manages:** the catalogue (categories, products with pack sizes and images), cargos (the pre-order cycles: order window, delivery days, products and limits per cargo), orders and their way to the customer, returns, payments after delivery (invoices, Stripe, cash, reminders, refunds, credit notes), customers, notifications to customers, announcements, settings, legal texts, admin users and roles.
+**What the admin panel manages:** the catalogue (categories, products with pack sizes, images and stock), orders and their way to the customer (processing, dispatch with tracking, delivery, corrections, cancellations), returns, payments (invoices and credit notes, refunds), customers, notifications to customers, announcements, settings, legal texts, admin users and roles.
+
+**How the shop sells:** a customer puts products in the cart and pays at checkout through Stripe (card or PayPal). The payment confirms the order: the stock is taken, the money is captured, the invoice is issued and the customer gets the confirmation with the PDF. The admin then prepares, dispatches and delivers the order. Nothing is reserved before the payment, no order is confirmed by hand, and every refund is a decision of the admin.
 
 ## Contents
 
@@ -14,18 +16,18 @@ For the Next.js Admin Panel. Generated from the implemented NestJS backend (`rad
 5. Settings
 6. Legal texts
 7. Categories
-8. Products and images (8.2: CSV import and Excel export of the catalogue)
-9. Cargos, their products, bulk order actions, cargo payments
-10. Orders
-11. Returns
-12. Payments and refunds
-13. Invoices and credit notes
-14. Notifications
-15. Announcements ("Notify customers")
-16. Attention overview (start page)
-17. Jobs endpoint and Stripe webhook (server-side, not for the panel UI)
-18. Reference: enums, state machines, permission matrix
-19. Prepared but not yet active
+8. Products, stock and images (8.2: CSV import and Excel export of the catalogue)
+9. Orders
+10. Returns
+11. Payments and refunds
+12. Invoices and credit notes
+13. Notifications
+14. Announcements ("Notify customers")
+15. Attention overview (start page)
+16. Jobs endpoint and Stripe webhook (server-side, not for the panel UI)
+17. Reference: enums, state machines, permission matrix, error codes
+18. Prepared but not yet active
+19. Answers to the requests of the panel (2026-10-14)
 
 ---
 
@@ -39,7 +41,7 @@ For the Next.js Admin Panel. Generated from the implemented NestJS backend (`rad
 ### 0.2 Requests and responses
 
 - JSON bodies (`Content-Type: application/json`), except image uploads (`multipart/form-data`).
-- Validation is strict: **unknown fields are rejected** (`400 VALIDATION_FAILED`, "property X should not exist"). Strings are trimmed; an empty optional string counts as not provided. `null` is only accepted where documented (it clears the field: `description` of a role, `note` of a legal text, `internalNotes` of a cargo, `salePrice` of a product, `trackingNumber` of an order).
+- Validation is strict: **unknown fields are rejected** (`400 VALIDATION_FAILED`, "property X should not exist"). Strings are trimmed; an empty optional string counts as not provided. `null` is only accepted where documented (it clears the field: `description` of a role, `note` of a legal text, `parentId` of a category, `salePrice`, `discountPercent`, `lowStockThreshold`, `variantOf`, `gtin`, `brand` and `maxOrderQuantity` of a product, `trackingNumber` of an order).
 - No response envelope: each endpoint returns the documented object (`{ product }`, `{ items, page, … }`, …). `204` = empty body.
 - Optional header `X-Request-Id` (8–64 chars `[A-Za-z0-9_-]`); every response carries `x-request-id`. Show it on unexpected errors.
 - `POST` answers `201` when something was created, `200` otherwise (documented per endpoint).
@@ -93,26 +95,25 @@ Admin endpoints return **both** languages for translated fields (`{ "en": "...",
 | Kind | Representation |
 | ---- | -------------- |
 | IDs | 24-hex ObjectId strings. |
-| Human numbers | Orders `RF-1084`, returns `RF-1084-R1`, refunds `RF-1084-RF1`, invoices `INV-2026-000123`, credit notes `CN-2026-000007`, cargos `RF-C027`, SKUs `RF-00042`. |
+| Human numbers | Orders `RF-1084`, returns `RF-1084-R1`, refunds `RF-1084-RF1`, invoices `INV-2026-000123`, credit notes `CN-2026-000007`, SKUs `RF-00042`. |
 | Money | Integer **cents**, EUR, VAT included. `vatRate` in hundredths of a percent (`700` = 7 %). |
-| Date-times | ISO 8601 UTC strings. Inputs accept ISO strings; cargo moments must carry a time zone (`2026-09-26T23:59:00+02:00`). |
-| Calendar days | `YYYY-MM-DD` in the business time zone `Europe/Berlin` (delivery windows, invoice `deliveredOn`). |
+| Date-times | ISO 8601 UTC strings. Inputs accept ISO strings. |
 | Images | Absolute `https` WebP URLs in three sizes (section 8.1). |
 
 ### 0.8 Pagination
 
-- **Page/limit** (products, cargos, cargo products): `?page=1&limit=24` → `{ items, page, limit, total, totalPages }` (`page` 1–500, `limit` 1–100).
-- **Cursor** (customers, orders, returns, refunds, invoices, notifications, announcements): `?limit=25&cursor=<nextCursor>` → `{ items, nextCursor }`, newest first, `nextCursor: null` on the last page (`limit` 1–100, default 25). The cursor is an opaque string: pass it back unchanged, with the same filters and the same `sort`; a cursor of another sort answers `400 VALIDATION_FAILED`.
-- **Sorting** (customers, orders, returns, refunds, notifications): `?sort=<field>:<asc|desc>`, default `createdAt:desc`. The fields are listed per endpoint; an unknown field answers `400 VALIDATION_FAILED` with the allowed names in `details`.
-- **Counting** (the same five lists): `GET …/count` with the same filters as the list answers `{ "total": 42 }`. `limit`, `cursor` and `sort` are ignored. A list answer carries no `total`: call `/count` once when the number is shown.
+- **Page/limit** (products): `?page=1&limit=24` → `{ items, page, limit, total, totalPages }` (`page` 1–500, `limit` 1–100).
+- **Cursor** (customers, orders, returns, refunds, invoices, notifications, announcements, stock movements): `?limit=25&cursor=<nextCursor>` → `{ items, nextCursor }`, newest first, `nextCursor: null` on the last page (`limit` 1–100, default 25). The cursor is an opaque string: pass it back unchanged, with the same filters and the same `sort`; a cursor of another sort answers `400 VALIDATION_FAILED`.
+- **Sorting** (customers, orders, returns, refunds, notifications; stock movements by `createdAt` only): `?sort=<field>:<asc|desc>`, default `createdAt:desc`. The fields are listed per endpoint; an unknown field answers `400 VALIDATION_FAILED` with the allowed names in `details`.
+- **Counting** (customers, orders, returns, refunds, notifications): `GET …/count` with the same filters as the list answers `{ "total": 42 }`. `limit`, `cursor` and `sort` are ignored. A list answer carries no `total`: call `/count` once when the number is shown.
 - Small lists (admin users, roles, categories, legal texts) are returned whole.
 
 ### 0.9 Names next to ids
 
 Wherever a record carries the id of an admin or a customer, the answer carries the person as well, looked up when the answer is built:
 
-- next to `adminId`: `"admin": { "id", "name" } | null` (histories of orders, returns, refunds, cargos; adjustments and cancellations of orders; ordering decisions of customers);
-- next to `by` of a cargo history entry, `createdBy` / `updatedBy` of a cargo, `createdBy` / `cancelledBy` of an announcement, `createdBy` of a refund, `activatedBy` / `cash.recordedBy` of a payment: the same object under `admin`, `createdByAdmin`, `updatedByAdmin`, `cancelledByAdmin`, `activatedByAdmin`, `recordedByAdmin`;
+- next to `adminId`: `"admin": { "id", "name" } | null` (histories of orders, returns and refunds; adjustments and cancellations of orders; stock movements);
+- next to `createdBy` / `cancelledBy` of an announcement and `createdBy` of a refund: the same object under `createdByAdmin`, `cancelledByAdmin`;
 - next to `customerId` of a return, a refund or a notification: `"customer": { "id", "name": "Priya Shah" | null, "email" } | null`; the `customer` of an order summary carries `name` as well.
 
 `null` when there is no id, or no person with that id any more. The names come without a permission of their own: an admin who may read orders sees who handled them.
@@ -387,7 +388,7 @@ Accounts of the people who use the panel. Creating one sets a temporary password
 **Success Response (200):**
 
 ```json
-{ "items": ["admin_users.read", "admin_users.manage", "roles.read", "roles.manage", "customers.read", "customers.manage", "catalog.read", "catalog.manage", "cargos.read", "cargos.manage", "orders.read", "orders.manage", "settings.read", "settings.manage", "legal.read", "legal.manage", "payments.read", "payments.manage", "notifications.read", "notifications.manage"] }
+{ "items": ["admin_users.read", "admin_users.manage", "roles.read", "roles.manage", "customers.read", "customers.manage", "catalog.read", "catalog.manage", "orders.read", "orders.manage", "settings.read", "settings.manage", "legal.read", "legal.manage", "payments.read", "payments.manage", "notifications.read", "notifications.manage"] }
 ```
 
 A role may also contain `*` or `<resource>.*` (e.g. `orders.*`); these are accepted by create/update although not listed here.
@@ -429,7 +430,7 @@ A change of `permissions` applies to the very next request of every admin with t
 
 ## 4. Customers
 
-Read customer accounts, block/unblock, and decide whether a customer may place orders.
+Read customer accounts and block or unblock them. A blocked customer cannot sign in and cannot check out (`403 CUSTOMER_BLOCKED`).
 
 ### 4.1 The admin customer object
 
@@ -460,13 +461,11 @@ Read customer accounts, block/unblock, and decide whether a customer may place o
   "updatedAt": "2026-09-20T08:00:00.000Z",
   "addresses": [
     { "id": "66f1…", "firstName": "Anna", "lastName": "Schmidt", "company": null, "street": "Hauptstraße", "houseNumber": "12a", "additionalLine": null, "postalCode": "60311", "city": "Frankfurt am Main", "countryCode": "DE", "phone": null, "isDefault": true }
-  ],
-  "orderingOverride": null,
-  "orderingHistory": []
+  ]
 }
 ```
 
-`status` ∈ `active`, `blocked`; `signupMethod` ∈ `email_otp`, `google`. `orderingOverride` is `null` or `{ "mode": "blocked" | "allowed", "reason", "adminId", "admin": { id, name } | null, "at", "until": ISO | null }`; `orderingHistory[]` entries are `{ "action": "block" | "allow" | "clear", "reason", "adminId", "admin", "at", "until" }`.
+`status` ∈ `active`, `blocked`; `signupMethod` ∈ `email_otp`, `google`. `communication.whatsappNumber` falls back to `phone` when no separate number was given; `whatsappOptIn` allows messages about own orders by WhatsApp, `marketingOptIn` the news of section 14.
 
 ### `GET /v1/admin/customers`
 
@@ -497,59 +496,13 @@ Read customer accounts, block/unblock, and decide whether a customer may place o
 
 ### `PATCH /v1/admin/customers/{id}/status`
 
-**Purpose:** Block or unblock the account. Blocking signs the customer out everywhere and refuses sign-in and ordering.
+**Purpose:** Block or unblock the account. Blocking signs the customer out everywhere and refuses sign-in and checkout.
 
 **Permission:** `customers.manage`.
 
 **Request Body:** `{ "status": "active" | "blocked", "reason"?: string (≤500, stored when blocking) }`
 
 **Success Response (200):** `{ "customer": { … } }`. **Possible Errors:** `404 CUSTOMER_NOT_FOUND`.
-
-### `GET /v1/admin/customers/{id}/ordering`
-
-**Purpose:** Whether the customer may place a new order, why not, the overdue payments, and every decision made.
-
-**Permission:** `customers.read`.
-
-**Success Response (200):**
-
-```json
-{
-  "ordering": {
-    "canOrder": false,
-    "reason": "payment_overdue",
-    "override": null,
-    "overdue": [
-      { "orderId": "66f0…", "orderNumber": "RF-1084", "invoiceId": "66f2…", "invoiceNumber": "INV-2026-000123", "amountDue": 3193, "deadlineAt": "2026-09-20T21:59:59.000Z" }
-    ]
-  },
-  "history": [
-    { "action": "allow", "reason": "Promised to pay Friday", "adminId": "66f1…", "admin": { "id": "66f1…", "name": "Vrushabh" }, "at": "2026-09-30T09:00:00.000Z", "until": "2026-10-07T09:00:00.000Z" }
-  ]
-}
-```
-
-`reason` ∈ `null`, `account_blocked`, `ordering_blocked`, `payment_overdue`. `override` is shown only while it applies: `{ "mode": "blocked", "until": null }` or `{ "mode": "allowed", "until": ISO }`.
-
-### `POST /v1/admin/customers/{id}/ordering`
-
-**Purpose:** Block ordering, allow it for a while although a payment is overdue, or clear the decision. The account stays usable (browsing, cart, paying). Every decision is recorded with the reason and the admin.
-
-**Permission:** `customers.manage`.
-
-**Request Body:**
-
-```json
-{ "action": "allow", "reason": "Promised to pay Friday", "allowDays": 7 }
-```
-
-| Field | Type | Required | Validation |
-| ----- | ---- | -------- | ---------- |
-| `action` | `block` \| `allow` \| `clear` | yes | |
-| `reason` | string | yes | 1–1000 |
-| `allowDays` | int | for `allow` | 1–365 |
-
-**Success Response (200):** same shape as the GET. **Possible Errors:** `404 CUSTOMER_NOT_FOUND`, `400 VALIDATION_FAILED`.
 
 ---
 
@@ -561,13 +514,13 @@ The business rules the admin can change. `GET` returns all of them; each `PUT` r
 
 **Permission:** `settings.read`.
 
-**Success Response (200):** the settings below plus `"integrations": { "stripeConnected": boolean, "whatsappConfigured": boolean }` (whether the server has Stripe keys and WhatsApp credentials; `payments.stripeConnected` repeats the Stripe flag). Say "online payment is not set up" and disable the WhatsApp channel before an admin tries, instead of waiting for `503 PAYMENTS_NOT_CONFIGURED`.
+**Success Response (200):** the settings below plus `"integrations": { "stripeConnected": boolean, "whatsappConfigured": boolean }` (whether the server has both Stripe keys and the WhatsApp credentials; `payments.stripeConnected` repeats the Stripe flag). The shop cannot sell while `stripeConnected` is `false` (checkout answers `503 PAYMENTS_NOT_CONFIGURED`) or while `company.missingForInvoices` is not empty (checkout answers `409 COMPANY_DETAILS_MISSING`): show both as warnings on the settings page and the start page.
 
 ```json
 {
   "deliveryFee": { "tiers": [ { "minOrderValue": 0, "fee": 499 }, { "minOrderValue": 5000, "fee": 0 } ] },
   "orderPolicy": { "customerCancellation": "until_dispatched" },
-  "delivery": { "defaultMethod": "radhe_delivery" },
+  "delivery": { "defaultMethod": "radhe_delivery", "estimate": { "en": "2 to 4 working days", "de": "2 bis 4 Werktage" } },
   "returnPolicy": { "windowDays": 14 },
   "company": {
     "name": "Radhe Foods GmbH",
@@ -581,12 +534,14 @@ The business rules the admin can change. `GET` returns all of them; each `PUT` r
     "invoiceFooter": "Thank you for shopping with Radhe Foods.",
     "missingForInvoices": []
   },
-  "payments": { "reminderHour": 9, "defaultDeadlineDays": 5, "checkoutMinutes": 60 }
+  "payments": { "checkoutMinutes": 60, "stripeConnected": true },
+  "integrations": { "stripeConnected": true, "whatsappConfigured": false }
 }
 ```
 
 - `company`: optional keys (`phone`, `website`, `vatId`, `taxNumber`, `registration`, `logoUrl`, `invoiceFooter`) are **absent** when unset. `missingForInvoices` lists what still blocks invoicing (`name`, `addressLines`, `email`, `vatId or taxNumber`); show a warning while it is not empty.
-- Defaults on a fresh installation: fee `[{0, 0}]` (free), `until_dispatched`, `radhe_delivery`, `14` days, company `{ name: "Radhe Foods", addressLines: [], email: "" }`, payments `9 / 5 / 60`.
+- Defaults on a fresh installation: fee `[{0, 0}]` (free), `until_dispatched`, `radhe_delivery` with the estimate "2 to 4 working days" / "2 bis 4 Werktage", `14` days, company `{ name: "Radhe Foods", addressLines: [], email: "" }`, `checkoutMinutes` 60.
+- The shop reads the tiers, `freeFrom`, `delivery.estimate` and `returns.windowDays` from `GET /v1/store/settings` (customer API).
 
 ### `PUT /v1/admin/settings/delivery-fee`
 
@@ -600,11 +555,17 @@ The business rules the admin can change. `GET` returns all of them; each `PUT` r
 
 ### `PUT /v1/admin/settings/order-policy`
 
-**Permission:** `settings.manage`. **Request Body:** `{ "customerCancellation": "while_confirmed" | "until_dispatched" | "never" }`. **Success Response (200):** `{ "orderPolicy": { … } }`.
+**Purpose:** Until when a customer can cancel an order (section 9.1). **Permission:** `settings.manage`. **Request Body:** `{ "customerCancellation": "while_confirmed" | "until_dispatched" | "never" }`. **Success Response (200):** `{ "orderPolicy": { … } }`.
 
 ### `PUT /v1/admin/settings/delivery`
 
-**Purpose:** The delivery method every new order gets (customers never choose). **Permission:** `settings.manage`. **Request Body:** `{ "defaultMethod": "radhe_delivery" | "dhl" | "hermes" }`. **Success Response (200):** `{ "delivery": { … } }`.
+**Purpose:** The delivery method every new order gets (customers never choose; the admin changes it per order), and the delivery estimate shown at checkout and in the emails about an order.
+
+**Permission:** `settings.manage`.
+
+**Request Body:** `{ "defaultMethod": "radhe_delivery" | "dhl" | "hermes", "estimate": { "en": "2 to 4 working days", "de": "2 bis 4 Werktage" } }` (`estimate.en` and `estimate.de` both required, 1–120 characters).
+
+**Success Response (200):** `{ "delivery": { "defaultMethod", "estimate": { "en", "de" } } }`.
 
 ### `PUT /v1/admin/settings/return-policy`
 
@@ -612,7 +573,7 @@ The business rules the admin can change. `GET` returns all of them; each `PUT` r
 
 ### `PUT /v1/admin/settings/company`
 
-**Purpose:** The seller printed on every invoice and shown in every email. Invoices cannot be issued until name, address, email and a VAT id or tax number are set.
+**Purpose:** The seller printed on every invoice and shown in every email. Invoices cannot be issued — and therefore nothing can be sold — until name, address, email and a VAT id or tax number are set.
 
 **Permission:** `settings.manage`.
 
@@ -621,27 +582,27 @@ The business rules the admin can change. `GET` returns all of them; each `PUT` r
 | Field | Type | Required | Validation |
 | ----- | ---- | -------- | ---------- |
 | `name` | string | yes | 1–120 |
-| `addressLines` | string[] | yes | 1–5 lines (street; postcode and city) |
+| `addressLines` | string[] | yes | 1–5 lines, ≤120 each (street; postcode and city) |
 | `email` | string | yes | email |
 | `phone` | string | no | ≤40 |
-| `website` | string | no | URL |
+| `website` | string | no | URL with protocol |
 | `vatId` | string | no | `^[A-Z]{2}[A-Z0-9]{2,13}$` (USt-IdNr.) |
 | `taxNumber` | string | no | ≤40 (Steuernummer) |
 | `registration` | string | no | ≤160 |
-| `logoUrl` | string | no | absolute `https` URL of the logo (emails, invoices) |
+| `logoUrl` | string | no | absolute URL of the logo (emails, invoices) |
 | `invoiceFooter` | string | no | ≤1000 |
 
 **Success Response (200):** `{ "company": { …, "missingForInvoices": [] } }`
 
 ### `PUT /v1/admin/settings/payments`
 
-**Permission:** `settings.manage`. **Request Body:** `{ "reminderHour": 9, "defaultDeadlineDays": 5, "checkoutMinutes": 60 }` (0–23 / 1–60 / 30–1440). **Success Response (200):** `{ "payments": { … } }`.
+**Purpose:** How long a Stripe payment page stays open. **Permission:** `settings.manage`. **Request Body:** `{ "checkoutMinutes": 60 }` (30–1440). **Success Response (200):** `{ "payments": { "checkoutMinutes": 60 } }`.
 
 ---
 
 ## 6. Legal texts
 
-Terms, pre-order terms and privacy policy, in versions. Customers accept the current published versions at checkout; a published version can never change (a new version is created instead). **Orders are refused until `terms` and `privacy` are published.**
+Terms and privacy policy, in versions. Customers accept the current published versions at checkout (the order records the versions); a published version can never change (a new version is created instead). **Orders are refused until `terms` and `privacy` are published.**
 
 **Document object:**
 
@@ -660,7 +621,7 @@ Terms, pre-order terms and privacy policy, in versions. Customers accept the cur
 }
 ```
 
-`type` ∈ `terms`, `preorder_terms`, `privacy`; `status` ∈ `draft`, `published`.
+`type` ∈ `terms`, `privacy`; `status` ∈ `draft`, `published`.
 
 ### `GET /v1/admin/legal-documents`
 
@@ -693,7 +654,7 @@ Terms, pre-order terms and privacy policy, in versions. Customers accept the cur
 
 | Field | Type | Required | Validation |
 | ----- | ---- | -------- | ---------- |
-| `type` | enum | yes | |
+| `type` | `terms` \| `privacy` | yes | |
 | `title` | `{ en (1–160), de? (≤160) }` | yes | |
 | `content` | `{ en? (≤300000), de? (≤300000) }` | yes | English is required to publish |
 | `note` | string | no | ≤1000, internal |
@@ -834,9 +795,11 @@ A tree of at most three levels. Products belong to one category; store listings 
 
 ---
 
-## 8. Products and images
+## 8. Products, stock and images
 
 One product document = one article in **one pack size**. Several pack sizes of the same article are separate products linked by a `variantGroupId`; one of them is the default (shown in listings). Prices are cents including VAT.
+
+Every product has a stock: `stock.quantity` is the number of units on the shelf, `stock.lowStockThreshold` the count at or below which the admin is warned. A product with quantity 0 is sold out in the shop. The stock changes through its own endpoint (8.1, `POST …/stock`), through paid orders, cancellations, returns and corrections, and through the CSV import; every change is kept in the stock history. Nothing is reserved before a payment; the units are taken the moment the payment is approved. Customers never see the stock.
 
 ### 8.1 Objects
 
@@ -875,6 +838,7 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
   "isAvailable": true,
   "isFeatured": false,
   "sortOrder": 0,
+  "stock": { "quantity": 120, "lowStockThreshold": 10, "isLow": false },
   "variantGroupId": "66f4…",
   "isDefaultVariant": true,
   "packSizeCount": 2,
@@ -884,7 +848,7 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
 }
 ```
 
-(`image` in the summary is the store-style image with a plain `alt` string; `variantGroupId` is `null` for a product without other pack sizes.)
+(`image` in the summary is the store-style image with a plain `alt` string; `variantGroupId` is `null` for a product without other pack sizes. `stock.isLow` is true when a threshold is set and the quantity is at or below it; `lowStockThreshold` is `null` when none is set, and a product without a threshold is never low. The entries of `packSizes` in the detail carry `stock` too.)
 
 **Product detail** = summary plus:
 
@@ -906,14 +870,22 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
   "seo": null,
   "images": [ { "…admin image…": "", "isPrimary": true } ],
   "packSizes": [
-    { "id": "66f2…", "sku": "RF-00041", "packSize": { "value": 1, "unit": "kg", "label": "1 kg" }, "pricing": { "…": "" }, "status": "active", "isAvailable": true, "isDefault": false },
-    { "id": "66f3…", "sku": "RF-00042", "packSize": { "value": 5, "unit": "kg", "label": "5 kg" }, "pricing": { "…": "" }, "status": "active", "isAvailable": true, "isDefault": true }
+    { "id": "66f2…", "sku": "RF-00041", "packSize": { "value": 1, "unit": "kg", "label": "1 kg" }, "pricing": { "…": "" }, "status": "active", "isAvailable": true, "stock": { "quantity": 40, "lowStockThreshold": null, "isLow": false }, "isDefault": false },
+    { "id": "66f3…", "sku": "RF-00042", "packSize": { "value": 5, "unit": "kg", "label": "5 kg" }, "pricing": { "…": "" }, "status": "active", "isAvailable": true, "stock": { "quantity": 120, "lowStockThreshold": 10, "isLow": false }, "isDefault": true }
   ],
   "publishedAt": "2026-09-01T08:00:00.000Z"
 }
 ```
 
 `packSizes` lists all members of the variant group (any status), smallest first; it is `[]` for a product without a group. `images` are in the admin's order.
+
+**Stock movement** (the stock history):
+
+```json
+{ "id": "66f9…", "reason": "adjustment", "delta": -4, "quantityAfter": 116, "orderId": null, "orderNumber": null, "adminId": "66f1…", "admin": { "id": "66f1…", "name": "Priya" }, "note": "Broken bags", "createdAt": "…" }
+```
+
+`reason` ∈ `restock` (units added by the admin, or the opening stock of a new product), `adjustment` (count corrected by the admin), `import` (CSV import), `order` (taken by a paid order; `orderId`/`orderNumber` set, `admin` null), `cancel` (given back by a cancellation), `return` (given back by a completed return with `restock: true`), `release` (given back when a payment could not be completed after the units were taken, or when a correction lowered the delivered quantity). `delta` is positive for units that came in, negative for units that went out.
 
 ### `GET /v1/admin/products`
 
@@ -931,6 +903,7 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
 | `isAvailable` | boolean | |
 | `onSale` | boolean | |
 | `variantGroupId` | ObjectId | The pack sizes of one product. |
+| `lowStock` | boolean | `true`: only products at or below their low-stock threshold. |
 | `sort` | `newest` (default) \| `updated` \| `name` \| `sku` \| `price_asc` \| `price_desc` | |
 | `page`, `limit` | int | 1–500 / 1–100 (default 24) |
 
@@ -958,6 +931,8 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
   "brand": "India Gate",
   "categoryId": "66f0…",
   "packSize": { "value": 5, "unit": "kg" },
+  "stockQuantity": 120,
+  "lowStockThreshold": 10,
   "variantOf": "66f2…",
   "regularPrice": 2499,
   "salePrice": 1999,
@@ -996,13 +971,15 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
 | `brand` | string or `null` | no | ≤80 |
 | `categoryId` | ObjectId | yes | |
 | `packSize` | `{ value: 0.001–1000000 (≤3 decimals), unit: g\|kg\|ml\|l\|pcs }` | yes | |
+| `stockQuantity` | int 0–1 000 000 | no | the opening stock (default 0); recorded as a `restock` movement. **Only on create**: `PATCH` rejects it (`400 VALIDATION_FAILED`); later changes go through `POST …/stock` |
+| `lowStockThreshold` | int 0–1 000 000 or `null` | no | the admin is warned at or below this count; `null` removes it |
 | `variantOf` | ObjectId or `null` | no | id of **any** pack size of the product to join; `null` separates |
 | `regularPrice` | int cents | yes | 1–10 000 000 |
 | `salePrice` | int cents or `null` | no | 1–10 000 000, must be below `regularPrice`; `null` ends a sale |
 | `discountPercent` | int or `null` | no | 1–99; alternative to `salePrice` (not both) |
 | `vatRate` | int | yes | 0–10000 (700 = 7 %, 1900 = 19 %) |
 | `status` | `draft` \| `active` \| `archived` | no | default `draft`; `active` sets `publishedAt` once |
-| `isAvailable`, `isFeatured` | boolean | no | `isAvailable: false` keeps an active product in the shop but marks it as not orderable (shown as "sold out"; it cannot be put in a cart, and it is left out of the orderable products of a cargo). `isFeatured` marks the product for the featured block of the shop (`GET /v1/store/products?featured=true`); it changes nothing else. |
+| `isAvailable`, `isFeatured` | boolean | no | `isAvailable: false` keeps an active product in the shop but marks it as not orderable (shown as "sold out"; it cannot be put in a cart). A product with `stock.quantity` 0 is sold out as well. `isFeatured` marks the product for the featured block of the shop (`GET /v1/store/products?featured=true`); it changes nothing else. |
 | `sortOrder` | int 0–1 000 000 | no | |
 | `minOrderQuantity`, `maxOrderQuantity` | int 1–10000 (`max` nullable) | no | max ≥ min |
 | `storageType` | `ambient` \| `chilled` \| `frozen` | no | |
@@ -1021,21 +998,21 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
 
 ### `PATCH /v1/admin/products/{id}`
 
-**Purpose:** Change a product; send only what changes. Translated fields, lists and `food` are replaced as a whole. `salePrice: null` ends a sale; sending neither `salePrice` nor `discountPercent` keeps the current sale.
+**Purpose:** Change a product; send only what changes. Translated fields, lists and `food` are replaced as a whole. `salePrice: null` ends a sale; sending neither `salePrice` nor `discountPercent` keeps the current sale. `lowStockThreshold` can be set or removed (`null`) here; the stock itself cannot (`stockQuantity` is refused).
 
-**Permission:** `catalog.manage`. **Request Body:** same fields as create, all optional. **Success Response (200):** `{ "product": { … } }`.
+**Permission:** `catalog.manage`. **Request Body:** same fields as create except `stockQuantity`, all optional. **Success Response (200):** `{ "product": { … } }`.
 
-**Possible Errors:** `404 PRODUCT_NOT_FOUND`, `404 CATEGORY_NOT_FOUND`, `400 PRODUCT_PRICE_INVALID`, `400 PRODUCT_QUANTITY_INVALID`, `400 PRODUCT_VARIANT_INVALID` (`variantOf` is the product itself or unknown), `409 PRODUCT_SKU_TAKEN`, `409 PRODUCT_SLUG_TAKEN`.
+**Possible Errors:** `404 PRODUCT_NOT_FOUND`, `404 CATEGORY_NOT_FOUND`, `400 PRODUCT_PRICE_INVALID`, `400 PRODUCT_QUANTITY_INVALID`, `400 PRODUCT_VARIANT_INVALID` (`variantOf` is the product itself or unknown), `409 PRODUCT_SKU_TAKEN`, `409 PRODUCT_SLUG_TAKEN`, `400 VALIDATION_FAILED`.
 
 ### `DELETE /v1/admin/products/{id}`
 
-**Purpose:** Delete a product and its images for good. Only for drafts/archived products that were never part of a cargo. **Permission:** `catalog.manage`. **Success Response:** `204`.
+**Purpose:** Delete a product and its images for good. Only for drafts/archived products that are not part of an order (cancelled orders do not count). **Permission:** `catalog.manage`. **Success Response:** `204`.
 
-**Possible Errors:** `404 PRODUCT_NOT_FOUND`, `409 PRODUCT_IS_ACTIVE` ("Archive the product before deleting it."), `409 PRODUCT_IN_USE` (part of a cargo: archive instead).
+**Possible Errors:** `404 PRODUCT_NOT_FOUND`, `409 PRODUCT_IS_ACTIVE` ("Archive the product before deleting it."), `409 PRODUCT_IN_USE` ("The product cannot be deleted. It is part of 3 order(s). Archive it instead.").
 
 ### `POST /v1/admin/products/{id}/duplicate`
 
-**Purpose:** Copy a product as another pack size: a draft with the same texts, category, food information and (by default) images.
+**Purpose:** Copy a product as another pack size: a draft with the same texts, category, food information, low-stock threshold and (by default) images. The copy starts with a stock of 0 and an empty history.
 
 **Permission:** `catalog.manage`.
 
@@ -1058,6 +1035,37 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
 ```
 
 Newest first, max 200. **Possible Errors:** `404 PRODUCT_NOT_FOUND`.
+
+### `POST /v1/admin/products/{id}/stock`
+
+**Purpose:** Set or adjust the stock. `quantity` sets the exact count (after counting the shelf); `delta` adds (positive) or removes (negative) units. Send one of the two.
+
+**Permission:** `catalog.manage`.
+
+**Request Body:** `{ "delta": -4, "note": "Broken bags" }` or `{ "quantity": 120, "note": "Counted" }`. `quantity` 0–1 000 000, `delta` −1 000 000 to 1 000 000, `note` ≤500 characters (optional).
+
+**Success Response (200):**
+
+```json
+{
+  "product": { "…product detail…": "" },
+  "movement": { "id": "66f9…", "reason": "adjustment", "delta": -4, "quantityAfter": 116, "orderId": null, "orderNumber": null, "adminId": "66f1…", "admin": { "id": "66f1…", "name": "Priya" }, "note": "Broken bags", "createdAt": "…" }
+}
+```
+
+`movement` is `null` when nothing changed (the same count again). A positive `delta` is recorded as `restock`, a negative `delta` and every `quantity` as `adjustment`.
+
+**Possible Errors:** `400 STOCK_CHANGE_INVALID` (both or neither of `quantity` and `delta`), `409 STOCK_INSUFFICIENT` (removing more than there is; `details: { productId, sku, available, wanted }`), `404 PRODUCT_NOT_FOUND`, `400 VALIDATION_FAILED`.
+
+### `GET /v1/admin/products/{id}/stock/movements`
+
+**Purpose:** The stock history, newest first.
+
+**Permission:** `catalog.read`.
+
+**Parameters (query):** `limit` 1–100 (default 25), `cursor`, `sort` (`createdAt:asc|desc`; default newest first).
+
+**Success Response (200):** `{ "items": [ { "…stock movement (8.1)…": "" } ], "nextCursor": "…" | null }`. **Possible Errors:** `404 PRODUCT_NOT_FOUND`.
 
 ### `POST /v1/admin/products/{id}/images`
 
@@ -1093,6 +1101,8 @@ Newest first, max 200. **Possible Errors:** `404 PRODUCT_NOT_FOUND`.
 
 The panel reads a spreadsheet and sends its rows; the API checks them, previews what would happen, and writes them once the admin confirms. The export gives the same columns back, so a file can be edited and imported again. The columns, the rules and the flow for the panel are in `doc/CSV_IMPORT_EXPORT.md`; `doc/examples/categories-example.csv` and `doc/examples/products-example.csv` hold every column with sample rows.
 
+The product columns include the stock: `stock_quantity` (the exact count) and `low_stock_threshold` (empty or `0` removes the threshold). A changed count is recorded as an `import` movement with the note "CSV import"; a new product with a count starts its history with a `restock` movement.
+
 ### `POST /v1/admin/catalog/import/preview`
 
 **Purpose:** What an import would do, row by row. Nothing is written.
@@ -1114,13 +1124,13 @@ The panel reads a spreadsheet and sends its rows; the API checks them, previews 
     ],
     "unknownColumns": []
   },
-  "products": { "summary": { "…": "" }, "rows": [], "unknownColumns": ["colour"] },
+  "products": { "summary": { "…": "" }, "rows": [ { "row": 1, "key": "RF-00042", "name": "Basmati Rice", "action": "update", "id": "66f3…", "changes": ["stock", "lowStockThreshold"], "problems": [] } ], "unknownColumns": ["colour"] },
   "applied": false,
   "stoppedAt": null
 }
 ```
 
-`row` counts from 1 for the first data row. `action` ∈ `create`, `update` (`changes` names the fields), `skip`, `unchanged`, `error` (`problems` says what; the row is never written). `unknownColumns` lists headers the import ignores. Images, SKUs of existing products, cargo links and the price history are never changed by an import.
+`row` counts from 1 for the first data row. `action` ∈ `create`, `update` (`changes` names the fields), `skip`, `unchanged`, `error` (`problems` says what; the row is never written). `unknownColumns` lists headers the import ignores. Images, SKUs of existing products and the price history are never changed by an import.
 
 **Possible Errors:** `400 VALIDATION_FAILED` (more than 2,000 rows, or a body that is not rows).
 
@@ -1138,310 +1148,36 @@ The panel reads a spreadsheet and sends its rows; the API checks them, previews 
 
 **Permission:** `catalog.read`.
 
-**Success Response (200):** `{ "type": "products", "columns": ["sku", "gtin", …], "rows": [ { "sku": "RF-00001", "regular_price": "19.99", "vat_rate": "7", "is_available": "yes", "tags": "vegan|new", … } ] }`. Every cell is a string in the writing of the import; categories in display order, products by SKU. The panel writes the `.xlsx` or `.csv` file. The rows import again as `unchanged`.
+**Success Response (200):** `{ "type": "products", "columns": ["sku", "gtin", …, "stock_quantity", "low_stock_threshold", …], "rows": [ { "sku": "RF-00001", "regular_price": "19.99", "vat_rate": "7", "is_available": "yes", "stock_quantity": "40", "low_stock_threshold": "", "tags": "vegan|new", … } ] }`. Every cell is a string in the writing of the import; categories in display order, products by SKU. The panel writes the `.xlsx` or `.csv` file. The rows import again as `unchanged`.
 
 ---
 
-## 9. Cargos
+## 9. Orders
 
-A cargo is one pre-order cycle: an order window (`orderOpenAt` → `orderCloseAt`), estimated delivery days, and the products (with optional limits) that can be ordered in it. At most one cargo takes orders at a time. An automatic check runs hourly and opens/closes cargos on time; the panel can also do it by hand.
+An order is created by the customer at checkout and confirmed by the payment. The admin moves it through processing, dispatch and delivery, sets the delivery method and the tracking number, corrects delivered quantities, or cancels it. Everything the customer saw when paying is copied into the order (names, prices, VAT, the fee, the address): what changes in the catalogue afterwards does not change the order.
 
-### 9.1 Cargo statuses and transitions
+**How an order comes about.** `POST /v1/store/checkout` prices the cart again, checks that every line is in stock (without reserving anything), creates the order as `pending_payment` and opens a Stripe payment page on which the bank approves the amount. When Stripe reports the approval (webhook, or the customer's return to the shop), the API takes the stock of every item, captures the money, issues the invoice, sets the order to `confirmed` with the payment `paid`, empties the cart and sends the confirmation with the invoice PDF. If an item sold out in the meantime, nothing is charged: the approval is let go of and the order is cancelled with the reason `sold_out`. An order whose payment page expired is cancelled by the cleanup job with the reason `payment_not_completed` (section 16); the customer can open a new page for a pending order whose page expired or whose payment failed, and can give up a pending order at any time.
 
-`draft` → `scheduled` → `taking_orders` → `orders_closed` → `in_transit` → `arrived` → `delivering` → `delivered`; `cancelled` from `draft`, `scheduled`, `taking_orders`, `orders_closed`, `in_transit`. One step back is allowed at most stages (`allowedStatuses` in the cargo object is authoritative):
+### 9.1 Statuses and transitions
+
+`status`: `pending_payment`, `confirmed`, `processing`, `dispatched`, `delivered`, `cancelled`, `returned`.
 
 ```
-draft         → scheduled, taking_orders, cancelled
-scheduled     → draft, taking_orders, cancelled
-taking_orders → orders_closed, cancelled
-orders_closed → taking_orders, in_transit, cancelled
-in_transit    → orders_closed, arrived, cancelled
-arrived       → in_transit, delivering
-delivering    → arrived, delivered
-delivered     → delivering
-cancelled     → (none)
-```
-
-Side effects: `delivering` dispatches the cargo's orders (status `dispatched`) and `delivered` marks them delivered, each with per-order exceptions (`excludeOrderIds`) and a notification to every affected customer. Cancelling a cargo that has orders requires `moveOrdersToCargoId`: the orders move to that cargo with items and quantities intact.
-
-### 9.2 The cargo object
-
-```json
-{
-  "id": "66f0…",
-  "number": 27,
-  "code": "RF-C027",
-  "internalName": "October, first week",
-  "customerName": { "en": "October delivery", "de": "Oktober-Lieferung" },
-  "customerMessage": null,
-  "internalNotes": null,
-  "status": "taking_orders",
-  "isAcceptingOrders": true,
-  "attention": null,
-  "allowedStatuses": ["orders_closed", "cancelled"],
-  "orderOpenAt": "2026-09-23T22:00:00.000Z",
-  "orderCloseAt": "2026-09-26T21:59:00.000Z",
-  "delivery": { "start": "2026-10-05", "end": "2026-10-07" },
-  "timezone": "Europe/Berlin",
-  "openedAt": "2026-09-23T22:00:03.000Z",
-  "closedAt": null,
-  "products": { "total": 48, "enabled": 45 },
-  "createdAt": "…", "updatedAt": "…"
-}
-```
-
-- `attention`: `null`, `opening_due` (scheduled, opening time reached), `closing_due` (taking orders, deadline passed), `window_missed` (scheduled, deadline passed). Highlight these.
-- **Detail** (`GET /{id}` and every transition) adds `"statusHistory": [ { "from": null, "to": "draft", "at": "…", "source": "admin" | "schedule", "by": "<adminId>" | null, "admin": { id, name } | null, "note": null } ]`, `createdByAdmin` and `updatedByAdmin` (`{ id, name } | null`).
-- Transition answers are `{ "changed": true|false, "cargo": { …detail… } }`; `changed: false` when the cargo already had that status.
-
-### `GET /v1/admin/cargos`
-
-**Permission:** `cargos.read`. **Parameters:** `status` (query, optional), `page`, `limit`. **Success Response (200):** `{ "items": [ … ], "page", "limit", "total", "totalPages" }` (newest first).
-
-### `GET /v1/admin/cargos/overview`
-
-**Purpose:** The dashboard of cargos.
-
-**Permission:** `cargos.read`.
-
-**Success Response (200):**
-
-```json
-{ "acceptingOrders": true, "current": { "…cargo…": "" }, "next": { "…cargo…": "" }, "inProgress": [ { "…cargo…": "" } ], "serverTime": "2026-09-24T22:01:00.000Z" }
-```
-
-`current` = taking orders now (or `null`), `next` = the scheduled cargo that opens first (or `null`), `inProgress` = cargos in `orders_closed`, `in_transit`, `arrived`, `delivering` (max 20).
-
-### `POST /v1/admin/cargos`
-
-**Permission:** `cargos.manage`.
-
-**Request Body:**
-
-```json
-{
-  "internalName": "October, first week",
-  "customerName": { "en": "October delivery", "de": "Oktober-Lieferung" },
-  "customerMessage": { "en": "Order by Friday", "de": "Bestellen Sie bis Freitag" },
-  "internalNotes": "…",
-  "orderOpenAt": "2026-09-24T00:00:00+02:00",
-  "orderCloseAt": "2026-09-26T23:59:00+02:00",
-  "deliveryStart": "2026-10-05",
-  "deliveryEnd": "2026-10-07",
-  "status": "scheduled",
-  "copyProductsFrom": "66ef…"
-}
-```
-
-| Field | Type | Required | Validation |
-| ----- | ---- | -------- | ---------- |
-| `internalName` | string | yes | 1–120 |
-| `customerName`, `customerMessage` | `{ en?, de? }` | no | shown to customers |
-| `internalNotes` | string or `null` | no | ≤5000 |
-| `orderOpenAt`, `orderCloseAt` | ISO with time zone | yes | close after open |
-| `deliveryStart`, `deliveryEnd` | `YYYY-MM-DD` | yes | end ≥ start; start not before the deadline day |
-| `status` | `draft` \| `scheduled` | no | `scheduled` opens by itself at `orderOpenAt` |
-| `copyProductsFrom` | ObjectId | no | takes the products and limits of another cargo |
-
-**Success Response (201):** `{ "cargo": { …detail… } }`
-
-**Possible Errors:** `400 CARGO_DATES_INVALID` (`details: [messages]`), `409 CARGO_WINDOW_PASSED` (scheduled cargo whose deadline is past), `409 CARGO_WINDOW_OVERLAP` (`details: { cargo, orderOpenAt, orderCloseAt }` – order windows of scheduled/open cargos may not overlap), `404 CARGO_NOT_FOUND` (`copyProductsFrom`), `400 VALIDATION_FAILED`.
-
-### `GET /v1/admin/cargos/{id}`
-
-**Permission:** `cargos.read`. **Success Response (200):** `{ "cargo": { …detail with statusHistory… } }`. **Possible Errors:** `404 CARGO_NOT_FOUND`.
-
-### `PATCH /v1/admin/cargos/{id}`
-
-**Purpose:** Change names, messages, notes, times and delivery days (send only what changes; `internalNotes: null` clears). The opening time can change until ordering begins, the deadline until ordering ends, the delivery days until the cargo is finished. **New delivery days reach the orders:** every order of the cargo that has not left yet (`confirmed`, `preparing`, `delivery_failed`) gets the new `promisedStart`/`promisedEnd`, a `delivery_window` entry in its `statusHistory`, and its customer is emailed (`delivery_rescheduled`, section 14.1). Orders already dispatched or delivered keep their days. A draft has no orders.
-
-**Permission:** `cargos.manage`. **Request Body:** create fields minus `status`/`copyProductsFrom`, all optional. **Success Response (200):** `{ "cargo": { …detail… } }`.
-
-**Possible Errors:** `404 CARGO_NOT_FOUND`, `409 CARGO_NOT_EDITABLE` (`details: { status }`), `400 CARGO_DATES_INVALID`, `409 CARGO_WINDOW_PASSED`, `409 CARGO_WINDOW_OVERLAP`, `409 CARGO_CHANGED_MEANWHILE` (reload and retry).
-
-### `DELETE /v1/admin/cargos/{id}`
-
-**Purpose:** Delete a draft. **Permission:** `cargos.manage`. **Success Response:** `204`. **Possible Errors:** `404 CARGO_NOT_FOUND`, `409 CARGO_NOT_DELETABLE`.
-
-### `POST /v1/admin/cargos/{id}/open`
-
-**Purpose:** Customers can order from now on. **Permission:** `cargos.manage`. **Request Body:** `{ "note"?: string (≤500) }`. **Success Response (200):** `{ "changed", "cargo" }`.
-
-**Possible Errors:** `409 CARGO_TRANSITION_NOT_ALLOWED` (`details: { from, to, allowed }`), `409 CARGO_ANOTHER_TAKING_ORDERS` (`details: { cargo, id }`), `409 CARGO_WINDOW_PASSED`, `409 CARGO_WINDOW_OVERLAP`, `409 CARGO_CHANGED_MEANWHILE`, `404 CARGO_NOT_FOUND`.
-
-### `POST /v1/admin/cargos/{id}/close`
-
-**Purpose:** Ordering ends now. **Permission:** `cargos.manage`. **Request Body:** `{ "note"? }`. **Success Response (200):** `{ "changed", "cargo" }`. **Possible Errors:** `409 CARGO_TRANSITION_NOT_ALLOWED`, `409 CARGO_CHANGED_MEANWHILE`, `404 CARGO_NOT_FOUND`.
-
-### `PUT /v1/admin/cargos/{id}/status`
-
-**Purpose:** Any allowed transition (see 9.1), including `delivering`/`delivered` with order exceptions and `cancelled` with an order move.
-
-**Permission:** `cargos.manage`.
-
-**Request Body:**
-
-```json
-{ "status": "delivering", "excludeOrderIds": ["66f5…"], "moveOrdersToCargoId": null, "note": "Truck left at 6:00" }
-```
-
-| Field | Type | Required | Meaning |
-| ----- | ---- | -------- | ------- |
-| `status` | cargo status | yes | |
-| `excludeOrderIds` | ObjectId[] ≤1000 | no | orders that keep their status when the cargo's orders follow (`delivering`, `delivered`) |
-| `moveOrdersToCargoId` | ObjectId | for `cancelled` with orders | the cargo that takes the orders over |
-| `note` | string ≤500 | no | |
-
-**Success Response (200):** `{ "changed": true, "cargo": { …detail… }, "ordersMoved": 0 }`
-
-**Possible Errors:** as open/close, plus `409 CARGO_HAS_ORDERS` (`details: { orders }` – cancel needs a target cargo, or some orders are already on their way and must be looked at first), `409 CARGO_CANNOT_TAKE_ORDERS` (target cargo in a status that cannot take orders), `404 CARGO_NOT_FOUND`.
-
-### `POST /v1/admin/cargos/rollover`
-
-**Purpose:** Close the current cargo and open the named next one, with the same rules as the automatic check. Idempotent.
-
-**Permission:** `cargos.manage`. **Request Body:** `{ "nextCargoId": "66f0…", "note"?: string }`.
-
-**Success Response (200):** `{ "closed": { "changed": true, "cargo": { … } } | null, "opened": { "changed": true, "cargo": { … } } }`
-
-**Possible Errors:** `404 CARGO_NOT_FOUND`, `409 CARGO_TRANSITION_NOT_ALLOWED`, `409 CARGO_WINDOW_PASSED`, `409 CARGO_WINDOW_OVERLAP`, `409 CARGO_ANOTHER_TAKING_ORDERS`, `409 CARGO_CHANGED_MEANWHILE`.
-
-### `POST /v1/admin/cargos/check`
-
-**Purpose:** Run the automatic check now (closes a cargo whose deadline passed, opens the scheduled cargo whose time has come). **Permission:** `cargos.manage`. **Success Response (200):** `{ "closed": ["RF-C026"], "opened": ["RF-C027"] }` (cargo codes; usually both empty).
-
-### 9.3 Products of a cargo
-
-Which products can be ordered in a cargo, and with what limit. A product without a setting cannot be ordered. Editable until ordering has ended.
-
-**Cargo-product setting:** `{ "isEnabled": true, "maxQuantity": 40, "orderedQuantity": 3, "remaining": 37 }` (`maxQuantity`/`remaining` `null` = no limit; a product without a setting shows `isEnabled: false, maxQuantity: null, orderedQuantity: 0, remaining: null`).
-
-### `GET /v1/admin/cargos/{cargoId}/products`
-
-**Purpose:** Every catalogue product with its setting in this cargo.
-
-**Permission:** `cargos.read`.
-
-**Parameters (query):** `show` (`all` default \| `enabled` \| `not_enabled`), `q` (2–80), `categoryId`, `includeArchived` (boolean), `page`, `limit`.
-
-**Success Response (200):**
-
-```json
-{ "items": [ { "product": { "…product summary (8.1)…": "" }, "cargo": { "isEnabled": true, "maxQuantity": 40, "orderedQuantity": 3, "remaining": 37 } } ], "page": 1, "limit": 24, "total": 48, "totalPages": 2 }
-```
-
-**Possible Errors:** `404 CARGO_NOT_FOUND`.
-
-### `PUT /v1/admin/cargos/{cargoId}/products`
-
-**Purpose:** Set many products at once. Products not named keep their setting.
-
-**Permission:** `cargos.manage`.
-
-**Request Body:** `{ "items": [ { "productId": "66f3…", "isEnabled": true, "maxQuantity": 40 } ] }` (1–500 unique entries; `isEnabled` default `true`; `maxQuantity` 0–1 000 000 or `null`/absent = no limit).
-
-**Success Response (200):** `{ "products": { "total": 48, "enabled": 45 } }`
-
-**Possible Errors:** `404 CARGO_NOT_FOUND`, `409 CARGO_NOT_EDITABLE` (ordering ended), `400 CARGO_PRODUCT_INVALID` (`details: { missing: [ids], archived: [ids] }`).
-
-### `POST /v1/admin/cargos/{cargoId}/products/copy`
-
-**Purpose:** Take over the products and limits of another cargo (existing settings kept, archived products skipped). **Permission:** `cargos.manage`. **Request Body:** `{ "fromCargoId": "66ef…" }`. **Success Response (200):** `{ "added": 12, "products": { "total": 48, "enabled": 45 } }`. **Possible Errors:** `404 CARGO_NOT_FOUND`, `409 CARGO_NOT_EDITABLE`.
-
-### `PATCH /v1/admin/cargos/{cargoId}/products/{productId}`
-
-**Purpose:** Enable/disable one product or change its limit (`maxQuantity: null` removes it). Creates the setting when missing. **Permission:** `cargos.manage`. **Request Body:** `{ "isEnabled"?: boolean, "maxQuantity"?: int|null }`. **Success Response (200):** `{ "productId": "66f3…", "cargo": { …setting… } }`. **Possible Errors:** `404 CARGO_NOT_FOUND`, `409 CARGO_NOT_EDITABLE`, `400 CARGO_PRODUCT_INVALID`.
-
-### `DELETE /v1/admin/cargos/{cargoId}/products/{productId}`
-
-**Purpose:** Remove the setting (refused once the product was ordered in this cargo: disable it instead). **Permission:** `cargos.manage`. **Success Response:** `204`. **Possible Errors:** `404 CARGO_NOT_FOUND`, `404 CARGO_PRODUCT_NOT_FOUND`, `409 CARGO_NOT_EDITABLE`, `409 CARGO_PRODUCT_HAS_ORDERS`.
-
-### 9.4 All orders of a cargo at once
-
-### `POST /v1/admin/cargos/{cargoId}/orders/status`
-
-**Purpose:** Move all orders of the cargo on: `preparing` (from confirmed), `dispatched` (from confirmed/preparing), `delivered` (from dispatched). Other orders and excluded ones keep their status. Changing the cargo to `delivering`/`delivered` does this by itself; this is for doing it by hand or again. Each affected customer is notified.
-
-**Permission:** `orders.manage`. **Request Body:** `{ "status": "preparing" | "dispatched" | "delivered", "excludeOrderIds"?: ObjectId[] (≤1000), "note"?: string (≤500) }`.
-
-**Success Response (200):** `{ "cargo": "RF-C027", "status": "dispatched", "changed": 12 }`. **Possible Errors:** `404 CARGO_NOT_FOUND`.
-
-### `POST /v1/admin/cargos/{cargoId}/orders/delivery-method`
-
-**Purpose:** Set the delivery method of all orders that are not delivered/cancelled/returned; tracking numbers of changed orders are removed. **Permission:** `orders.manage`. **Request Body:** `{ "method": "radhe_delivery" | "dhl" | "hermes", "excludeOrderIds"?, "note"? }`. **Success Response (200):** `{ "cargo": "RF-C027", "method": "dhl", "changed": 12 }`.
-
-### `POST /v1/admin/cargos/{cargoId}/orders/move`
-
-**Purpose:** Give all movable orders (not yet dispatched, or delivery failed) to another cargo; they keep number, items and bill. **Permission:** `orders.manage`. **Request Body:** `{ "toCargoId": "66f0…", "note"? }`. **Success Response (200):** `{ "from": "RF-C027", "to": "RF-C028", "moved": 5 }`. **Possible Errors:** `404 CARGO_NOT_FOUND`, `409 CARGO_CANNOT_TAKE_ORDERS`.
-
-### 9.5 Payments of a cargo
-
-### `POST /v1/admin/cargos/{cargoId}/payments/activate`
-
-**Purpose:** Issue invoices and payment requests for the delivered orders of the cargo, up to 100 per request. Repeat while `remaining > 0`.
-
-**Permission:** `payments.manage`. **Request Body:** `{ "deadlineDays": 5, "note"?: string, "excludeOrderIds"?: ObjectId[] }` (`deadlineDays` 1–60).
-
-**Success Response (200):**
-
-```json
-{
-  "cargo": "RF-C027",
-  "activated": ["RF-1084", "RF-1085"],
-  "failed": [ { "orderNumber": "RF-1086", "code": "PAYMENT_ALREADY_ACTIVATED", "message": "…" } ],
-  "remaining": 37
-}
-```
-
-**Possible Errors:** `409 COMPANY_DETAILS_MISSING` (`details: { missing: [...] }` – complete the company settings first), `404 CARGO_NOT_FOUND`.
-
-### `GET /v1/admin/cargos/{cargoId}/payments/summary`
-
-**Permission:** `payments.read`.
-
-**Success Response (200):**
-
-```json
-{
-  "cargo": "RF-C027",
-  "summary": {
-    "byStatus": [ { "status": "due", "orders": 8, "amountDue": 25544, "paid": 0, "refunded": 0 } ],
-    "toActivate": { "orders": 10, "amount": 31930 },
-    "open": { "orders": 8, "amount": 25544 },
-    "overdue": { "orders": 2, "amount": 6386 },
-    "collected": 63860,
-    "refunded": 499,
-    "waived": { "orders": 1 }
-  }
-}
-```
-
-Cancelled orders are excluded; `byStatus` lists only statuses that occur.
-
----
-
-## 10. Orders
-
-Pre-orders and their way to the customer. An order is placed by the customer from the cart; the admin moves it through the statuses, sets delivery method and tracking, moves it to another cargo, corrects delivered quantities, or cancels it.
-
-### 10.1 Statuses and transitions
-
-`status`: `confirmed`, `preparing`, `dispatched`, `delivered`, `delivery_failed`, `cancelled`, `returned`.
-
-```
-confirmed        → preparing, dispatched
-preparing        → confirmed, dispatched
-dispatched       → preparing, delivered, delivery_failed
-delivery_failed  → dispatched, delivered
-delivered        → dispatched
+pending_payment → confirmed (by the payment, never by hand), cancelled
+confirmed       → processing, dispatched
+processing      → confirmed, dispatched
+dispatched      → processing, delivered
+delivered       → dispatched
 returned, cancelled → (none)
 ```
 
-`allowedStatuses` in the order detail is authoritative. `cancelled` has its own endpoint (allowed from `confirmed`, `preparing`, `dispatched`, `delivery_failed`); `returned` is set automatically when everything was returned. `canMove` (to another cargo) is true in `confirmed`, `preparing`, `delivery_failed`. Delivery method/tracking and quantity corrections are possible in `confirmed`, `preparing`, `dispatched`, `delivery_failed`, `delivered`.
+Forward steps are `processing`, `dispatched`, `delivered`; one step back corrects a mistake and tells the customer nothing. `allowedStatuses` in the order detail is authoritative (`[]` for a pending order: the payment confirms it). `cancelled` has its own endpoint: the admin can cancel in `pending_payment`, `confirmed`, `processing` and `dispatched` (`canCancel`); after delivery the way back is a return. `returned` is set when a completed return brought everything of a delivered order back. Delivery method/tracking and quantity corrections are possible in `confirmed`, `processing`, `dispatched` and `delivered`.
 
-`paymentStatus`: `not_enabled`, `due`, `overdue`, `paid`, `waived`, `refunded` (section 12).
+Customers can cancel by the rule in `settings.orderPolicy.customerCancellation`: `never` = only while `pending_payment`, `while_confirmed` = also while `confirmed`, `until_dispatched` (default) = also while `processing`.
 
-### 10.2 Order objects
+`paymentStatus`: `pending` (the customer has not paid yet), `authorized` (the bank approved the amount; the stock is being taken and the money captured), `paid` (captured), `failed` (the last attempt did not go through, or the page expired; the customer can pay again), `refunded` (everything that was paid went back). Section 11 has the details.
+
+### 9.2 Order objects
 
 **Summary** (lists, attention):
 
@@ -1449,14 +1185,13 @@ returned, cancelled → (none)
 {
   "id": "66f0…",
   "orderNumber": "RF-1084",
-  "type": "preorder",
   "status": "dispatched",
-  "paymentStatus": "not_enabled",
+  "paymentStatus": "paid",
   "placedAt": "2026-09-28T10:15:00.000Z",
-  "customer": { "id": "66e1…", "email": "priya@example.com", "firstName": "Priya", "lastName": "Shah", "phone": "+49…" },
-  "cargo": { "id": "66f0a1…", "code": "RF-C027" },
+  "customer": { "id": "66e1…", "email": "priya@example.com", "firstName": "Priya", "lastName": "Shah", "phone": "+49…", "name": "Priya Shah" },
   "total": 3097,
   "finalTotal": 3097,
+  "paidAmount": 3097,
   "currency": "EUR",
   "lineCount": 2,
   "itemCount": 3,
@@ -1464,14 +1199,13 @@ returned, cancelled → (none)
   "postalCode": "60311",
   "delivery": {
     "method": "dhl", "trackingNumber": "00340434161094015902",
-    "trackingUrl": "https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode=…&lang=en",
-    "dispatchedAt": "2026-10-21T08:00:00.000Z", "deliveredAt": null,
-    "promisedStart": "2026-10-20", "promisedEnd": "2026-10-24", "cargo": "RF-C027"
+    "trackingUrl": "https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode=00340434161094015902&lang=en",
+    "dispatchedAt": "2026-10-21T08:00:00.000Z", "deliveredAt": null
   }
 }
 ```
 
-`customer.firstName/lastName/phone` may be absent. `total` = agreed bill, `finalTotal` = after corrections and returns (the invoiced amount).
+`customer.firstName/lastName/phone` may be absent; `name` is `null` when both names are missing. `total` = agreed bill, `finalTotal` = after corrections and returns (the invoiced amount minus credit notes), `paidAmount` = what was captured. `trackingUrl` is the carrier's page for DHL and Hermes, `null` for delivery by Radhe Foods and while there is no tracking number.
 
 **Detail** = summary plus:
 
@@ -1494,26 +1228,29 @@ returned, cancelled → (none)
   "adjustments": [ { "productId": "66e9…", "sku": "ATTA-5KG", "from": 2, "to": 1, "reason": "damaged", "note": "box crushed", "adminId": "66d0…", "admin": { "id": "66d0…", "name": "Vrushabh" }, "at": "…" } ],
   "deliveryAddress": { "firstName": "Priya", "lastName": "Shah", "street": "Hauptstraße", "houseNumber": "12", "postalCode": "60311", "city": "Frankfurt am Main", "countryCode": "DE" },
   "note": null,
-  "payment": { "…admin payment block (12.1)…": "" },
+  "payment": { "…admin payment block (11.1)…": "" },
   "canCancel": true,
-  "allowedStatuses": ["preparing", "delivered", "delivery_failed"],
-  "canMove": false,
+  "allowedStatuses": ["processing", "delivered"],
   "cancellation": null,
-  "consent": { "acceptedAt": "…", "documents": [ { "type": "terms", "version": 3, "documentId": "66c0…" } ], "ip": "203.0.113.5", "userAgent": "Mozilla/5.0 …" },
+  "consent": { "acceptedAt": "…", "documents": [ { "type": "terms", "version": 3, "documentId": "66c0…" }, { "type": "privacy", "version": 2, "documentId": "66c1…" } ], "ip": "203.0.113.5", "userAgent": "Mozilla/5.0 …" },
   "statusHistory": [
-    { "field": "order", "from": null, "to": "confirmed", "at": "…", "by": "customer", "adminId": null, "admin": null, "note": null },
-    { "field": "order", "from": "confirmed", "to": "dispatched", "at": "…", "by": "admin", "adminId": "66d0…", "admin": { "id": "66d0…", "name": "Vrushabh" }, "note": null },
-    { "field": "payment", "from": "not_enabled", "to": "due", "at": "…", "by": "admin", "adminId": "66d0…", "admin": { "id": "66d0…", "name": "Vrushabh" }, "note": null },
-    { "field": "delivery_window", "from": "2026-10-22/2026-10-24", "to": "2026-10-25/2026-10-27", "at": "…", "by": "admin", "adminId": "66d0…", "admin": { "id": "66d0…", "name": "Vrushabh" }, "note": null }
+    { "field": "order", "from": null, "to": "pending_payment", "at": "…", "by": "customer", "adminId": null, "admin": null, "note": null },
+    { "field": "payment", "from": "pending", "to": "authorized", "at": "…", "by": "system", "adminId": null, "admin": null, "note": "Stripe pi_…" },
+    { "field": "order", "from": "pending_payment", "to": "confirmed", "at": "…", "by": "system", "adminId": null, "admin": null, "note": "Payment received" },
+    { "field": "payment", "from": "authorized", "to": "paid", "at": "…", "by": "system", "adminId": null, "admin": null, "note": "Stripe card pi_…" },
+    { "field": "order", "from": "confirmed", "to": "processing", "at": "…", "by": "admin", "adminId": "66d0…", "admin": { "id": "66d0…", "name": "Vrushabh" }, "note": "Packing now" },
+    { "field": "delivery", "from": "radhe_delivery", "to": "dhl", "at": "…", "by": "admin", "adminId": "66d0…", "admin": { "id": "66d0…", "name": "Vrushabh" }, "note": null },
+    { "field": "order", "from": "processing", "to": "dispatched", "at": "…", "by": "admin", "adminId": "66d0…", "admin": { "id": "66d0…", "name": "Vrushabh" }, "note": null }
   ],
   "updatedAt": "…"
 }
 ```
 
+- `items[].regularUnitPrice` is the crossed-out price when the unit price was a reduced one, else `null`. `finalLineTotal` is the price of the units that were delivered and kept.
 - `deliveryAddress` keys `company`, `additionalLine`, `phone` are absent when unset.
-- `cancellation`: `null` or `{ reason, text, by: "customer" | "admin" | "system", adminId, admin, at }`.
-- `payment` (12.1) carries `activatedByAdmin` and `cash.recordedByAdmin` (`{ id, name } | null`) next to the ids.
-- `statusHistory[].field` ∈ `order`, `payment`, `cargo`, `delivery`, `delivery_window` (the promised days changed with the cargo: `from`/`to` are `start/end` calendar days); `by` ∈ `customer`, `admin`, `system`. Payment entries use `to` values such as `due`, `overdue`, `paid`, `waived`, `refunded`, `credited`, `reminders_paused`, `reminders_resumed`, `reminder_sent`, `payment_failed`.
+- `note` is the customer's note at checkout. `adjustments[].note` is internal; the customer sees the reason only.
+- `cancellation`: `null` or `{ reason, text, by: "customer" | "admin" | "system", adminId, admin, at }`. Reasons: section 17.2.
+- `statusHistory[].field` ∈ `order`, `payment`, `delivery` (the method changed: `from`/`to` are methods); `by` ∈ `customer`, `admin`, `system`. Payment entries use `to` values `authorized`, `paid`, `failed`, `credited` (a credit note was issued; `note` names it), `refunded` (a refund completed; `note` names it).
 
 ### `GET /v1/admin/orders`
 
@@ -1525,28 +1262,28 @@ returned, cancelled → (none)
 
 | Field | Type | Description |
 | ----- | ---- | ----------- |
-| `cargoId` | ObjectId | |
-| `status` | order status | |
-| `paymentStatus` | payment status | e.g. `overdue` |
+| `status` | order status | e.g. `confirmed` = paid, waiting to be prepared |
+| `paymentStatus` | payment status | e.g. `failed` |
 | `customerId` | ObjectId | |
 | `email` | email | the customer's email (unknown email → empty list) |
-| `orderNumber` | `RF-1084` | exactly one order |
+| `orderNumber` | `RF-1084` | exactly one order (any case) |
 | `deliveryMethod` | `radhe_delivery` \| `dhl` \| `hermes` | |
+| `needsRefund` | boolean | `true`: paid orders whose money waits for the admin: cancelled and not refunded in full, or credited by a correction or a return beyond what was refunded (section 11) |
 | `q` | string 1–100 | words of the order number, the customer's name, email or phone; every word must begin a word of the order (`RF-10`, `schmidt`, `anna@exam`, `49151`) |
 | `sort` | `createdAt` \| `total` \| `status` \| `paymentStatus`, with `:asc` or `:desc` | default `createdAt:desc`; `total` is the final bill |
 | `limit`, `cursor` | | cursor pagination |
 
-**Success Response (200):** `{ "items": [ …summaries… ], "nextCursor": "66f0…" | null }`. The `customer` of a summary carries `name` (`"Priya Shah"` or `null`) next to the email and the names.
+**Success Response (200):** `{ "items": [ …summaries… ], "nextCursor": "66f0…" | null }`.
 
 ### `GET /v1/admin/orders/count`
 
-**Permission:** `orders.read`. **Parameters:** the filters of the list (`cargoId`, `status`, `paymentStatus`, `customerId`, `email`, `orderNumber`, `deliveryMethod`, `q`). **Success Response (200):** `{ "total": 312 }` (`0` for an unknown email).
+**Permission:** `orders.read`. **Parameters:** the filters of the list (`status`, `paymentStatus`, `customerId`, `email`, `orderNumber`, `deliveryMethod`, `needsRefund`, `q`). **Success Response (200):** `{ "total": 312 }` (`0` for an unknown email).
 
 ### `POST /v1/admin/orders/bulk/status`
 
-**Purpose:** Chosen orders on to a status, with the rules of the cargo-wide request (`preparing` from confirmed, `dispatched` from confirmed/preparing, `delivered` from dispatched). Each affected customer is notified. Every order is answered.
+**Purpose:** Chosen orders on to a status, along the normal way only: `processing` from `confirmed`, `dispatched` from `confirmed` or `processing`, `delivered` from `dispatched`. Orders in any other status are left where they are. Each customer whose order was dispatched or delivered is notified. Every order is answered.
 
-**Permission:** `orders.manage`. **Request Body:** `{ "orderIds": ObjectId[] (1–500), "status": "preparing" | "dispatched" | "delivered", "note"?: string (≤500) }`.
+**Permission:** `orders.manage`. **Request Body:** `{ "orderIds": ObjectId[] (1–500), "status": "processing" | "dispatched" | "delivered", "note"?: string (≤500) }`.
 
 **Success Response (200):**
 
@@ -1562,23 +1299,13 @@ returned, cancelled → (none)
 }
 ```
 
+`changed` counts the orders that moved; `results` has one entry per id sent (duplicates are answered once), in the order sent. Each changed order gets a `statusHistory` entry with the note. **Possible Errors:** `400 VALIDATION_FAILED` (empty list, a status outside the three, a malformed id).
+
 ### `POST /v1/admin/orders/bulk/delivery-method`
 
-**Purpose:** The delivery method of chosen orders (not delivered, cancelled or returned). Tracking numbers of orders whose method changes are removed. Every order is answered as above (`reason` also "The order is delivered by \"dhl\" already.").
+**Purpose:** The delivery method of chosen orders that are `confirmed`, `processing`, `dispatched` or `delivered`. Tracking numbers of orders whose method changes are removed. Every order is answered as above; `reason` is "The delivery of an order that is \"cancelled\" cannot be changed." or "The order is delivered by \"dhl\" already.".
 
 **Permission:** `orders.manage`. **Request Body:** `{ "orderIds": ObjectId[] (1–500), "method": "radhe_delivery" | "dhl" | "hermes", "note"?: string (≤500) }`. **Success Response (200):** `{ "method": "dhl", "changed": 3, "results": [ … ] }`.
-
-### `GET /v1/admin/orders/summary?cargoId=…`
-
-**Purpose:** The numbers of a cargo.
-
-**Permission:** `orders.read`. **Parameters:** `cargoId` (query, required).
-
-**Success Response (200):**
-
-```json
-{ "cargoId": "66f0a1…", "summary": { "orders": 40, "cancelledOrders": 3, "customers": 37, "units": 210, "bookedValue": 184500, "byStatus": [ { "status": "confirmed", "orders": 30, "value": 140000 } ] } }
-```
 
 ### `GET /v1/admin/orders/{id}`
 
@@ -1586,71 +1313,63 @@ returned, cancelled → (none)
 
 ### `POST /v1/admin/orders/{id}/status`
 
-**Purpose:** Give an order another status (see 10.1). Asking for the status the order has changes nothing. The customer is notified for `dispatched`, `delivered`, `delivery_failed`.
+**Purpose:** Give an order another status (see 9.1). Asking for the status the order has changes nothing. Forward steps tell the customer: `dispatched` sends the "on its way" email with the tracking number and link (WhatsApp too, when opted in), `delivered` the delivery email; `processing` and every step back send nothing. `dispatched` sets `delivery.dispatchedAt` (and clears `deliveredAt`), `delivered` sets `deliveredAt`; a step back to `processing` or `confirmed` clears both times.
 
 **Permission:** `orders.manage`.
 
-**Request Body:** `{ "status": "confirmed" | "preparing" | "dispatched" | "delivered" | "delivery_failed", "trackingNumber"?: string (`^[A-Za-z0-9-]{4,60}$`), "note"?: string (≤500) }`
+**Request Body:** `{ "status": "confirmed" | "processing" | "dispatched" | "delivered", "trackingNumber"?: string (`^[A-Za-z0-9-]{4,60}$`), "note"?: string (≤500) }` (`confirmed` only as the step back from `processing`; `trackingNumber` is handy when dispatching).
 
 **Success Response (200):** `{ "order": { …detail… } }`
 
-**Possible Errors:** `409 ORDER_TRANSITION_NOT_ALLOWED` (`details: { from, to, allowed }`), `409 ORDER_CHANGED_MEANWHILE`, `404 ORDER_NOT_FOUND`, `400 VALIDATION_FAILED`.
+**Possible Errors:** `409 ORDER_TRANSITION_NOT_ALLOWED` (`details: { from, to, allowed }`; `allowed` is `[]` for a pending order, which only its payment confirms), `409 ORDER_CHANGED_MEANWHILE`, `404 ORDER_NOT_FOUND`, `400 VALIDATION_FAILED`.
 
 ### `PATCH /v1/admin/orders/{id}/delivery`
 
-**Purpose:** Set the delivery method and/or tracking number. Changing the method removes the tracking number.
+**Purpose:** Set the delivery method and/or tracking number. Changing the method removes the tracking number (it belongs to one carrier). A changed method is recorded in `statusHistory` (`field: "delivery"`, with the note); a tracking number alone is not.
 
-**Permission:** `orders.manage`. **Request Body:** `{ "method"?: delivery method, "trackingNumber"?: string | null, "note"? }`. **Success Response (200):** `{ "order": { … } }`.
+**Permission:** `orders.manage`. **Request Body:** `{ "method"?: delivery method, "trackingNumber"?: string | null (`null` removes it), "note"?: string (≤500) }`. **Success Response (200):** `{ "order": { … } }`.
 
-**Possible Errors:** `409 ORDER_CANNOT_BE_CHANGED` (`details: { status, allowedIn }`), `409 ORDER_CHANGED_MEANWHILE`, `404 ORDER_NOT_FOUND`.
-
-### `POST /v1/admin/orders/{id}/move`
-
-**Purpose:** Give an order to another cargo (keeps number, items and bill; a `delivery_failed` order becomes `confirmed` again in the new cargo). The customer is notified.
-
-**Permission:** `orders.manage`. **Request Body:** `{ "cargoId": "66f0…", "note"? }`. **Success Response (200):** `{ "order": { … } }`.
-
-**Possible Errors:** `409 ORDER_CANNOT_BE_MOVED` (`details: { status, allowedIn }`), `404 CARGO_NOT_FOUND`, `409 CARGO_CANNOT_TAKE_ORDERS` (`details: { cargo, status, allowedIn }`), `409 ORDER_CHANGED_MEANWHILE`, `404 ORDER_NOT_FOUND`.
+**Possible Errors:** `409 ORDER_CANNOT_BE_CHANGED` (`details: { status, allowedIn }` – e.g. a pending or cancelled order), `409 ORDER_CHANGED_MEANWHILE`, `404 ORDER_NOT_FOUND`, `400 VALIDATION_FAILED`.
 
 ### `PATCH /v1/admin/orders/{id}/items/{productId}`
 
-**Purpose:** Correct how many units of a product were delivered (missing/damaged). The final bill follows; the agreed bill and the delivery fee stay. A credit note is issued automatically when an invoice exists already.
+**Purpose:** Correct how many units of a product were delivered (missing/damaged). The final bill follows; the agreed bill and the delivery fee stay. A credit note is issued in the same transaction (every confirmed order has an invoice), the units that were not delivered go back to the stock (movement `release`), and the order waits for a refund of the credited amount (`payment.needsRefund`, section 11). The delivered quantity cannot go below what was returned already.
 
 **Permission:** `orders.manage`.
 
 **Request Body:** `{ "deliveredQuantity": 1, "reason": "missing" | "damaged" | "wrong_item" | "customer_complaint" | "other", "note"?: string (≤1000, internal) }`
 
-**Success Response (200):** `{ "order": { … } }`
+**Success Response (200):** `{ "order": { … } }` (unchanged when `deliveredQuantity` is the current one).
 
-**Possible Errors:** `404 ORDER_ITEM_NOT_FOUND`, `400 ORDER_QUANTITY_INVALID` (`details: { min: returnedQuantity, max: quantity }`), `409 ORDER_CANNOT_BE_CHANGED`, `409 ORDER_CHANGED_MEANWHILE`, `404 ORDER_NOT_FOUND`.
+**Possible Errors:** `404 ORDER_ITEM_NOT_FOUND`, `400 ORDER_QUANTITY_INVALID` (`details: { min: returnedQuantity, max: quantity }`), `409 ORDER_CANNOT_BE_CHANGED` (`details: { status, allowedIn }`), `409 ORDER_CHANGED_MEANWHILE`, `404 ORDER_NOT_FOUND`.
 
 ### `POST /v1/admin/orders/{id}/cancel`
 
-**Purpose:** Cancel an order (units go back to the cargo; the customer is notified). Cancelling a cancelled order changes nothing.
+**Purpose:** Cancel an order that is not delivered yet. The units go back to the stock (movement `cancel`) when they were taken; an open payment page is expired and an approval that was not captured is let go of; the customer gets the cancellation email. What was paid waits for a refund that the admin decides (`payment.needsRefund`, `GET /v1/admin/orders?needsRefund=true`). Cancelling a cancelled order changes nothing.
 
 **Permission:** `orders.manage`.
 
-**Request Body:** `{ "reason": "customer_request" | "product_unavailable" | "cargo_cancelled" | "duplicate_order" | "suspected_misuse" | "other", "text"?: string (≤1000) }`
+**Request Body:** `{ "reason": "customer_request" | "product_unavailable" | "duplicate_order" | "suspected_misuse" | "other", "text"?: string (≤1000) }`
 
-**Success Response (200):** `{ "order": { … } }`. **Possible Errors:** `409 ORDER_CANNOT_BE_CANCELLED` (`details: { status }`), `404 ORDER_NOT_FOUND`.
+**Success Response (200):** `{ "order": { … } }`. **Possible Errors:** `409 ORDER_CANNOT_BE_CANCELLED` (`details: { status }` – delivered or returned), `404 ORDER_NOT_FOUND`, `400 VALIDATION_FAILED` (a reason of the customer's list).
 
 ---
 
-## 11. Returns
+## 10. Returns
 
-Customers ask to send single products back after delivery; the admin approves (possibly fewer units), rejects, and completes the return once the goods are back, which lowers the bill (credit note; refund if paid).
+Customers ask to send single products back after delivery, within `settings.returnPolicy.windowDays` of the delivery; the admin approves (possibly fewer units), rejects, and completes the return once the goods are back, which lowers the final bill (credit note) and makes the order wait for a refund.
 
-### 11.1 Statuses and reasons
+### 10.1 Statuses and reasons
 
 ```
-requested → approved, rejected, (cancelled by the customer)
+requested → approved, rejected, cancelled (by the customer)
 approved  → completed, rejected
 rejected / completed / cancelled → (none)
 ```
 
 Reasons: `damaged`, `wrong_item`, `quality`, `not_as_described`, `changed_mind`, `other`.
 
-### 11.2 The return object
+### 10.2 The return object
 
 ```json
 {
@@ -1659,7 +1378,7 @@ Reasons: `damaged`, `wrong_item`, `quality`, `not_as_described`, `changed_mind`,
   "orderId": "66f0…",
   "orderNumber": "RF-1084",
   "customerId": "66e1…",
-  "cargoId": "66f0a1…",
+  "customer": { "id": "66e1…", "name": "Priya Shah", "email": "priya@example.com" },
   "status": "approved",
   "requestedAt": "…", "decidedAt": "…", "completedAt": null,
   "items": [
@@ -1670,16 +1389,17 @@ Reasons: `damaged`, `wrong_item`, `quality`, `not_as_described`, `changed_mind`,
   "decisionNote": "We will collect it with the next delivery.",
   "internalNote": null,
   "creditAmount": null,
+  "restockedAt": null,
   "statusHistory": [ { "from": null, "to": "requested", "at": "…", "by": "customer", "adminId": null, "admin": null, "note": null } ],
   "updatedAt": "…"
 }
 ```
 
-(plus `"customer": { "id", "name", "email" } | null` after `customerId`.) `decisionNote` is what the customer reads; `internalNote` is not shown to the customer. `creditAmount` is set on completion.
+`decisionNote` is what the customer reads; `internalNote` is not shown to the customer. `approvedQuantity` is `null` until approved. `creditAmount` is set on completion (the cents the final bill went down by, delivery fee included when everything came back). `restockedAt` is set when the admin completed the return with `restock: true`, else `null`.
 
 ### `GET /v1/admin/returns`
 
-**Permission:** `orders.read`. **Parameters (query):** `status`, `orderNumber`, `customerId`, `sort` (`createdAt` | `status`, with `:asc`/`:desc`), `limit`, `cursor`. **Success Response (200):** `{ "items": [ … ], "nextCursor" }` (`status=requested` = waiting for a decision). Each return carries `customer: { id, name, email } | null` next to `customerId`, and `admin` next to `adminId` in its history.
+**Permission:** `orders.read`. **Parameters (query):** `status`, `orderNumber` (any case), `customerId`, `sort` (`createdAt` | `status`, with `:asc`/`:desc`), `limit`, `cursor`. **Success Response (200):** `{ "items": [ … ], "nextCursor" }` (`status=requested` = waiting for a decision).
 
 ### `GET /v1/admin/returns/count`
 
@@ -1691,76 +1411,68 @@ Reasons: `damaged`, `wrong_item`, `quality`, `not_as_described`, `changed_mind`,
 
 ### `POST /v1/admin/returns/{id}/approve`
 
-**Purpose:** Accept the return, as asked or with other quantities (`0` declines a product). The order does not change yet.
+**Purpose:** Accept the return, as asked or with other quantities (`0` declines a product). The order does not change yet. The customer is notified (`return_approved`).
 
 **Permission:** `orders.manage`.
 
 **Request Body:** `{ "items"?: [ { "productId": "…", "quantity": 0–10000 } ], "note"?: string (≤1000, to the customer), "internalNote"?: string (≤2000) }` — leave `items` out to accept the requested quantities.
 
-**Success Response (200):** `{ "return": { … } }`
+**Success Response (200):** `{ "return": { … } }` (unchanged when approved already)
 
-**Possible Errors:** `409 RETURN_TRANSITION_NOT_ALLOWED` (`details: { from, to }`), `400 RETURN_QUANTITY_INVALID` (more than requested, or everything 0: "Reject the return instead."), `400 ORDER_ITEM_NOT_FOUND` (`details: { productIds }`), `409 ORDER_CHANGED_MEANWHILE`, `404 RETURN_NOT_FOUND`.
+**Possible Errors:** `409 RETURN_TRANSITION_NOT_ALLOWED` (`details: { from, to }`), `400 RETURN_QUANTITY_INVALID` (more than requested: `details: { productId, max }`; or everything 0: "Nothing is accepted. Reject the return instead."), `400 ORDER_ITEM_NOT_FOUND` (`details: { productIds }`), `409 ORDER_CHANGED_MEANWHILE`, `404 RETURN_NOT_FOUND`.
 
 ### `POST /v1/admin/returns/{id}/reject`
 
-**Purpose:** Decline (while requested or approved). **Permission:** `orders.manage`. **Request Body:** `{ "note"?, "internalNote"? }`. **Success Response (200):** `{ "return": { … } }`. **Possible Errors:** `409 RETURN_TRANSITION_NOT_ALLOWED`, `404 RETURN_NOT_FOUND`.
+**Purpose:** Decline (while requested or approved). The customer is notified (`return_rejected`); the units can be asked for again. **Permission:** `orders.manage`. **Request Body:** `{ "note"?, "internalNote"? }`. **Success Response (200):** `{ "return": { … } }`. **Possible Errors:** `409 RETURN_TRANSITION_NOT_ALLOWED`, `409 ORDER_CHANGED_MEANWHILE`, `404 RETURN_NOT_FOUND`.
 
 ### `POST /v1/admin/returns/{id}/complete`
 
-**Purpose:** The goods are back: the accepted units are booked on the order, its final bill goes down by `creditAmount`, a credit note is issued when an invoice exists, and the customer is notified. Refunding what was paid is a separate decision (section 12).
+**Purpose:** The goods are back: the accepted units are booked on the order (`returnedQuantity`), its final bill goes down by `creditAmount`, a credit note is issued in the same transaction, and the customer is notified (`return_completed`). When everything of a delivered order came back, the order becomes `returned` and the delivery fee is credited as well. With `restock: true` the accepted units go back on the shelf (stock movement `return`, `restockedAt` set); leave it out for food that cannot be sold again. The refund of the credited amount is a separate decision of the admin (section 11): the order shows `payment.needsRefund` and `refundable.suggested`. Completing a completed return changes nothing.
 
-**Permission:** `orders.manage`. **Request Body:** `{ "note"?, "internalNote"? }`. **Success Response (200):** `{ "return": { …, "status": "completed", "creditAmount": 1299 } }`.
+**Permission:** `orders.manage`. **Request Body:** `{ "note"?: string (≤1000), "internalNote"?: string (≤2000), "restock"?: boolean }`. **Success Response (200):** `{ "return": { …, "status": "completed", "creditAmount": 1299, "restockedAt": "…" | null } }`.
 
-**Possible Errors:** `409 RETURN_TRANSITION_NOT_ALLOWED` (must be `approved`), `409 RETURN_QUANTITY_INVALID` (`details: { productId, sku }` – more than delivered), `409 ORDER_CHANGED_MEANWHILE`, `404 RETURN_NOT_FOUND`, `404 ORDER_NOT_FOUND`.
+**Possible Errors:** `409 RETURN_TRANSITION_NOT_ALLOWED` (must be `approved`; `details: { from, to }`), `409 RETURN_QUANTITY_INVALID` (`details: { productId, sku }` – more than delivered), `409 ORDER_CHANGED_MEANWHILE`, `404 RETURN_NOT_FOUND`, `404 ORDER_NOT_FOUND`.
 
 ---
 
-## 12. Payments and refunds
+## 11. Payments and refunds
 
-Payment begins after delivery. The admin **activates** payment: the invoice is issued, the customer gets an email with the PDF and a payment link, reminders follow daily until paid. The customer pays online (Stripe Checkout, card/PayPal) or in cash to the driver, which the admin records. Refunds are always decided by the admin, through Stripe or by hand.
+Every order is paid at checkout, through Stripe (card or PayPal), before anything is taken from the stock: the bank approves the amount on Stripe's page, the webhook brings the approval, the API takes the stock and only then captures the money (section 9). The admin never records a payment. What the admin decides are **refunds**: through Stripe (the money goes back to the card or PayPal account) or by hand (bank transfer, cash, or another way the admin records).
 
-### 12.1 The admin payment block (`order.payment`)
+**How a refund comes about.** Money waits for a refund in two cases: a paid order was cancelled (by the customer or the admin; `refundable.suggested` is then everything that was paid), or a correction (`PATCH /v1/admin/orders/{id}/items/{productId}`) or a completed return lowered the final bill and a credit note was issued (`suggested` is what the credit notes took off the bill and has not gone back yet). Both show as `payment.needsRefund: true` on the order, are listed by `GET /v1/admin/orders?needsRefund=true` and counted on the start page (section 15). The admin reads `refundable`, then decides with `POST /v1/admin/orders/{id}/payment/refunds`: `method: "stripe"` is asked of Stripe at once and completes when Stripe confirms; `method: "manual"` waits as `pending` until the admin has sent the money and completes it. When a refund completes, the order's `refundedAmount` rises, `paymentStatus` becomes `refunded` once everything paid went back, and the customer gets the `refund_completed` email.
 
-Before activation:
-
-```json
-{ "status": "not_enabled", "canActivate": true }
-```
-
-`canActivate` = the order is `delivered` and its final bill is above 0.
-
-After activation:
+### 11.1 The admin payment block (`order.payment`)
 
 ```json
 {
-  "status": "due",
-  "canActivate": false,
-  "activatedAt": "2026-09-28T10:15:00.000Z",
-  "activatedBy": "66f1…",
-  "deadlineDays": 5,
-  "deadline": "2026-10-03T21:59:59.000Z",
-  "isOverdue": false,
-  "invoice": { "id": "66f1…", "number": "INV-2026-000123" },
-  "invoicedAmount": 3193,
+  "status": "paid",
+  "amount": 2896,
+  "paidAmount": 2896,
   "creditedAmount": 0,
-  "paidAmount": 0,
   "refundedAmount": 0,
-  "amountDue": 3193,
-  "method": null,
-  "paidAt": null,
-  "stripe": null,
-  "cash": null,
-  "reminders": { "nextAt": "2026-09-29T07:00:00.000Z", "sentCount": 0, "lastSentAt": null, "paused": false },
-  "waivedReason": null,
-  "canPayOnline": true,
-  "canRecordCash": true,
-  "canWaive": true
+  "method": "paypal",
+  "paidAt": "2026-09-28T10:15:00.000Z",
+  "receiptUrl": "https://pay.stripe.com/receipts/…",
+  "invoice": { "number": "INV-2026-000123", "issuedAt": "2026-09-28T10:15:00.000Z", "pdfPath": "/v1/store/invoices/INV-2026-000123/pdf" },
+  "checkout": null,
+  "canPayOnline": false,
+  "lastFailure": null,
+  "attempts": 1,
+  "checkoutSessionId": null,
+  "checkoutExpiresAt": null,
+  "paymentIntentId": "pi_…",
+  "chargeId": "ch_…",
+  "authorizedAt": "2026-09-28T10:14:58.000Z",
+  "invoiceId": "66f1…",
+  "refundableAmount": 2896,
+  "needsRefund": false
 }
 ```
 
-- `stripe` (after a checkout or a Stripe payment): `{ "paymentIntentId", "chargeId", "paymentType": "card" | "paypal" | null, "receiptUrl", "checkoutOpenUntil": ISO | null }`. `cash` (after a cash payment): `{ "collectedAt", "recordedBy", "note" }`.
-- `method` ∈ `stripe`, `cash`, `credit` (settled by credit notes), `null`.
-- `canRecordCash` / `canWaive` are true while the order is owing (`due`/`overdue`); `canPayOnline` additionally needs Stripe configured on the server. Use these flags for the buttons.
+- `status` = the payment status (9.1). `amount` is the total agreed at checkout; `paidAmount` what was captured; `creditedAmount` the sum of credit notes issued after the invoice; `refundedAmount` the sum of completed refunds.
+- `method` is `card` or `paypal` once paid, else `null`. `invoice` is `null` until the invoice is issued (`issuedAt` = `paidAt`; `pdfPath` is relative to the API and meant for the shop; the panel uses `GET /v1/admin/invoices/{id}/pdf` with `invoiceId`).
+- `checkout` is `{ "url", "expiresAt" }` while a payment page is open (pending order, page not expired), else `null`. `canPayOnline` is true while the order is `pending_payment` with the payment `pending` or `failed` and Stripe is configured. `attempts` counts the payment pages opened. `lastFailure` says why the last attempt did not go through.
+- `refundableAmount` = `paidAmount − refundedAmount`. `needsRefund` = `refundableAmount > 0` and (the order is cancelled, or `creditedAmount − refundedAmount > 0`). The `refundable` object with the suggested amount is answered by `GET /v1/admin/orders/{id}/payment`.
 
 ### `GET /v1/admin/orders/{id}/payment`
 
@@ -1773,57 +1485,26 @@ After activation:
 ```json
 {
   "orderNumber": "RF-1084",
+  "status": "delivered",
   "payment": { "…admin payment block…": "" },
-  "documents": [ { "…invoice summary (13.1)…": "" } ],
-  "refunds": [ { "…refund (12.9)…": "" } ],
-  "refundable": { "paidAmount": 3193, "refundedAmount": 0, "openAmount": 0, "maximum": 3193, "suggested": 499, "stripePossible": true }
+  "refundable": { "paidAmount": 2896, "refundedAmount": 0, "openAmount": 0, "maximum": 2896, "suggested": 399, "stripePossible": true },
+  "documents": [ { "…invoice summary (12.1)…": "" } ],
+  "refunds": [ { "…refund (11.2)…": "" } ]
 }
 ```
 
-`refundable.maximum` = paid − refunded − open refunds; `suggested` = what credit notes left over after the payment; `stripePossible` = paid through Stripe. **Possible Errors:** `404 ORDER_NOT_FOUND`.
-
-### `POST /v1/admin/orders/{id}/payment/activate`
-
-**Purpose:** Issue the invoice from the final bill, set the deadline (23:59:59 German time of today + `deadlineDays`), email the customer with the PDF and the payment link, start the daily reminders. Propose `settings.payments.defaultDeadlineDays`.
-
-**Permission:** `payments.manage`. **Request Body:** `{ "deadlineDays": 5, "note"?: string (≤500) }` (1–60).
-
-**Success Response (200):** `{ "order": { …order detail… } }`
-
-**Possible Errors:** `409 PAYMENT_NOT_POSSIBLE` (`details: { status }` – not delivered), `409 PAYMENT_ALREADY_ACTIVATED` (`details: { invoiceNumber }`), `409 PAYMENT_NOTHING_DUE` (final bill is 0), `409 COMPANY_DETAILS_MISSING` (`details: { missing: [...] }` – complete the company settings), `404 ORDER_NOT_FOUND`.
-
-### `POST /v1/admin/orders/{id}/payment/cash`
-
-**Purpose:** Record a cash payment of the full amount due. The customer gets a receipt email.
-
-**Permission:** `payments.manage`. **Request Body:** `{ "amount": 3193, "collectedAt"?: ISO (default now), "note"?: string (≤500) }`.
-
-**Success Response (200):** `{ "order": { …detail… } }`
-
-**Possible Errors:** `400 PAYMENT_AMOUNT_MISMATCH` (`details: { amountDue, amount }` – no partial payments), `409 PAYMENT_NOT_ACTIVATED`, `409 PAYMENT_NOT_POSSIBLE`, `409 PAYMENT_NOTHING_DUE`, `404 ORDER_NOT_FOUND`.
-
-### `POST /v1/admin/orders/{id}/payment/waive`
-
-**Purpose:** Let the customer off what is owed, with a reason. Stops reminders. **Permission:** `payments.manage`. **Request Body:** `{ "reason": string (1–1000) }`. **Success Response (200):** `{ "order": { … } }`. **Possible Errors:** `409 PAYMENT_NOT_ACTIVATED`, `409 PAYMENT_NOT_POSSIBLE`, `409 PAYMENT_NOTHING_DUE`, `409 ORDER_CHANGED_MEANWHILE`, `404 ORDER_NOT_FOUND`.
-
-### `PATCH /v1/admin/orders/{id}/payment/reminders`
-
-**Purpose:** Pause or resume the daily reminders. **Permission:** `payments.manage`. **Request Body:** `{ "paused": true }`. **Success Response (200):** `{ "payment": { …block… } }`. **Possible Errors:** `409 PAYMENT_NOT_ACTIVATED`, `404 ORDER_NOT_FOUND`.
-
-### `POST /v1/admin/orders/{id}/payment/remind`
-
-**Purpose:** Send a reminder now (email, and WhatsApp when the customer opted in). **Permission:** `payments.manage`. **Success Response (200):** `{ "payment": { …block… } }`. **Possible Errors:** `409 PAYMENT_NOT_ACTIVATED`, `409 PAYMENT_NOT_POSSIBLE`, `409 PAYMENT_NOTHING_DUE`, `404 ORDER_NOT_FOUND`.
+`status` is the order status. `refundable.openAmount` = refunds that are `pending` or `processing`; `maximum` = paid − refunded − open; `suggested` = what the cancellation (everything paid) or the credit notes (`creditedAmount`) call for, minus what went back or is on its way, at most `maximum`; `stripePossible` = the order was paid through Stripe (a payment intent exists), so Stripe can refund. `documents` are oldest first (the invoice, then its credit notes), `refunds` newest first. **Possible Errors:** `404 ORDER_NOT_FOUND`.
 
 ### `POST /v1/admin/orders/{id}/payment/refunds`
 
-**Purpose:** Decide a refund. Through Stripe the money goes back to the card/PayPal account and the refund completes when Stripe confirms; by hand the admin pays and then completes the refund (12.11). Read `refundable` first.
+**Purpose:** Decide a refund. Read `refundable` first.
 
 **Permission:** `payments.manage`.
 
 **Request Body:**
 
 ```json
-{ "amount": 499, "reason": "return", "method": "manual", "manual": { "way": "bank_transfer", "reference": "DE89…" }, "note": "Damaged bag" }
+{ "amount": 399, "reason": "adjustment", "method": "manual", "manual": { "way": "bank_transfer", "reference": "DE89…" }, "note": "Damaged bag" }
 ```
 
 | Field | Type | Required | Validation |
@@ -1831,14 +1512,14 @@ After activation:
 | `amount` | int cents | yes | 1–10 000 000, ≤ `refundable.maximum` |
 | `reason` | `return` \| `adjustment` \| `goodwill` \| `duplicate_payment` \| `other` | yes | |
 | `method` | `stripe` \| `manual` | yes | `stripe` only when `refundable.stripePossible` |
-| `manual` | `{ way: bank_transfer \| cash \| other, reference?: string (≤200) }` | for `manual` | |
+| `manual` | `{ way: bank_transfer \| cash \| other, reference?: string (≤200) }` | for `manual` | missing for `manual` → `400 VALIDATION_FAILED` |
 | `note` | string | no | ≤1000, internal |
 
-**Success Response (201):** `{ "refund": { … } }` (`status` `processing` for Stripe, `pending` for manual).
+**Success Response (201):** `{ "refund": { … } }`. `status` is `pending` for a manual refund. For a Stripe refund the answer carries what Stripe said: `completed` (confirmed at once, `stripe.stripeStatus: "succeeded"`, `completedAt` set, the order already updated), `processing` (Stripe is still working; the webhook or `POST /v1/admin/refunds/{id}/sync` completes it) or `failed` (`stripe.failureReason`, e.g. `insufficient_funds`; withdraw it with `/cancel` and refund by hand).
 
-**Possible Errors:** `400 REFUND_AMOUNT_INVALID` (`details: refundable`), `409 REFUND_AMOUNT_INVALID` (nothing paid), `400 REFUND_METHOD_INVALID`, `503 PAYMENTS_NOT_CONFIGURED` / `502 PAYMENT_PROVIDER_ERROR` (Stripe), `409 ORDER_CHANGED_MEANWHILE`, `404 ORDER_NOT_FOUND`.
+**Possible Errors:** `409 REFUND_AMOUNT_INVALID` (nothing was paid), `400 REFUND_AMOUNT_INVALID` (more than `maximum`; `details` = the `refundable` object), `400 REFUND_METHOD_INVALID` (`stripe` for an order not paid through Stripe), `503 PAYMENTS_NOT_CONFIGURED` / `502 PAYMENT_PROVIDER_ERROR` (Stripe), `404 ORDER_NOT_FOUND`, `400 VALIDATION_FAILED`.
 
-### 12.9 The refund object
+### 11.2 The refund object
 
 ```json
 {
@@ -1846,29 +1527,32 @@ After activation:
   "refundNumber": "RF-1084-RF1",
   "orderId": "66f1…",
   "orderNumber": "RF-1084",
-  "invoiceNumber": "INV-2026-000123",
-  "amount": 499,
-  "reason": "adjustment",
-  "method": "stripe",
-  "status": "processing",
-  "manual": null,
-  "stripe": { "refundId": "re_…", "paymentIntentId": "pi_…", "stripeStatus": "pending", "failureReason": null },
-  "note": null,
   "customerId": "66e1…",
   "customer": { "id": "66e1…", "name": "Priya Shah", "email": "priya@example.com" },
+  "invoiceNumber": "INV-2026-000123",
+  "amount": 399,
+  "reason": "adjustment",
+  "method": "stripe",
+  "status": "completed",
+  "manual": null,
+  "stripe": { "refundId": "re_…", "paymentIntentId": "pi_…", "stripeStatus": "succeeded", "failureReason": null },
+  "note": null,
   "createdBy": "66f1…",
   "createdByAdmin": { "id": "66f1…", "name": "Vrushabh" },
   "createdAt": "2026-09-29T09:00:00.000Z",
-  "completedAt": null,
-  "statusHistory": [ { "from": null, "to": "pending", "at": "…", "by": "admin", "adminId": "66f1…", "admin": { "id": "66f1…", "name": "Vrushabh" }, "note": null } ]
+  "completedAt": "2026-09-29T09:00:01.000Z",
+  "statusHistory": [
+    { "from": null, "to": "pending", "at": "…", "by": "admin", "adminId": "66f1…", "admin": { "id": "66f1…", "name": "Vrushabh" }, "note": null },
+    { "from": "pending", "to": "completed", "at": "…", "by": "stripe", "adminId": null, "admin": null, "note": "Stripe: succeeded" }
+  ]
 }
 ```
 
-`status` ∈ `pending` (manual, waiting for the admin), `processing` (Stripe working), `completed`, `failed`, `cancelled`. `manual`: `{ "way", "reference", "paidAt" }` or `null`. When a refund completes, the order's `refundedAmount` rises; `paymentStatus` becomes `refunded` only when everything paid went back.
+`status` ∈ `pending` (manual, waiting for the admin), `processing` (Stripe working), `completed`, `failed` (Stripe could not refund), `cancelled` (withdrawn by the admin). `manual`: `{ "way", "reference", "paidAt" }` or `null`. `statusHistory[].by` is `admin` or `stripe`.
 
 ### `GET /v1/admin/refunds`
 
-**Permission:** `payments.read`. **Parameters (query):** `status`, `orderNumber`, `sort` (`createdAt` | `amount` | `status`, with `:asc`/`:desc`), `limit`, `cursor`. **Success Response (200):** `{ "items": [ … ], "nextCursor" }`.
+**Permission:** `payments.read`. **Parameters (query):** `status` (`pending` = waiting for the admin), `orderNumber`, `sort` (`createdAt` | `amount` | `status`, with `:asc`/`:desc`), `limit`, `cursor`. **Success Response (200):** `{ "items": [ … ], "nextCursor" }`.
 
 ### `GET /v1/admin/refunds/count`
 
@@ -1880,29 +1564,25 @@ After activation:
 
 ### `POST /v1/admin/refunds/{id}/complete`
 
-**Purpose:** The money was sent by hand: complete a `pending` manual refund. The customer is notified. **Permission:** `payments.manage`. **Request Body:** `{ "paidAt"?: ISO (default now), "reference"?: string (≤200), "note"?: string (≤1000) }`. **Success Response (200):** `{ "refund": { … } }`.
+**Purpose:** The money was sent by hand: complete a `pending` manual refund. The order's `refundedAmount` rises and the customer is notified. Completing a completed refund changes nothing. **Permission:** `payments.manage`. **Request Body:** `{ "paidAt"?: ISO (default now), "reference"?: string (≤200), "note"?: string (≤1000) }`. **Success Response (200):** `{ "refund": { … } }`.
 
-**Possible Errors:** `409 REFUND_TRANSITION_NOT_ALLOWED` (`details: { status, method }` – Stripe refunds complete through Stripe), `409 ORDER_CHANGED_MEANWHILE`, `404 REFUND_NOT_FOUND`.
+**Possible Errors:** `409 REFUND_TRANSITION_NOT_ALLOWED` (`details: { status, method }` – a Stripe refund is completed by Stripe, or the refund is not `pending`), `409 ORDER_CHANGED_MEANWHILE`, `404 REFUND_NOT_FOUND`.
 
 ### `POST /v1/admin/refunds/{id}/cancel`
 
-**Purpose:** Withdraw a `pending` or `failed` refund. **Permission:** `payments.manage`. **Request Body:** `{ "note"? }`. **Success Response (200):** `{ "refund": { … } }`. **Possible Errors:** `409 REFUND_TRANSITION_NOT_ALLOWED`, `404 REFUND_NOT_FOUND`.
+**Purpose:** Withdraw a `pending` or `failed` refund. **Permission:** `payments.manage`. **Request Body:** `{ "note"?: string (≤1000) }`. **Success Response (200):** `{ "refund": { … } }`. **Possible Errors:** `409 REFUND_TRANSITION_NOT_ALLOWED` (`details: { status }`), `404 REFUND_NOT_FOUND`.
 
 ### `POST /v1/admin/refunds/{id}/sync`
 
-**Purpose:** Ask Stripe how a Stripe refund stands (normally the webhook does this). **Permission:** `payments.manage`. **Success Response (200):** `{ "refund": { … } }`. **Possible Errors:** `503 PAYMENTS_NOT_CONFIGURED`, `502 PAYMENT_PROVIDER_ERROR`, `404 REFUND_NOT_FOUND`.
-
-### `POST /v1/admin/payments/run-jobs`
-
-**Purpose:** Run the payment jobs now (payments past their deadline become `overdue`; due reminders go out). They also run every hour by themselves. **Permission:** `payments.manage`. **Success Response (200):** `{ "overdue": 2, "reminders": 5 }`.
+**Purpose:** Ask Stripe how a `processing` or `failed` Stripe refund stands (normally the webhook does this); a completed or cancelled refund, or a manual one, is answered unchanged. **Permission:** `payments.manage`. **Success Response (200):** `{ "refund": { … } }`. **Possible Errors:** `503 PAYMENTS_NOT_CONFIGURED`, `502 PAYMENT_PROVIDER_ERROR`, `404 REFUND_NOT_FOUND`.
 
 ---
 
-## 13. Invoices and credit notes
+## 12. Invoices and credit notes
 
-Issued at activation (invoice) and after corrections/returns of an invoiced order (credit note). Numbered without gaps per year; never changed. PDFs are rendered on request.
+The invoice is issued the moment the payment is captured (the order becomes `confirmed`): it is attached to the confirmation email and available to the customer at `GET /v1/store/invoices/{number}/pdf`. A credit note is issued for every correction and every completed return of the order. Numbered without gaps per type and year; never changed. PDFs are rendered on request.
 
-### 13.1 Objects
+### 12.1 Objects
 
 **Summary:**
 
@@ -1913,9 +1593,8 @@ Issued at activation (invoice) and after corrections/returns of an invoiced orde
   "type": "invoice",
   "orderNumber": "RF-1084",
   "issuedAt": "2026-09-28T10:15:00.000Z",
-  "dueAt": "2026-10-03T21:59:59.000Z",
-  "paidAt": null,
-  "total": 3193,
+  "paidAt": "2026-09-28T10:15:00.000Z",
+  "total": 3097,
   "currency": "EUR",
   "language": "de",
   "invoiceNumber": null,
@@ -1923,13 +1602,13 @@ Issued at activation (invoice) and after corrections/returns of an invoiced orde
 }
 ```
 
-`type` ∈ `invoice`, `credit_note`. Credit notes have `dueAt`/`paidAt` `null`, `invoiceNumber` = the corrected invoice, `creditReason` ∈ `return`, `adjustment`.
+`type` ∈ `invoice`, `credit_note`. An invoice carries `paidAt` (it is issued paid). A credit note has `paidAt` `null`, `invoiceNumber` = the invoice it corrects, `creditReason` ∈ `return`, `adjustment`, and `total` = what is credited.
 
-**Detail** = summary plus `orderId`, `customerId`, `cargoId`, `deliveredOn` (`YYYY-MM-DD` or `null`), `creditReference`, `seller { name, addressLines[], email, phone, website, vatId, taxNumber, registration }`, `customer { name, company, addressLines[], email }`, `lines[] { description, sku, quantity, unitPrice, vatRate, vatPercent, lineTotal }`, `totals { currency, subtotal, deliveryFee, total, netTotal, vatTotal, vat[] { vatRate, gross, net, vat } }`, `footer`.
+**Detail** = summary plus `orderId`, `customerId`, `creditReference` (the return number, or `<sku>: <reason>` of a correction; `null` on an invoice), `seller { name, addressLines[], email, phone, website, vatId, taxNumber, registration }`, `customer { name, company, addressLines[], email }`, `lines[] { description, sku, quantity, unitPrice, vatRate, vatPercent, lineTotal }`, `totals { currency, subtotal, deliveryFee, total, netTotal, vatTotal, vat[] { vatRate, gross, net, vat } }`, `footer`. Unset optional values are `null`.
 
 ### `GET /v1/admin/invoices`
 
-**Permission:** `payments.read`. **Parameters (query):** `type` (`invoice` \| `credit_note`), `orderNumber`, `customerId`, `number` (one document exactly, `INV-2026-000123` or `CN-2026-000007`, any case), `q` (the beginning of a number, `INV-2026-0001`; ignored when `number` is given), `limit`, `cursor`. **Success Response (200):** `{ "items": [ …summaries… ], "nextCursor" }`. **Possible Errors:** `400 VALIDATION_FAILED` (`number` not of that form).
+**Permission:** `payments.read`. **Parameters (query):** `type` (`invoice` \| `credit_note`), `orderNumber`, `customerId`, `number` (one document exactly, `INV-2026-000123` or `CN-2026-000007`, any case), `q` (the beginning of a number, `INV-2026-0001`; ignored when `number` is given), `limit`, `cursor`. **Success Response (200):** `{ "items": [ …summaries, newest first… ], "nextCursor" }`. **Possible Errors:** `400 VALIDATION_FAILED` (`number` not of that form).
 
 ### `GET /v1/admin/invoices/{id}`
 
@@ -1941,49 +1620,43 @@ Issued at activation (invoice) and after corrections/returns of an invoiced orde
 
 ---
 
-## 14. Notifications
+## 13. Notifications
 
-Every message to a customer (email, and WhatsApp when configured and opted in) is a record: what was sent, to whom, about which order/return/refund/announcement, its status, attempts and errors. Messages are queued by the events (order placed, dispatched, invoice issued, …) and sent by the API itself with retries; the admin sees them all, retries failed ones and cancels queued ones. There is no separate admin channel: what needs attention is in section 16.
+Every message to a customer (email, and WhatsApp when configured and opted in) is a record: what was sent, to whom, about which order/return/refund/announcement, its status, attempts and errors. Messages are queued by the events (order confirmed, dispatched, delivered, …) and sent by the API itself with retries; the admin sees them all, retries failed ones and cancels queued ones. There is no separate admin channel: what needs attention is in section 15.
 
-### 14.1 Types, channels, statuses
+### 13.1 Types, channels, statuses
 
 | `type` | Sent when | WhatsApp too? |
 | --- | --- | --- |
-| `order_confirmed` | order placed | – |
-| `order_cancelled` | cancelled by customer or admin | – |
-| `order_moved` | moved to another cargo | – |
-| `delivery_rescheduled` | the delivery days of the cargo changed while the order waits for it (section 9, `PATCH /cargos/{id}`) | – |
-| `order_dispatched` | dispatched (single or with the cargo) | yes |
+| `order_confirmed` | the payment was captured: the order is confirmed (invoice PDF attached) | – |
+| `order_cancelled` | cancelled by the customer or the admin, or by the shop because an item sold out while the customer was paying (nothing was charged). Not sent for an order that was given up without a payment | – |
+| `order_dispatched` | dispatched (single or chosen orders), with the tracking number and link | yes |
 | `order_delivered` | delivered | – |
-| `delivery_failed` | delivery failed | – |
 | `return_requested` / `return_approved` / `return_rejected` / `return_completed` | return events | – |
-| `payment_request` | payment activated (invoice PDF attached) | yes |
-| `payment_reminder` | daily reminder / "remind now" | yes |
-| `payment_received` | paid | – |
-| `payment_failed` | Stripe reported a failed payment | – |
+| `payment_failed` | Stripe reported a failed attempt on a pending order; the customer can pay again | – |
 | `refund_completed` | refund complete | – |
-| `announcement` | admin news (section 15) | yes (marketing consent) |
+| `announcement` | admin news (section 14) | yes (marketing consent) |
 
 `channel` ∈ `email`, `whatsapp`. `status` ∈ `queued` (waiting or due for a retry), `sending`, `sent`, `failed` (given up: 4xx from the provider, or 6 attempts), `skipped` (not sent on purpose, e.g. WhatsApp not configured), `cancelled`. Retries after a retryable failure: 1 min, 5 min, 30 min, 2 h, 12 h.
 
-### 14.2 The notification object
+### 13.2 The notification object
 
 ```json
 {
   "id": "66f1…",
-  "type": "payment_request",
+  "type": "order_confirmed",
   "channel": "email",
   "to": "anna@example.com",
   "customerId": "66f1…",
+  "customer": { "id": "66f1…", "name": "Anna Schmidt", "email": "anna@example.com" },
   "orderId": "66f1…",
   "orderNumber": "RF-1084",
-  "cargoId": "66f1…",
   "productId": null,
   "returnId": null,
   "refundId": null,
   "announcementId": null,
   "locale": "de",
-  "subject": "Ihre Rechnung INV-2026-000123",
+  "subject": "Ihre Bestellung RF-1084",
   "attachments": [ { "kind": "invoice_pdf", "id": "66f1…" } ],
   "status": "sent",
   "attempts": 1,
@@ -1998,7 +1671,7 @@ Every message to a customer (email, and WhatsApp when configured and opted in) i
 }
 ```
 
-`to` is the email address or the WhatsApp number. `subject` is set for emails only. `reason` explains a `skipped`/`cancelled` record. `history[]` entries are `{ at, ok, error? }`. The detail adds `data`: the values the message was rendered from (e.g. `orderNumber`, `amountDue`, `deadline`, `payUrl`).
+`to` is the email address or the WhatsApp number. `subject` is set for emails only. `attachments[].kind` is `invoice_pdf` (the id of the invoice). `reason` explains a `skipped`/`cancelled` record. `history[]` entries are `{ at, ok, error? }`. The detail adds `data`: the values the message was rendered from (e.g. `orderNumber`, `trackingNumber`, `trackingUrl`).
 
 ### `GET /v1/admin/notifications`
 
@@ -2006,7 +1679,7 @@ Every message to a customer (email, and WhatsApp when configured and opted in) i
 
 **Parameters (query, all optional):** `status`, `type`, `channel`, `customerId`, `orderId`, `orderNumber`, `announcementId`, `sort` (`createdAt` | `status` | `type` | `channel`, with `:asc`/`:desc`), `limit`, `cursor`. `status=failed` is what needs attention.
 
-**Success Response (200):** `{ "items": [ … ], "nextCursor" }`. Each message carries `customer: { id, name, email } | null` next to `customerId`.
+**Success Response (200):** `{ "items": [ … ], "nextCursor" }`.
 
 ### `GET /v1/admin/notifications/count`
 
@@ -2042,11 +1715,11 @@ Every message to a customer (email, and WhatsApp when configured and opted in) i
 
 ---
 
-## 15. Announcements ("Notify customers")
+## 14. Announcements ("Notify customers")
 
-News about a product or a cargo, written by the admin, sent to the customers who opted in to news (`marketingOptIn`), by email and — when chosen and configured — by WhatsApp to those who also opted in to WhatsApp. **Never automatic:** creating a product or opening a cargo sends nothing. Every message lands in the notifications list with the `announcementId`.
+News about a product or an offer, written by the admin, sent to the customers who opted in to news (`marketingOptIn`), by email and — when chosen and configured — by WhatsApp to those who also opted in to WhatsApp. **Never automatic:** creating a product sends nothing. Every message lands in the notifications list with the `announcementId`.
 
-### 15.1 Objects
+### 14.1 Objects
 
 **Announcement:**
 
@@ -2059,8 +1732,6 @@ News about a product or a cargo, written by the admin, sent to the customers who
   "linkLabel": null,
   "productId": "66f1…",
   "productName": "Alphonso mango",
-  "cargoId": null,
-  "cargoCode": null,
   "channels": ["email", "whatsapp"],
   "recipients": 148,
   "queued": 171,
@@ -2073,22 +1744,23 @@ News about a product or a cargo, written by the admin, sent to the customers who
 }
 ```
 
+`recipients` = customers addressed; `queued` = messages queued by any channel. `productName` is the English name at the time of sending.
+
 **Progress** (counts per channel and status, always all keys):
 
 ```json
 { "email": { "queued": 0, "sending": 0, "sent": 148, "failed": 0, "skipped": 0, "cancelled": 0 }, "whatsapp": { "queued": 0, "sending": 0, "sent": 20, "failed": 1, "skipped": 2, "cancelled": 0 } }
 ```
 
-### 15.2 Request body (preview and send)
+### 14.2 Request body (preview and send)
 
 ```json
 {
   "subject": { "en": "Fresh mangoes are in", "de": "Frische Mangos sind da" },
-  "message": { "en": "The first Alphonso mangoes of the season arrive with the next cargo.", "de": "…" },
+  "message": { "en": "The first Alphonso mangoes of the season are in stock now.", "de": "…" },
   "link": "https://radhefoods.de/products/alphonso-mango",
   "linkLabel": { "en": "See the product", "de": "Zum Produkt" },
   "productId": "66f1…",
-  "cargoId": "66f0…",
   "channels": ["email", "whatsapp"]
 }
 ```
@@ -2097,9 +1769,9 @@ News about a product or a cargo, written by the admin, sent to the customers who
 | ----- | ---- | -------- | -------------------- |
 | `subject` | `{ en (1–160), de? }` | yes | |
 | `message` | `{ en (1–2000), de? (≤2000) }` | yes | line breaks are kept in the email |
-| `link` | absolute URL ≤500 | no | the button; defaults to the product page (`<SHOP_URL>/products/<slug>`) or the shop |
+| `link` | absolute URL ≤500 | no | the button; defaults to the product page (`<SHOP_URL>/products/<slug.en>`) or the shop |
 | `linkLabel` | `{ en (1–160), de? (≤160) }` | no | button label; default "Visit the shop"/"Zum Shop" |
-| `productId`, `cargoId` | ObjectId | no | what the news is about (for the record and the lists) |
+| `productId` | ObjectId | no | the product the news is about (for the record and the lists) |
 | `channels` | `["email"]` and/or `["whatsapp"]` | no | default `["email"]` |
 
 ### `POST /v1/admin/announcements/preview`
@@ -2121,17 +1793,17 @@ News about a product or a cargo, written by the admin, sent to the customers who
 }
 ```
 
-`recipients.whatsapp` is `0` unless `whatsapp` is in `channels`. **Possible Errors:** `404 PRODUCT_NOT_FOUND`, `404 CARGO_NOT_FOUND`, `400 VALIDATION_FAILED`.
+`recipients.whatsapp` is `0` unless `whatsapp` is in `channels`. **Possible Errors:** `404 PRODUCT_NOT_FOUND`, `400 VALIDATION_FAILED`.
 
 ### `POST /v1/admin/announcements`
 
 **Purpose:** Send: one message per opted-in customer is queued (in their language). **Permission:** `notifications.manage`. **Success Response (201):** `{ "announcement": { … }, "progress": { … } }`.
 
-**Possible Errors:** `409 ANNOUNCEMENT_NO_RECIPIENTS` ("No customer has asked for news yet."), `404 PRODUCT_NOT_FOUND`, `404 CARGO_NOT_FOUND`.
+**Possible Errors:** `409 ANNOUNCEMENT_NO_RECIPIENTS` ("No customer has asked for news yet."), `404 PRODUCT_NOT_FOUND`, `400 VALIDATION_FAILED`.
 
 ### `GET /v1/admin/announcements`
 
-**Permission:** `notifications.read`. **Parameters (query):** `productId`, `cargoId`, `limit`, `cursor`. **Success Response (200):** `{ "items": [ { …announcement…, "progress": { "email": { "queued", "sending", "sent", "failed", "skipped", "cancelled" }, "whatsapp": { … } } } ], "nextCursor" }` — the same `progress` object as the detail, counted for the whole page in one query.
+**Permission:** `notifications.read`. **Parameters (query):** `productId`, `limit`, `cursor`. **Success Response (200):** `{ "items": [ { …announcement…, "progress": { "email": { "queued", "sending", "sent", "failed", "skipped", "cancelled" }, "whatsapp": { … } } } ], "nextCursor" }` — the same `progress` object as the detail, counted for the whole page in one query.
 
 ### `GET /v1/admin/announcements/{id}`
 
@@ -2143,11 +1815,11 @@ News about a product or a cargo, written by the admin, sent to the customers who
 
 ---
 
-## 16. Attention overview (start page)
+## 15. Attention overview (start page)
 
 ### `GET /v1/admin/attention`
 
-**Purpose:** What waits for the admin, in one call: return requests, overdue payments, failed deliveries, refunds to do, online payments that failed lately, failed messages. Each group has a count and the newest five; the module lists give the rest (`returns?status=requested`, `orders?paymentStatus=overdue`, `orders?status=delivery_failed`, `refunds?status=pending`, `notifications?status=failed`).
+**Purpose:** What waits for the admin, in one call: paid orders to prepare, refunds to decide, return requests, products that run low, failed messages. Each group has a count and the newest five; the module lists give the rest (`orders?status=confirmed`, `orders?needsRefund=true`, `refunds?status=pending` / `failed`, `returns?status=requested`, `products?lowStock=true`, `notifications?status=failed`).
 
 **Permission:** `orders.read`.
 
@@ -2155,41 +1827,48 @@ News about a product or a cargo, written by the admin, sent to the customers who
 
 ```json
 {
-  "returns": { "requested": 3, "items": [ { "…return (11.2)…": "" } ] },
-  "payments": {
-    "overdue": 2,
-    "items": [ { "…order summary (10.2)…": "" } ],
-    "failedRecently": [ { "…order summary…": "" } ]
+  "orders": { "toProcess": 4, "items": [ { "…order summary (9.2)…": "" } ] },
+  "refunds": {
+    "needed": 1,
+    "orders": [ { "…order summary…": "" } ],
+    "pending": 1,
+    "failed": 0,
+    "items": [ { "…refund (11.2)…": "" } ]
   },
-  "deliveries": { "failed": 1, "items": [ { "…order summary…": "" } ] },
-  "refunds": { "pending": 1, "failed": 0, "items": [ { "…refund (12.9)…": "" } ] },
-  "notifications": { "failed": 2, "queued": 0, "items": [ { "…notification (14.2)…": "" } ] }
+  "returns": { "requested": 3, "items": [ { "…return (10.2)…": "" } ] },
+  "stock": { "low": 2, "items": [ { "…product summary (8.1)…": "" } ] },
+  "notifications": { "failed": 2, "queued": 0, "items": [ { "…notification (13.2)…": "" } ] }
 }
 ```
 
-`payments.failedRecently` = orders whose online payment failed in the last 7 days (the customer already received a new payment link).
+- `orders.toProcess` = orders in `confirmed` (paid, not yet in processing); `items` the newest five.
+- `refunds.needed` = paid orders whose money waits for the admin, exactly what `GET /v1/admin/orders?needsRefund=true` lists: cancelled and not refunded in full, or credited by a correction or a completed return beyond what was refunded (section 11); `orders` the newest five of them (with `paidAmount`); `pending` / `failed` = refunds in those statuses, `items` the newest five `pending` refunds.
+- `stock.low` = products at or below their low-stock threshold, `items` the five most recently updated.
+- `notifications.items` are the newest five `failed` messages, in the shape of the notifications list.
 
 ---
 
-## 17. Server-side endpoints (not called by the panel UI)
+## 16. Server-side endpoints (not called by the panel UI)
 
 Documented so the whole surface is known.
 
 ### `POST /v1/jobs/run`
 
-**Purpose:** Runs every scheduled job in one call — the cargo check, the payment jobs, the notification queue — for an external timer (a cron job every five minutes on the hosting). **Authentication:** header `X-Jobs-Token: <JOBS_TOKEN>` (server secret; the endpoint is off when no token is configured). Not rate limited.
+**Purpose:** Runs every scheduled job in one call, for an external timer (a cron job every few minutes on the hosting, which also keeps a sleeping process awake): first the checkout cleanup, then the notification queue. The API runs both by itself while the process is up: the cleanup 15 seconds after the start and then at every full `PAYMENT_JOB_INTERVAL_MINUTES` on the clock (default 60), the queue every minute. **Authentication:** header `X-Jobs-Token: <JOBS_TOKEN>` (server secret; the endpoint is off when no token is configured). Not rate limited.
+
+The checkout cleanup gives up orders whose payment page expired and whose grace time passed (`cancelled`, reason `payment_not_completed`, no email; an open Stripe page is expired) and finishes orders whose payment was approved but never settled (a crash in between): they are settled late or, when sold out meanwhile, cancelled with `sold_out`.
 
 **Success Response (200):**
 
 ```json
-{ "startedAt": "…", "finishedAt": "…", "cargos": { "closed": ["RF-C026"], "opened": [] }, "payments": { "overdue": 2, "reminders": 5 }, "notifications": { "sent": 5, "retried": 0, "failed": 0, "skipped": 0, "recovered": 0 } }
+{ "startedAt": "…", "finishedAt": "…", "checkout": { "expired": 1, "settled": 0 }, "notifications": { "sent": 5, "retried": 0, "failed": 0, "skipped": 0, "recovered": 0 } }
 ```
 
 **Possible Errors:** `403 JOBS_TOKEN_INVALID`.
 
 ### `POST /v1/webhooks/stripe`
 
-Stripe's webhook (header `stripe-signature`, verified with the webhook secret). Answers `{ "received": true, "handled": true|false }`; `400 WEBHOOK_SIGNATURE_INVALID`, `503 PAYMENTS_NOT_CONFIGURED`. Not for the panel.
+Stripe's webhook (header `stripe-signature`, verified with the webhook secret; the raw body is needed). Handles `checkout.session.completed` and `checkout.session.async_payment_succeeded` (settle the order: stock, capture, invoice, confirmation), `checkout.session.async_payment_failed` and `payment_intent.payment_failed` (payment `failed`, `payment_failed` email), `checkout.session.expired` (the page is forgotten), `refund.created`, `refund.updated`, `charge.refund.updated` and `charge.refunded` (the refund records follow Stripe). Every event is processed once (`paymentEvents`). Answers `{ "received": true, "handled": true | false }` (`false` for an event seen before); `400 WEBHOOK_SIGNATURE_INVALID`, `503 PAYMENTS_NOT_CONFIGURED`. Not for the panel.
 
 ### `GET /health`, `GET /health/live`
 
@@ -2197,70 +1876,67 @@ Stripe's webhook (header `stripe-signature`, verified with the webhook secret). 
 
 ---
 
-## 18. Reference
+## 17. Reference
 
-### 18.1 Permission matrix
+### 17.1 Permission matrix
 
 | Area | Read | Manage |
 | ---- | ---- | ------ |
 | Admin users | `admin_users.read` | `admin_users.manage` |
 | Roles | `roles.read` | `roles.manage` |
-| Customers (incl. ordering decision) | `customers.read` | `customers.manage` |
-| Categories, products, images | `catalog.read` | `catalog.manage` |
-| Cargos, cargo products, rollover, check | `cargos.read` | `cargos.manage` |
-| Orders, returns, bulk order actions per cargo, attention overview | `orders.read` | `orders.manage` |
+| Customers | `customers.read` | `customers.manage` |
+| Categories, products, stock, images, import/export | `catalog.read` | `catalog.manage` |
+| Orders, bulk actions, returns, attention overview | `orders.read` | `orders.manage` |
 | Settings | `settings.read` | `settings.manage` |
 | Legal texts | `legal.read` | `legal.manage` |
-| Payments, refunds, invoices, cargo payments, payment jobs | `payments.read` | `payments.manage` |
+| Payment of an order, refunds, invoices | `payments.read` | `payments.manage` |
 | Notifications, announcements | `notifications.read` | `notifications.manage` |
 
 Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 
-### 18.2 Enums
+### 17.2 Enums
 
 | Enum | Values |
 | ---- | ------ |
 | Admin status | `active`, `disabled` |
 | Customer status | `active`, `blocked`; sign-up method `email_otp`, `google` |
-| Ordering decision `action` | `block`, `allow`, `clear`; stored `mode` `blocked`, `allowed`; `reason` of `canOrder=false`: `account_blocked`, `ordering_blocked`, `payment_overdue` |
 | Product status | `draft`, `active`, `archived` |
 | Pack units | `g`, `kg`, `ml`, `l`, `pcs`; `basePrice.per` `kg`, `l`, `pcs` |
 | Storage type | `ambient`, `chilled`, `frozen` |
 | Product sort (admin) | `newest`, `updated`, `name`, `sku`, `price_asc`, `price_desc` |
 | Image sizes | `small` (320 px), `medium` (800 px), `large` (1600 px) |
-| Cargo status | `draft`, `scheduled`, `taking_orders`, `orders_closed`, `in_transit`, `arrived`, `delivering`, `delivered`, `cancelled` |
-| Cargo attention | `opening_due`, `closing_due`, `window_missed`, `null` |
-| Cargo product filter `show` | `all`, `enabled`, `not_enabled` |
-| Order status | `confirmed`, `preparing`, `dispatched`, `delivered`, `delivery_failed`, `cancelled`, `returned` |
-| Bulk order status | `preparing`, `dispatched`, `delivered` |
+| Stock movement reason | `restock`, `adjustment`, `import`, `order`, `cancel`, `return`, `release` |
+| Order status | `pending_payment`, `confirmed`, `processing`, `dispatched`, `delivered`, `cancelled`, `returned` |
+| Status an admin can set | `confirmed`, `processing`, `dispatched`, `delivered`; in bulk `processing`, `dispatched`, `delivered` |
+| Payment status | `pending`, `authorized`, `paid`, `failed`, `refunded`; Stripe payment type `card`, `paypal` |
 | Delivery method | `radhe_delivery`, `dhl`, `hermes` |
-| Cancellation reason (admin) | `customer_request`, `product_unavailable`, `cargo_cancelled`, `duplicate_order`, `suspected_misuse`, `other`; (customer) `changed_mind`, `ordered_by_mistake`, `wrong_items`, `delivery_too_late`, `other` |
+| Cancellation reason | admin: `customer_request`, `product_unavailable`, `duplicate_order`, `suspected_misuse`, `other`; customer: `changed_mind`, `ordered_by_mistake`, `wrong_items`, `delivery_too_late`, `other`; system: `payment_not_completed`, `sold_out` |
 | Adjustment reason | `missing`, `damaged`, `wrong_item`, `customer_complaint`, `other` |
 | Customer cancellation rule | `while_confirmed`, `until_dispatched`, `never` |
+| Order history | `field` `order`, `payment`, `delivery`; `by` `customer`, `admin`, `system` |
 | Return status | `requested`, `approved`, `rejected`, `completed`, `cancelled`; reasons `damaged`, `wrong_item`, `quality`, `not_as_described`, `changed_mind`, `other` |
-| Payment status | `not_enabled`, `due`, `overdue`, `paid`, `waived`, `refunded`; method `stripe`, `cash`, `credit`; Stripe type `card`, `paypal` |
 | Refund status | `pending`, `processing`, `completed`, `failed`, `cancelled`; reason `return`, `adjustment`, `goodwill`, `duplicate_payment`, `other`; method `stripe`, `manual`; manual way `bank_transfer`, `cash`, `other` |
 | Invoice type | `invoice`, `credit_note`; credit reason `return`, `adjustment` |
-| Legal type | `terms`, `preorder_terms`, `privacy`; status `draft`, `published` |
-| Notification type / channel / status | see 14.1 |
+| Legal type | `terms`, `privacy`; status `draft`, `published` |
+| Notification type / channel / status | see 13.1 |
 | Locale | `en`, `de` |
 
-### 18.3 Error codes by HTTP status (all modules)
+### 17.3 Error codes by HTTP status (all modules)
 
-- **400**: `VALIDATION_FAILED`, `BAD_REQUEST`, `IDEMPOTENCY_KEY_REQUIRED`, `ADMIN_MFA_SETUP_REQUIRED`, `ROLE_PERMISSION_UNKNOWN`, `ADDRESS_LIMIT_REACHED`, `CATEGORY_PARENT_INVALID`, `CATEGORY_TOO_DEEP`, `CATEGORY_ORDER_INVALID`, `PRODUCT_PRICE_INVALID`, `PRODUCT_QUANTITY_INVALID`, `PRODUCT_VARIANT_INVALID`, `CARGO_DATES_INVALID`, `CARGO_PRODUCT_INVALID`, `CART_FULL`, `ORDER_QUANTITY_INVALID`, `ORDER_ITEM_NOT_FOUND` (returns), `RETURN_QUANTITY_INVALID` (approve), `PAYMENT_AMOUNT_MISMATCH`, `REFUND_AMOUNT_INVALID`, `REFUND_METHOD_INVALID`, `IMAGE_REQUIRED`, `IMAGE_INVALID`, `IMAGE_FORMAT_NOT_ALLOWED`, `IMAGE_DIMENSIONS_INVALID`, `IMAGE_LIMIT_REACHED`, `IMAGE_ORDER_INVALID`, `WEBHOOK_SIGNATURE_INVALID`.
-- **401**: `AUTH_TOKEN_INVALID`, `AUTH_REFRESH_INVALID`, `AUTH_SESSION_REVOKED`, `ADMIN_CREDENTIALS_INVALID`, `ADMIN_MFA_TOKEN_INVALID`, `ADMIN_MFA_CODE_INVALID`, `OTP_INVALID`, `GOOGLE_TOKEN_INVALID`, `GOOGLE_EMAIL_NOT_VERIFIED`.
-- **403**: `ADMIN_PERMISSION_DENIED`, `ADMIN_PASSWORD_CHANGE_REQUIRED`, `ADMIN_ACCOUNT_DISABLED`, `ADMIN_SELF_MODIFICATION`, `ROLE_IS_SYSTEM`, `ORIGIN_NOT_ALLOWED`, `CUSTOMER_BLOCKED`, `ORDERING_BLOCKED`, `PAYMENT_OVERDUE`, `JOBS_TOKEN_INVALID`, `FORBIDDEN`.
-- **404**: `NOT_FOUND`, `ADMIN_NOT_FOUND`, `ROLE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `ADDRESS_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `IMAGE_NOT_FOUND`, `CARGO_NOT_FOUND`, `CARGO_PRODUCT_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND`, `ORDER_ITEM_NOT_FOUND` (orders), `RETURN_NOT_FOUND`, `INVOICE_NOT_FOUND`, `REFUND_NOT_FOUND`, `PAY_LINK_INVALID`, `LEGAL_DOCUMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `ANNOUNCEMENT_NOT_FOUND`.
-- **409**: `CONFLICT`, `ADMIN_EMAIL_TAKEN`, `ADMIN_SELF_MODIFICATION` (last super admin), `ROLE_KEY_TAKEN`, `ROLE_IN_USE`, `CATEGORY_SLUG_TAKEN`, `CATEGORY_HAS_CHILDREN`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_SKU_TAKEN`, `PRODUCT_SLUG_TAKEN`, `PRODUCT_IS_ACTIVE`, `PRODUCT_IN_USE`, `IMAGE_ORDER_INVALID` (changed meanwhile), `CARGO_WINDOW_PASSED`, `CARGO_WINDOW_OVERLAP`, `CARGO_TRANSITION_NOT_ALLOWED`, `CARGO_ANOTHER_TAKING_ORDERS`, `CARGO_CHANGED_MEANWHILE`, `CARGO_NOT_EDITABLE`, `CARGO_NOT_DELETABLE`, `CARGO_PRODUCT_HAS_ORDERS`, `CARGO_HAS_ORDERS`, `CARGO_CANNOT_TAKE_ORDERS`, `CARGO_PRODUCT_NOT_AVAILABLE`, `CARGO_PRODUCT_LIMIT_REACHED`, `ORDERING_CLOSED`, `CART_EMPTY`, `ORDER_ITEMS_NOT_ORDERABLE`, `ORDER_TOTAL_CHANGED`, `ORDER_CANNOT_BE_CANCELLED`, `ORDER_TRANSITION_NOT_ALLOWED`, `ORDER_CANNOT_BE_MOVED`, `ORDER_CANNOT_BE_CHANGED`, `ORDER_CHANGED_MEANWHILE`, `RETURN_NOT_POSSIBLE`, `RETURN_WINDOW_CLOSED`, `RETURN_QUANTITY_INVALID` (request/complete), `RETURN_TRANSITION_NOT_ALLOWED`, `LEGAL_DOCUMENT_PUBLISHED`, `LEGAL_DOCUMENTS_MISSING`, `LEGAL_VERSION_CHANGED`, `COMPANY_DETAILS_MISSING`, `PAYMENT_NOT_ACTIVATED`, `PAYMENT_ALREADY_ACTIVATED`, `PAYMENT_NOT_POSSIBLE`, `PAYMENT_NOTHING_DUE`, `REFUND_AMOUNT_INVALID` (nothing paid), `REFUND_TRANSITION_NOT_ALLOWED`, `NOTIFICATION_TRANSITION_NOT_ALLOWED`, `ANNOUNCEMENT_NO_RECIPIENTS`.
+- **400**: `VALIDATION_FAILED`, `BAD_REQUEST`, `IDEMPOTENCY_KEY_REQUIRED`, `ADMIN_MFA_SETUP_REQUIRED`, `ROLE_PERMISSION_UNKNOWN`, `ADDRESS_LIMIT_REACHED`, `CATEGORY_PARENT_INVALID`, `CATEGORY_TOO_DEEP`, `CATEGORY_ORDER_INVALID`, `PRODUCT_PRICE_INVALID`, `PRODUCT_QUANTITY_INVALID`, `PRODUCT_VARIANT_INVALID`, `STOCK_CHANGE_INVALID`, `CART_FULL`, `ORDER_QUANTITY_INVALID`, `ORDER_ITEM_NOT_FOUND` (returns), `RETURN_QUANTITY_INVALID` (approve), `REFUND_AMOUNT_INVALID` (more than can be refunded), `REFUND_METHOD_INVALID`, `IMAGE_REQUIRED`, `IMAGE_INVALID`, `IMAGE_FORMAT_NOT_ALLOWED`, `IMAGE_DIMENSIONS_INVALID`, `IMAGE_LIMIT_REACHED`, `IMAGE_ORDER_INVALID`, `WEBHOOK_SIGNATURE_INVALID`.
+- **401**: `UNAUTHENTICATED` (generic), `AUTH_TOKEN_INVALID`, `AUTH_REFRESH_INVALID`, `AUTH_SESSION_REVOKED`, `ADMIN_CREDENTIALS_INVALID`, `ADMIN_MFA_TOKEN_INVALID`, `ADMIN_MFA_CODE_INVALID`, `OTP_INVALID`, `GOOGLE_TOKEN_INVALID`, `GOOGLE_EMAIL_NOT_VERIFIED`.
+- **403**: `FORBIDDEN` (generic), `ADMIN_PERMISSION_DENIED`, `ADMIN_PASSWORD_CHANGE_REQUIRED`, `ADMIN_ACCOUNT_DISABLED`, `ADMIN_SELF_MODIFICATION`, `ROLE_IS_SYSTEM`, `ORIGIN_NOT_ALLOWED`, `CUSTOMER_BLOCKED`, `JOBS_TOKEN_INVALID`.
+- **404**: `NOT_FOUND`, `ADMIN_NOT_FOUND`, `ROLE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `ADDRESS_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `IMAGE_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND`, `ORDER_ITEM_NOT_FOUND` (orders), `RETURN_NOT_FOUND`, `INVOICE_NOT_FOUND`, `REFUND_NOT_FOUND`, `LEGAL_DOCUMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `ANNOUNCEMENT_NOT_FOUND`.
+- **409**: `CONFLICT`, `ADMIN_EMAIL_TAKEN`, `ADMIN_SELF_MODIFICATION` (last super admin), `ROLE_KEY_TAKEN`, `ROLE_IN_USE`, `CATEGORY_SLUG_TAKEN`, `CATEGORY_HAS_CHILDREN`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_SKU_TAKEN`, `PRODUCT_SLUG_TAKEN`, `PRODUCT_IS_ACTIVE`, `PRODUCT_IN_USE`, `STOCK_INSUFFICIENT`, `IMAGE_ORDER_INVALID` (changed meanwhile), `CART_EMPTY`, `ORDER_ITEMS_NOT_ORDERABLE`, `ORDER_TOTAL_CHANGED`, `ORDER_NOT_PAYABLE`, `ORDER_CANNOT_BE_CANCELLED`, `ORDER_TRANSITION_NOT_ALLOWED`, `ORDER_CANNOT_BE_CHANGED`, `ORDER_CHANGED_MEANWHILE`, `RETURN_NOT_POSSIBLE`, `RETURN_WINDOW_CLOSED`, `RETURN_QUANTITY_INVALID` (request/complete), `RETURN_TRANSITION_NOT_ALLOWED`, `LEGAL_DOCUMENT_PUBLISHED`, `LEGAL_DOCUMENTS_MISSING`, `LEGAL_VERSION_CHANGED`, `COMPANY_DETAILS_MISSING`, `REFUND_AMOUNT_INVALID` (nothing paid), `REFUND_TRANSITION_NOT_ALLOWED`, `NOTIFICATION_TRANSITION_NOT_ALLOWED`, `ANNOUNCEMENT_NO_RECIPIENTS`.
 - **413**: `FILE_TOO_LARGE`. **429**: `RATE_LIMITED`, `ADMIN_ACCOUNT_LOCKED`, `OTP_COOLDOWN`, `OTP_LIMIT_REACHED`. **502**: `PAYMENT_PROVIDER_ERROR`. **503**: `SERVICE_UNAVAILABLE`, `PAYMENTS_NOT_CONFIGURED`, `GOOGLE_NOT_CONFIGURED`, `MAIL_DELIVERY_FAILED`, `STORAGE_UNAVAILABLE`. **500**: `INTERNAL_ERROR`.
 
 ---
 
-## 19. Prepared but not yet active
+## 18. Prepared but not yet active
 
 | Feature | State | What the panel should show |
 | ------- | ----- | -------------------------- |
-| Stripe (online payment, Stripe refunds, webhook) | Built; the Stripe account is not connected. `payment.canPayOnline` is `false`, `refundable.stripePossible` is `false`, Stripe refund/sync answer `503 PAYMENTS_NOT_CONFIGURED`. Cash, waiving, reminders and manual refunds work. | Hide "refund through Stripe" when `stripePossible` is false; show "online payment not set up" on 503. |
+| Stripe (online payment, Stripe refunds, webhook) | Built; works as soon as `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are set on the server. Until then `integrations.stripeConnected` is `false`, checkout answers `503 PAYMENTS_NOT_CONFIGURED` (the shop cannot sell), Stripe refunds and `sync` answer `503 PAYMENTS_NOT_CONFIGURED`. Manual refunds work. | Warn on the settings page and the start page while `stripeConnected` is false; hide "refund through Stripe" when `refundable.stripePossible` is false. |
 | Amazon SES (email delivery) | Built; the AWS account is not set up. In development emails go to the API log. | Failed emails appear as `failed` notifications with the provider's answer in `lastError`. |
 | WhatsApp (Cloud API of Meta) | Built behind an interface; off until credentials are configured. `whatsappEnabled: false` in the notification summary and the announcement preview. WhatsApp records for opted-in customers are stored as `skipped` ("WhatsApp is not configured.") and can be retried once it is on. | Show the `whatsappEnabled` flag; explain `skipped` WhatsApp records; disable the WhatsApp channel choice in announcements while it is off (the API accepts it and skips). |
 | Image storage on S3/CloudFront | Built; in development images are served by the API from a local folder (`/media/...` URLs). | Nothing: always use the URLs the API returns. |
@@ -2268,34 +1944,32 @@ Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 
 ---
 
-## 20. Answers to the requests of the panel (2026-10-14)
+## 19. Answers to the requests of the panel (2026-10-14)
 
 What the panel asked the backend for, and where it landed. Every item is implemented and tested unless marked otherwise.
 
 | # | Request | Answer |
 | --- | --- | --- |
 | 1 | MFA recovery for a sole super admin | `npm run reset:mfa -- <email>` on the server (section 2). No recovery codes. |
-| 2 | Free-text search over orders and customers | `q` on `GET /orders` and `GET /customers` (sections 10, 4). |
+| 2 | Free-text search over orders and customers | `q` on `GET /orders` and `GET /customers` (sections 9, 4). |
 | 3 | Sorting and totals on cursor lists | `sort=<field>:<asc|desc>` on orders, customers, returns, refunds, notifications, fields listed per endpoint; `GET …/count` with the same filters (section 0.8). No `total` in the page. |
-| 4 | Find an invoice or credit note by number | `number` (exact) and `q` (prefix) on `GET /invoices` (section 13). |
+| 4 | Find an invoice or credit note by number | `number` (exact) and `q` (prefix) on `GET /invoices` (section 12). |
 | 5 | Names on records | `admin` / `customer` objects next to every id (section 0.9). Item 14 is therefore not needed. |
-| 6 | Bulk actions on a free selection | `POST /orders/bulk/status` and `/orders/bulk/delivery-method` with `orderIds[]`, per-order results (section 10). |
-| 7 | Announcement progress in the list | `progress` in every item of `GET /announcements` (section 15). |
-| 8 | Ids in a customer's ordering state | `orderId` and `invoiceId` in `overdue[]` (section 4, also `GET /v1/store/me/ordering`). |
+| 6 | Bulk actions on a free selection | `POST /orders/bulk/status` and `/orders/bulk/delivery-method` with `orderIds[]`, per-order results (section 9). |
+| 7 | Announcement progress in the list | `progress` in every item of `GET /announcements` (section 14). |
 | 9 | Clearing optional texts | `description: null` on `PATCH /roles/{id}`, `note: null` on `PATCH /legal-documents/{id}` (sections 3, 6). |
 | 10 | Whether Stripe is connected | `integrations.stripeConnected` and `integrations.whatsappConfigured` in `GET /settings`, plus `payments.stripeConnected` (section 5). |
 | 11 | Whether a product can be deleted | `deletable` and `notDeletableReason` on `GET /products/{id}` (section 8). |
 | 12 | All refused files of an upload | `details.files[]` on the image errors (section 8). |
 | 13 | Stored discount percent | Existed already: `discountPercent` is stored and returned (section 8). |
 | 15 | `isAvailable` and `isFeatured` | Section 8, field table. |
-| 16 | Limit of an announcement's button label | 160 characters per language (section 15). |
+| 16 | Limit of an announcement's button label | 160 characters per language (section 14). |
 | 17 | Role permission changes and sessions | Apply on the next request, nobody is signed out (section 3). |
 | 18 | Category order across parents | Within one parent only, by design; move with `PATCH /categories/{id}` first (section 7). |
-| 21 | Customers told when delivery days change | `delivery_rescheduled` email, `delivery_window` history entry (sections 9, 10, 14). |
 | 22 | Invitation email for a new admin | `sendInvitation` and `invitationSent` on `POST /admin-users`; needs `ADMIN_URL` on the server for the link (section 2). |
 | 19, 20 | Reports; audit log | Not built. After launch. |
 | — | CSV import and Excel export of categories and products (asked on 2026-10-14) | Section 8.2 and `doc/CSV_IMPORT_EXPORT.md`. |
 
-**Cursors changed shape.** A cursor is now an opaque string (still the ObjectId for the default sort). The panel must not parse it. Cursors saved from before this date still work for the default sort.
+**Cursors are opaque strings** (still the ObjectId for the default sort). The panel must not parse it.
 
-**Search words of old records.** Orders and customers from before 2026-10-14 are found by `q` once `npm run db:indexes` has run on the server (it fills the search words in, once).
+**Search words of old records.** Orders and customers created before the search words existed are found by `q` once `npm run db:indexes` has run on the server (it fills the search words in, once).

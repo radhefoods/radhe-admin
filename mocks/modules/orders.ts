@@ -1,26 +1,23 @@
-// Sections 10 (orders) and 11 (returns).
+// Sections 9 (orders) and 10 (returns).
 
 import { z } from "zod";
-import type {
-  OrderReturn,
-  OrderStatus,
-} from "../../src/lib/api/types/index.ts";
-import type { CargoRecord, Db, OrderRecord } from "../db.ts";
+import type { OrderReturn } from "../../src/lib/api/types/index.ts";
+import type { Db, OrderRecord } from "../db.ts";
 import {
   CANCELLABLE,
   CHANGEABLE,
-  MOVABLE,
   ORDER_ALLOWED,
   customerOf,
   issueCreditNote,
   orderDetail,
+  orderNeedsRefund,
   orderSummary,
   pushHistory,
   queueMessage,
   recomputeFinal,
-  reserve,
 } from "../domain.ts";
 import {
+  boolParam,
   enumParam,
   fail,
   idParam,
@@ -33,29 +30,28 @@ import {
   zNote,
 } from "../http.ts";
 import {
-  assertCanTakeOrders,
-  moveOrder,
+  cancelOrder,
   setDeliveryMethod,
   setOrderStatus,
 } from "../order-ops.ts";
 import type { Router } from "../router.ts";
 import { iso } from "../time.ts";
+import { releaseUnits, restockReturn } from "./stock.ts";
 
 const ORDER_STATUSES = [
+  "pending_payment",
   "confirmed",
-  "preparing",
+  "processing",
   "dispatched",
   "delivered",
-  "delivery_failed",
   "cancelled",
   "returned",
 ] as const;
 const PAYMENT_STATUSES = [
-  "not_enabled",
-  "due",
-  "overdue",
+  "pending",
+  "authorized",
   "paid",
-  "waived",
+  "failed",
   "refunded",
 ] as const;
 const METHODS = ["radhe_delivery", "dhl", "hermes"] as const;
@@ -139,9 +135,8 @@ const decisionBody = z.strictObject({
 export function registerOrders(router: Router): void {
   const base = "/v1/admin/orders";
 
-  /** The filters of the list and of `/count` (10). */
+  /** The filters of the list and of `/count` (9). */
   const filteredOrders = (ctx: { db: Db; query: URLSearchParams }) => {
-    const cargoId = idParam(ctx.query, "cargoId");
     const customerId = idParam(ctx.query, "customerId");
     const status = enumParam(ctx.query, "status", ORDER_STATUSES);
     const paymentStatus = enumParam(
@@ -150,6 +145,7 @@ export function registerOrders(router: Router): void {
       PAYMENT_STATUSES,
     );
     const deliveryMethod = enumParam(ctx.query, "deliveryMethod", METHODS);
+    const needsRefund = boolParam(ctx.query, "needsRefund");
     const orderNumber = ctx.query.get("orderNumber")?.trim().toUpperCase();
     const email = ctx.query.get("email")?.trim().toLowerCase();
     const q = searchParam(ctx.query);
@@ -160,11 +156,12 @@ export function registerOrders(router: Router): void {
     }
     return ctx.db.orders.filter(
       (order) =>
-        (!cargoId || order.cargo.id === cargoId) &&
         (!customerId || order.customer.id === customerId) &&
         (!status || order.status === status) &&
         (!paymentStatus || order.paymentStatus === paymentStatus) &&
         (!deliveryMethod || order.delivery.method === deliveryMethod) &&
+        (needsRefund === undefined ||
+          orderNeedsRefund(order) === needsRefund) &&
         (!orderNumber || order.orderNumber === orderNumber) &&
         (!email || order.customer.email === email) &&
         wordsMatch(q, [
@@ -180,13 +177,13 @@ export function registerOrders(router: Router): void {
     json({ total: filteredOrders(ctx).length }),
   );
 
-  // --- Chosen orders at once (10) -------------------------------------------
+  // --- Chosen orders at once (9) --------------------------------------------
 
   const chosen = z.array(zId).min(1).max(500);
-  const BULK_FROM: Record<"preparing" | "dispatched" | "delivered", string[]> =
+  const BULK_FROM: Record<"processing" | "dispatched" | "delivered", string[]> =
     {
-      preparing: ["confirmed"],
-      dispatched: ["confirmed", "preparing"],
+      processing: ["confirmed"],
+      dispatched: ["confirmed", "processing"],
       delivered: ["dispatched"],
     };
 
@@ -197,42 +194,49 @@ export function registerOrders(router: Router): void {
       const input = await ctx.body(
         z.strictObject({
           orderIds: chosen,
-          status: z.enum(["preparing", "dispatched", "delivered"]),
+          status: z.enum(["processing", "dispatched", "delivered"]),
           note: zNote(500),
         }),
       );
-      const results = input.orderIds.map((orderId) => {
-        const order = ctx.db.orders.find((entry) => entry.id === orderId);
-        if (!order) {
-          return {
-            orderId,
-            orderNumber: null,
-            changed: false,
-            reason: "Order not found.",
-          };
-        }
-        if (!BULK_FROM[input.status].includes(order.status)) {
+      const seen = new Set<string>();
+      const results = input.orderIds
+        .filter((orderId) => {
+          if (seen.has(orderId)) return false;
+          seen.add(orderId);
+          return true;
+        })
+        .map((orderId) => {
+          const order = ctx.db.orders.find((entry) => entry.id === orderId);
+          if (!order) {
+            return {
+              orderId,
+              orderNumber: null,
+              changed: false,
+              reason: "Order not found.",
+            };
+          }
+          if (!BULK_FROM[input.status].includes(order.status)) {
+            return {
+              orderId,
+              orderNumber: order.orderNumber,
+              changed: false,
+              reason: `An order that is "${order.status}" cannot be set to "${input.status}".`,
+            };
+          }
+          setOrderStatus(
+            ctx.db,
+            order,
+            input.status,
+            { adminId: ctx.admin.id, note: input.note },
+            ctx.now,
+          );
           return {
             orderId,
             orderNumber: order.orderNumber,
-            changed: false,
-            reason: `An order that is "${order.status}" cannot be set to "${input.status}".`,
+            changed: true,
+            reason: null,
           };
-        }
-        setOrderStatus(
-          ctx.db,
-          order,
-          input.status,
-          { adminId: ctx.admin.id, note: input.note },
-          ctx.now,
-        );
-        return {
-          orderId,
-          orderNumber: order.orderNumber,
-          changed: true,
-          reason: null,
-        };
-      });
+        });
       return json({
         status: input.status,
         changed: results.filter((entry) => entry.changed).length,
@@ -248,49 +252,56 @@ export function registerOrders(router: Router): void {
       const input = await ctx.body(
         z.strictObject({
           orderIds: chosen,
-          method: z.enum(["radhe_delivery", "dhl", "hermes"]),
+          method: z.enum(METHODS),
           note: zNote(500),
         }),
       );
-      const results = input.orderIds.map((orderId) => {
-        const order = ctx.db.orders.find((entry) => entry.id === orderId);
-        if (!order) {
-          return {
-            orderId,
-            orderNumber: null,
-            changed: false,
-            reason: "Order not found.",
-          };
-        }
-        if (["delivered", "cancelled", "returned"].includes(order.status)) {
+      const seen = new Set<string>();
+      const results = input.orderIds
+        .filter((orderId) => {
+          if (seen.has(orderId)) return false;
+          seen.add(orderId);
+          return true;
+        })
+        .map((orderId) => {
+          const order = ctx.db.orders.find((entry) => entry.id === orderId);
+          if (!order) {
+            return {
+              orderId,
+              orderNumber: null,
+              changed: false,
+              reason: "Order not found.",
+            };
+          }
+          if (!CHANGEABLE.includes(order.status)) {
+            return {
+              orderId,
+              orderNumber: order.orderNumber,
+              changed: false,
+              reason: `The delivery of an order that is "${order.status}" cannot be changed.`,
+            };
+          }
+          if (order.delivery.method === input.method) {
+            return {
+              orderId,
+              orderNumber: order.orderNumber,
+              changed: false,
+              reason: `The order is delivered by "${input.method}" already.`,
+            };
+          }
+          setDeliveryMethod(
+            order,
+            input.method,
+            { adminId: ctx.admin.id, note: input.note },
+            ctx.now,
+          );
           return {
             orderId,
             orderNumber: order.orderNumber,
-            changed: false,
-            reason: `An order that is "${order.status}" cannot change its delivery method.`,
+            changed: true,
+            reason: null,
           };
-        }
-        if (order.delivery.method === input.method) {
-          return {
-            orderId,
-            orderNumber: order.orderNumber,
-            changed: false,
-            reason: `The order is delivered by "${input.method}" already.`,
-          };
-        }
-        setDeliveryMethod(
-          order,
-          input.method,
-          { adminId: ctx.admin.id, note: input.note },
-          ctx.now,
-        );
-        return {
-          orderId,
-          orderNumber: order.orderNumber,
-          changed: true,
-          reason: null,
-        };
-      });
+        });
       return json({
         method: input.method,
         changed: results.filter((entry) => entry.changed).length,
@@ -310,47 +321,13 @@ export function registerOrders(router: Router): void {
     return json({ ...result, items: result.items.map(orderSummary) });
   });
 
-  router.get(`${base}/summary`, { permission: "orders.read" }, (ctx) => {
-    const cargoId = idParam(ctx.query, "cargoId");
-    if (!cargoId) {
-      throw validationFailed([
-        { field: "cargoId", problems: ["cargoId must be a mongodb id"] },
-      ]);
-    }
-    const all = ctx.db.orders.filter((order) => order.cargo.id === cargoId);
-    const live = all.filter((order) => order.status !== "cancelled");
-    const byStatus = new Map<OrderStatus, { orders: number; value: number }>();
-    for (const order of all) {
-      const entry = byStatus.get(order.status) ?? { orders: 0, value: 0 };
-      entry.orders += 1;
-      entry.value += order.totals.total;
-      byStatus.set(order.status, entry);
-    }
-    return json({
-      cargoId,
-      summary: {
-        orders: live.length,
-        cancelledOrders: all.length - live.length,
-        customers: new Set(live.map((order) => order.customer.id)).size,
-        units: live.reduce(
-          (sum, order) =>
-            sum + order.items.reduce((units, item) => units + item.quantity, 0),
-          0,
-        ),
-        bookedValue: live.reduce((sum, order) => sum + order.totals.total, 0),
-        byStatus: ORDER_STATUSES.filter((status) => byStatus.has(status)).map(
-          (status) => ({
-            status,
-            ...(byStatus.get(status) as { orders: number; value: number }),
-          }),
-        ),
-      },
-    });
-  });
-
   router.get(`${base}/:id`, { permission: "orders.read" }, (ctx) =>
     json({
-      order: orderDetail(ctx.db, orderById(ctx.db, ctx.params.id ?? "")),
+      order: orderDetail(
+        ctx.db,
+        orderById(ctx.db, ctx.params.id ?? ""),
+        ctx.now,
+      ),
     }),
   );
 
@@ -362,10 +339,9 @@ export function registerOrders(router: Router): void {
         z.strictObject({
           status: z.enum([
             "confirmed",
-            "preparing",
+            "processing",
             "dispatched",
             "delivered",
-            "delivery_failed",
           ]),
           trackingNumber: zTracking.optional(),
           note: zNote(500),
@@ -396,7 +372,7 @@ export function registerOrders(router: Router): void {
           ctx.now,
         );
       }
-      return json({ order: orderDetail(ctx.db, order) });
+      return json({ order: orderDetail(ctx.db, order, ctx.now) });
     },
   );
 
@@ -425,61 +401,11 @@ export function registerOrders(router: Router): void {
         input.trackingNumber !== undefined &&
         input.trackingNumber !== order.delivery.trackingNumber
       ) {
-        const from = order.delivery.trackingNumber;
+        // A tracking number alone is not recorded in the history (9).
         order.delivery.trackingNumber = input.trackingNumber;
-        pushHistory(
-          order,
-          {
-            field: "delivery",
-            from: from ? `tracking ${from}` : null,
-            to: input.trackingNumber
-              ? `tracking ${input.trackingNumber}`
-              : "tracking removed",
-            adminId: ctx.admin.id,
-            note: input.note,
-          },
-          ctx.now,
-        );
+        order.updatedAt = iso(ctx.now);
       }
-      return json({ order: orderDetail(ctx.db, order) });
-    },
-  );
-
-  router.post(
-    `${base}/:id/move`,
-    { permission: "orders.manage" },
-    async (ctx) => {
-      const input = await ctx.body(
-        z.strictObject({ cargoId: zId, note: zNote(500) }),
-      );
-      const order = orderById(ctx.db, ctx.params.id ?? "");
-      if (!MOVABLE.includes(order.status)) {
-        throw fail(
-          409,
-          "ORDER_CANNOT_BE_MOVED",
-          "The order cannot be moved in its status.",
-          {
-            status: order.status,
-            allowedIn: MOVABLE,
-          },
-        );
-      }
-      const target = ctx.db.cargos.find(
-        (entry) => entry.id === input.cargoId,
-      ) as CargoRecord | undefined;
-      if (!target)
-        throw fail(404, "CARGO_NOT_FOUND", "The cargo was not found.");
-      assertCanTakeOrders(target);
-      if (target.id !== order.cargo.id) {
-        moveOrder(
-          ctx.db,
-          order,
-          target,
-          { adminId: ctx.admin.id, note: input.note },
-          ctx.now,
-        );
-      }
-      return json({ order: orderDetail(ctx.db, order) });
+      return json({ order: orderDetail(ctx.db, order, ctx.now) });
     },
   );
 
@@ -527,10 +453,11 @@ export function registerOrders(router: Router): void {
       }
       if (input.deliveredQuantity !== item.deliveredQuantity) {
         const before = order.finalTotals.total;
+        const from = item.deliveredQuantity;
         order.adjustments.push({
           productId: item.productId,
           sku: item.sku,
-          from: item.deliveredQuantity,
+          from,
           to: input.deliveredQuantity,
           reason: input.reason,
           note: input.note ?? null,
@@ -540,18 +467,27 @@ export function registerOrders(router: Router): void {
         item.deliveredQuantity = input.deliveredQuantity;
         recomputeFinal(order);
         order.updatedAt = iso(ctx.now);
-        // An invoice exists already: the difference becomes a credit note.
-        if (order.payment && before > order.finalTotals.total) {
+        // Units that were not delivered go back to the stock (9).
+        releaseUnits(
+          ctx.db,
+          order,
+          item.productId,
+          from - input.deliveredQuantity,
+          ctx.now,
+        );
+        // Every confirmed order has an invoice: the difference is a credit note.
+        if (before > order.finalTotals.total) {
           issueCreditNote(
             ctx.db,
             order,
             before - order.finalTotals.total,
             "adjustment",
             ctx.now,
+            `${item.sku}: ${input.reason}`,
           );
         }
       }
-      return json({ order: orderDetail(ctx.db, order) });
+      return json({ order: orderDetail(ctx.db, order, ctx.now) });
     },
   );
 
@@ -564,7 +500,6 @@ export function registerOrders(router: Router): void {
           reason: z.enum([
             "customer_request",
             "product_unavailable",
-            "cargo_cancelled",
             "duplicate_order",
             "suspected_misuse",
             "other",
@@ -584,40 +519,23 @@ export function registerOrders(router: Router): void {
             },
           );
         }
-        const from = order.status;
-        order.status = "cancelled";
-        order.cancellation = {
-          reason: input.reason,
-          text: input.text ?? null,
-          by: "admin",
-          adminId: ctx.admin.id,
-          at: iso(ctx.now),
-        };
-        reserve(ctx.db, order, order.cargo.id, -1);
-        pushHistory(
+        cancelOrder(
+          ctx.db,
           order,
           {
-            field: "order",
-            from,
-            to: "cancelled",
+            reason: input.reason,
+            text: input.text ?? null,
+            by: "admin",
             adminId: ctx.admin.id,
-            note: input.text,
           },
           ctx.now,
         );
-        const customer = customerOf(ctx.db, order);
-        if (customer)
-          queueMessage(
-            ctx.db,
-            { type: "order_cancelled", customer, order },
-            ctx.now,
-          );
       }
-      return json({ order: orderDetail(ctx.db, order) });
+      return json({ order: orderDetail(ctx.db, order, ctx.now) });
     },
   );
 
-  // --- Returns (11) ---------------------------------------------------------
+  // --- Returns (10) ---------------------------------------------------------
   const returns = "/v1/admin/returns";
 
   const filteredReturns = (ctx: { db: Db; query: URLSearchParams }) => {
@@ -668,6 +586,7 @@ export function registerOrders(router: Router): void {
         }),
       );
       const record = returnById(ctx.db, ctx.params.id ?? "");
+      if (record.status === "approved") return json({ return: record });
       if (record.status !== "requested") {
         throw fail(
           409,
@@ -702,6 +621,10 @@ export function registerOrders(router: Router): void {
               400,
               "RETURN_QUANTITY_INVALID",
               "More than the customer asked to return.",
+              {
+                productId: item.productId,
+                max: quantities.get(item.productId),
+              },
             );
           }
           quantities.set(item.productId, item.quantity);
@@ -710,7 +633,7 @@ export function registerOrders(router: Router): void {
           throw fail(
             400,
             "RETURN_QUANTITY_INVALID",
-            "Reject the return instead.",
+            "Nothing is accepted. Reject the return instead.",
           );
         }
       }
@@ -776,8 +699,11 @@ export function registerOrders(router: Router): void {
     `${returns}/:id/complete`,
     { permission: "orders.manage" },
     async (ctx) => {
-      const input = await ctx.body(decisionBody);
+      const input = await ctx.body(
+        decisionBody.extend({ restock: z.boolean().optional() }),
+      );
       const record = returnById(ctx.db, ctx.params.id ?? "");
+      if (record.status === "completed") return json({ return: record });
       if (record.status !== "approved") {
         throw fail(
           409,
@@ -832,16 +758,26 @@ export function registerOrders(router: Router): void {
       if (input.note !== undefined) record.decisionNote = input.note;
       if (input.internalNote !== undefined)
         record.internalNote = input.internalNote;
-      if (order.payment) {
-        issueCreditNote(
+      if (input.restock) {
+        restockReturn(
           ctx.db,
           order,
-          credit,
-          "return",
+          record.items.map((item) => ({
+            productId: item.productId,
+            quantity: item.approvedQuantity ?? 0,
+          })),
           ctx.now,
-          record.returnNumber,
         );
+        record.restockedAt = iso(ctx.now);
       }
+      issueCreditNote(
+        ctx.db,
+        order,
+        credit,
+        "return",
+        ctx.now,
+        record.returnNumber,
+      );
       // Nothing was kept: the order counts as returned.
       if (
         order.items.every(

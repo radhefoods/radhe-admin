@@ -21,7 +21,7 @@ const PAGE_SIZE = 25;
 
 /** The history of announcements, newest first, paged by cursor (0.8). */
 export function useAnnouncements(
-  filters: Pick<AnnouncementQuery, "productId" | "cargoId">,
+  filters: Pick<AnnouncementQuery, "productId">,
 ) {
   const query: AnnouncementQuery = { ...filters, limit: PAGE_SIZE };
   return useInfiniteQuery({

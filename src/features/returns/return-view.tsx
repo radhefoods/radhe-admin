@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   ActionButton,
   RequirePermission,
@@ -15,6 +15,7 @@ import { DateTime, Money, useAdminNames } from "@/components/domain/values";
 import { PageBody, PageHeader, gutter } from "@/components/shell/page";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Switch } from "@/components/ui/controls";
 import { Input } from "@/components/ui/input";
 import { ScrollX } from "@/components/ui/scroll-x";
 import {
@@ -98,6 +99,9 @@ function Decide({
   const [quantities, setQuantities] = useState<Record<Id, string>>({});
   const [note, setNote] = useState("");
   const [internalNote, setInternalNote] = useState("");
+  // Off by default: food that came back is not sold again unless the admin says so.
+  const [restock, setRestock] = useState(false);
+  const restockId = useId();
   const decide = useMutation({
     mutationFn: async (kind: Exclude<Decision, null>) => {
       if (kind === "approve") {
@@ -109,7 +113,10 @@ function Decide({
       };
       return kind === "reject"
         ? api.returns.reject(record.id, body)
-        : api.returns.complete(record.id, body);
+        : api.returns.complete(record.id, {
+            ...body,
+            ...(restock ? { restock: true } : {}),
+          });
     },
     meta: { invalidates: invalidation.return, silent: true },
   });
@@ -139,6 +146,7 @@ function Decide({
       setQuantities({});
       setNote("");
       setInternalNote("");
+      setRestock(false);
     }
     onOpenChange(open);
   };
@@ -262,7 +270,7 @@ function Decide({
       open
       onOpenChange={reset}
       title={`Are the goods of ${record.returnNumber} back?`}
-      description="Completing books the accepted units as returned and lowers the final bill of the order. A credit note is issued when an invoice exists, and the customer is told. Paying money back is a separate decision on the order."
+      description="Completing books the accepted units as returned and lowers the final bill of the order. A credit note is issued and the customer is told. Paying the money back is a separate decision on the order."
       facts={[
         { label: "Units returned", value: approvedUnits },
         {
@@ -270,19 +278,43 @@ function Decide({
           value: formatMoney(approved),
           strong: true,
         },
+        {
+          label: "Back on the shelf",
+          value: restock ? plural(approvedUnits, "unit") : "No",
+        },
       ]}
       confirmLabel={`Complete and credit ${formatMoney(approved)}`}
       onConfirm={async () => {
         const result = await decide.mutateAsync("complete");
         notify.success(
           `${record.returnNumber} completed`,
-          `${formatMoney(result.return.creditAmount ?? approved)} credited on ${record.orderNumber}.`,
+          `${formatMoney(result.return.creditAmount ?? approved)} credited on ${record.orderNumber}.${
+            result.return.restockedAt ? " The units are back in stock." : ""
+          }`,
         );
       }}
     >
       <p className="text-13 text-ink-muted">
         When nothing of the order is kept, the delivery fee is credited as well.
       </p>
+      <div className="flex items-start gap-3 rounded-md border border-line px-3 py-2.5">
+        <Switch
+          id={restockId}
+          checked={restock}
+          onCheckedChange={setRestock}
+          aria-describedby={`${restockId}-hint`}
+          className="mt-0.5"
+        />
+        <div className="flex min-w-0 flex-col">
+          <label htmlFor={restockId} className="text-sm font-medium text-ink">
+            Put the units back on the shelf
+          </label>
+          <p id={`${restockId}-hint`} className="text-13 text-ink-muted">
+            Off by default: food that came back is not sold again unless you say
+            so. On: the accepted units are added to the stock of each product.
+          </p>
+        </div>
+      </div>
       {notes}
     </ConfirmDialog>
   );
@@ -344,8 +376,7 @@ export function ReturnView() {
   }
 
   const next = RETURN_TRANSITIONS[record.status];
-  const refundable =
-    record.status === "completed" && order?.payment.status !== "not_enabled";
+  const refundable = record.status === "completed";
 
   return (
     <RequirePermission permission="orders.read">
@@ -419,8 +450,9 @@ export function ReturnView() {
               ) : null
             }
           >
-            If the order was paid already, the customer is owed this amount.
-            Refunding is decided on the order.
+            {order?.payment.needsRefund
+              ? "The customer is owed this amount; it waits for your refund decision on the order."
+              : "The refund of this amount was decided on the order."}
           </Alert>
         ) : null}
 
@@ -535,6 +567,17 @@ export function ReturnView() {
                       "unit",
                     )}
                   </Fact>
+                  {record.status === "completed" ? (
+                    <Fact label="Restocked">
+                      {record.restockedAt ? (
+                        <DateTime value={record.restockedAt} />
+                      ) : (
+                        <span className="text-ink-subtle">
+                          No: the units were not put back on the shelf
+                        </span>
+                      )}
+                    </Fact>
+                  ) : null}
                 </dl>
               </CardBody>
             </Card>

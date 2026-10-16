@@ -1,7 +1,5 @@
 import type {
   AdminStatus,
-  CargoAttention,
-  CargoStatus,
   CustomerStatus,
   InvoiceType,
   LegalStatus,
@@ -14,8 +12,8 @@ import type {
 } from "@/lib/api/types";
 
 /**
- * One tone, one meaning, across cargos, orders, payments, returns, refunds
- * and messages:
+ * One tone, one meaning, across orders, payments, returns, refunds and
+ * messages:
  *
  *   neutral    not started, or ended: nothing to do
  *   planned    accepted and waiting for its time
@@ -32,7 +30,7 @@ export interface StatusMeta {
   tone: Tone;
 }
 
-/** `delivery_failed` reads as `Delivery failed`: the API's name, made readable. */
+/** `pending_payment` reads as `Pending payment`: the API's name, made readable. */
 export function humanize(value: string): string {
   const text = value.replace(/_/g, " ").trim();
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -49,40 +47,25 @@ function table<K extends string>(
   return result;
 }
 
-export const CARGO_STATUS = table<CargoStatus>({
-  draft: "neutral",
-  scheduled: "planned",
-  taking_orders: "success",
-  orders_closed: "planned",
-  in_transit: "moving",
-  arrived: "moving",
-  delivering: "moving",
-  delivered: "success",
-  cancelled: "neutral",
-});
-
-export const CARGO_ATTENTION = table<CargoAttention>({
-  opening_due: "attention",
-  closing_due: "attention",
-  window_missed: "danger",
-});
-
+/**
+ * A pending order waits for the customer (neutral); a confirmed one is
+ * paid and waits for a person to prepare it (attention).
+ */
 export const ORDER_STATUS = table<OrderStatus>({
-  confirmed: "planned",
-  preparing: "moving",
+  pending_payment: "neutral",
+  confirmed: "attention",
+  processing: "moving",
   dispatched: "moving",
   delivered: "success",
-  delivery_failed: "danger",
   cancelled: "neutral",
   returned: "neutral",
 });
 
 export const PAYMENT_STATUS = table<PaymentStatus>({
-  not_enabled: "neutral",
-  due: "attention",
-  overdue: "danger",
+  pending: "neutral",
+  authorized: "moving",
   paid: "success",
-  waived: "neutral",
+  failed: "danger",
   refunded: "neutral",
 });
 
@@ -138,8 +121,6 @@ export const INVOICE_TYPE = table<InvoiceType>({
 });
 
 export const STATUS_TABLES = {
-  cargo: CARGO_STATUS,
-  cargoAttention: CARGO_ATTENTION,
   order: ORDER_STATUS,
   payment: PAYMENT_STATUS,
   return: RETURN_STATUS,

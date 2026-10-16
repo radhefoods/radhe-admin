@@ -1,10 +1,9 @@
-// The permission model of the admin API (documentation, 0.5 and 18.1),
+// The permission model of the admin API (documentation, 0.5 and 17.1),
 // mirrored exactly: the panel shows what the API would allow, and the API
 // enforces it anyway.
 
 export const RESOURCES = [
   "orders",
-  "cargos",
   "payments",
   "customers",
   "catalog",
@@ -21,38 +20,38 @@ export type Permission = `${Resource}.${PermissionAction}`;
 export const WILDCARD = "*";
 export const SUPER_ADMIN_ROLE_KEY = "super_admin";
 
-/** What a resource covers, for the role editor and the "no access" hints. */
+/** What a resource covers (17.1), for the role editor and the "no access" hints. */
 export const RESOURCE_LABELS: Record<
   Resource,
   { label: string; covers: string }
 > = {
   orders: {
     label: "Orders",
-    covers: "Orders, returns, bulk order actions per cargo, the Today overview",
-  },
-  cargos: {
-    label: "Cargos",
     covers:
-      "Cargos, their products and limits, rollover and the automatic check",
+      "Orders and their status, actions on chosen orders, returns, the Today overview",
   },
   payments: {
     label: "Payments",
-    covers: "Payment activation, cash, waiving, reminders, refunds, invoices",
+    covers: "The payment of an order, refunds, invoices and credit notes",
   },
   customers: {
     label: "Customers",
-    covers: "Customer accounts, blocking and ordering decisions",
+    covers: "Customer accounts and blocking",
   },
-  catalog: { label: "Catalogue", covers: "Categories, products and images" },
+  catalog: {
+    label: "Catalogue",
+    covers: "Categories, products, stock, pictures, import and export",
+  },
   notifications: {
     label: "Communication",
     covers: "The log of messages to customers, and announcements",
   },
   settings: {
     label: "Shop settings",
-    covers: "Company, delivery fee, order rules, returns, payment defaults",
+    covers:
+      "Company, delivery fee and estimate, order rules, returns, the payment page",
   },
-  legal: { label: "Legal texts", covers: "Terms, pre-order terms, privacy" },
+  legal: { label: "Legal texts", covers: "Terms and the privacy policy" },
   admin_users: {
     label: "Team",
     covers: "Admin accounts, password and authenticator resets",

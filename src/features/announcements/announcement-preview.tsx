@@ -47,8 +47,8 @@ export function AnnouncementPreviewPanel({
   /** What was previewed, and what will be sent. */
   input: AnnouncementInput;
   preview: AnnouncementPreview;
-  /** The chosen product and cargo by name, for the record of the announcement. */
-  about?: { product?: string; cargo?: string };
+  /** The chosen product by name, for the record of the announcement. */
+  about?: { product?: string };
 }) {
   const languages = LOCALES.filter((locale) => preview.email[locale]);
   const [language, setLanguage] = useState<Locale>(languages[0] ?? "en");
@@ -98,7 +98,7 @@ export function AnnouncementPreviewPanel({
           </CardBody>
         </Card>
 
-        {about?.product || about?.cargo ? (
+        {about?.product ? (
           <Card>
             <CardHeader
               title="What it is about"
@@ -109,9 +109,6 @@ export function AnnouncementPreviewPanel({
                 rows={[
                   ...(about.product
                     ? [{ label: "Product", value: about.product }]
-                    : []),
-                  ...(about.cargo
-                    ? [{ label: "Cargo", value: about.cargo }]
                     : []),
                 ]}
               />

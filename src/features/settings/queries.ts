@@ -9,8 +9,8 @@ import type {
   CompanyInput,
   CustomerCancellation,
   DeliveryFeeTier,
-  DeliveryMethod,
-  PaymentSettings,
+  DeliverySettings,
+  PaymentsInput,
   Settings,
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
@@ -60,9 +60,9 @@ export function useSaveOrderPolicy() {
   );
 }
 
-export function useSaveDeliveryMethod() {
-  return useSaveGroup((method: DeliveryMethod) =>
-    api.settings.putDelivery(method),
+export function useSaveDelivery() {
+  return useSaveGroup((input: DeliverySettings) =>
+    api.settings.putDelivery(input),
   );
 }
 
@@ -73,7 +73,7 @@ export function useSaveReturnPolicy() {
 }
 
 export function useSavePayments() {
-  return useSaveGroup((input: PaymentSettings) =>
+  return useSaveGroup((input: PaymentsInput) =>
     api.settings.putPayments(input),
   );
 }

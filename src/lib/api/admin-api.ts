@@ -1,5 +1,4 @@
 import { adminUsersApi, authApi, rolesApi } from "./endpoints/auth";
-import { cargosApi } from "./endpoints/cargos";
 import {
   catalogSheetsApi,
   categoriesApi,
@@ -10,7 +9,6 @@ import {
   attentionApi,
   invoicesApi,
   ordersApi,
-  paymentsApi,
   refundsApi,
   returnsApi,
 } from "./endpoints/orders";
@@ -32,11 +30,9 @@ export function createAdminApi(transport: SessionTransport) {
     categories: categoriesApi(transport),
     products: productsApi(transport),
     catalogSheets: catalogSheetsApi(transport),
-    cargos: cargosApi(transport),
     orders: ordersApi(transport),
     returns: returnsApi(transport),
     refunds: refundsApi(transport),
-    payments: paymentsApi(transport),
     invoices: invoicesApi(transport),
     notifications: notificationsApi(transport),
     announcements: announcementsApi(transport),

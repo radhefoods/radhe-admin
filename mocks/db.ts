@@ -6,7 +6,6 @@ import type {
   AdminImage,
   AdminStatus,
   Announcement,
-  CargoDetail,
   Category,
   Customer,
   InvoiceDetail,
@@ -14,12 +13,13 @@ import type {
   NotificationDetail,
   OrderDetail,
   OrderReturn,
-  PaymentBlockActive,
+  PaymentType,
   PriceChange,
   ProductDetail,
   Refund,
   Role,
   Settings,
+  StockMovement,
 } from "../src/lib/api/types/index.ts";
 
 export interface AdminRecord {
@@ -61,6 +61,12 @@ export interface MfaTicket {
   expiresAt: number;
 }
 
+/** The stock as stored: `isLow` is worked out on reading. */
+export interface StockRecord {
+  quantity: number;
+  lowStockThreshold: number | null;
+}
+
 /** A product as stored: the pack sizes of its group are worked out on reading. */
 export type ProductRecord = Omit<
   ProductDetail,
@@ -71,55 +77,66 @@ export type ProductRecord = Omit<
   | "pricing"
   | "category"
   | "isDefaultVariant"
+  | "stock"
 > & {
   regularPrice: number;
   salePrice: number | null;
   vatRate: number;
   isDefaultVariant: boolean;
+  stock: StockRecord;
 };
+
+/** One line of the stock ledger, with the product it belongs to. */
+export type StockMovementRecord = StockMovement & { productId: string };
 
 export type CategoryRecord = Omit<
   Category,
   "productCount" | "ancestorIds" | "level"
 >;
 
-export type CargoRecord = Omit<
-  CargoDetail,
-  "isAcceptingOrders" | "attention" | "allowedStatuses" | "products"
->;
-
-export interface CargoProductRecord {
-  cargoId: string;
-  productId: string;
-  isEnabled: boolean;
-  maxQuantity: number | null;
-  orderedQuantity: number;
+/**
+ * The payment of an order as stored (architecture, "Order document"): the
+ * status lives on the order, the flags are worked out on reading.
+ */
+export interface PaymentRecord {
+  amount: number;
+  paidAmount: number;
+  creditedAmount: number;
+  refundedAmount: number;
+  attempts: number;
+  checkoutSessionId: string | null;
+  checkoutUrl: string | null;
+  checkoutExpiresAt: string | null;
+  paymentIntentId: string | null;
+  chargeId: string | null;
+  paymentType: PaymentType | null;
+  receiptUrl: string | null;
+  authorizedAt: string | null;
+  paidAt: string | null;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  lastFailure: string | null;
 }
-
-/** The payment of an order as stored: the flags are worked out on reading. */
-export type PaymentRecord = Omit<
-  PaymentBlockActive,
-  | "canActivate"
-  | "isOverdue"
-  | "canPayOnline"
-  | "canRecordCash"
-  | "canWaive"
-  | "status"
-> & { failedAt: string | null };
 
 export type OrderRecord = Omit<
   OrderDetail,
   | "payment"
   | "canCancel"
   | "allowedStatuses"
-  | "canMove"
   | "total"
   | "finalTotal"
+  | "paidAmount"
   | "lineCount"
   | "itemCount"
   | "city"
   | "postalCode"
-> & { payment: PaymentRecord | null };
+> & {
+  payment: PaymentRecord;
+  /** While pending: when the cleanup gives the order up. */
+  pendingUntil: string | null;
+  /** While the units are off the shelf for this order. */
+  stockTakenAt: string | null;
+};
 
 export interface StoredFile {
   bytes: Uint8Array;
@@ -127,9 +144,9 @@ export interface StoredFile {
 }
 
 export interface MockConfig {
-  /** Section 19: Stripe is built, the account is not connected. */
+  /** Section 18: Stripe is built, the account is not connected. */
   stripe: boolean;
-  /** Section 19: WhatsApp is off until credentials exist. */
+  /** Section 18: WhatsApp is off until credentials exist. */
   whatsapp: boolean;
   /** The address the mock is reached at, for the URLs of pictures. */
   publicUrl: string;
@@ -147,8 +164,7 @@ export interface Db {
   categories: CategoryRecord[];
   products: ProductRecord[];
   priceChanges: Map<string, PriceChange[]>;
-  cargos: CargoRecord[];
-  cargoProducts: CargoProductRecord[];
+  stockMovements: StockMovementRecord[];
   orders: OrderRecord[];
   returns: OrderReturn[];
   refunds: Refund[];
@@ -159,7 +175,6 @@ export interface Db {
   files: Map<string, StoredFile>;
   counters: {
     order: number;
-    cargo: number;
     sku: number;
     invoice: number;
     creditNote: number;
@@ -177,7 +192,10 @@ export function emptyDb(config: MockConfig): Db {
     settings: {
       deliveryFee: { tiers: [{ minOrderValue: 0, fee: 0 }] },
       orderPolicy: { customerCancellation: "until_dispatched" },
-      delivery: { defaultMethod: "radhe_delivery" },
+      delivery: {
+        defaultMethod: "radhe_delivery",
+        estimate: { en: "2 to 4 working days", de: "2 bis 4 Werktage" },
+      },
       returnPolicy: { windowDays: 14 },
       company: {
         name: "Radhe Foods",
@@ -185,18 +203,13 @@ export function emptyDb(config: MockConfig): Db {
         email: "",
         missingForInvoices: [],
       },
-      payments: {
-        reminderHour: 9,
-        defaultDeadlineDays: 5,
-        checkoutMinutes: 60,
-      },
+      payments: { checkoutMinutes: 60 },
     },
     legal: [],
     categories: [],
     products: [],
     priceChanges: new Map(),
-    cargos: [],
-    cargoProducts: [],
+    stockMovements: [],
     orders: [],
     returns: [],
     refunds: [],
@@ -204,7 +217,7 @@ export function emptyDb(config: MockConfig): Db {
     notifications: [],
     announcements: [],
     files: new Map(),
-    counters: { order: 1000, cargo: 20, sku: 0, invoice: 0, creditNote: 0 },
+    counters: { order: 1000, sku: 0, invoice: 0, creditNote: 0 },
   };
 }
 

@@ -1,10 +1,13 @@
-// Sections 7 (categories) and 8 (products and images).
+// Sections 7 (categories) and 8 (products, stock and images).
 
 import type {
+  AdminRef,
   Cents,
+  CursorQuery,
   Id,
   IsoDateTime,
   PageQuery,
+  SortParam,
   Translated,
   TranslatedList,
   TranslatedOptional,
@@ -127,6 +130,17 @@ export interface PriceView {
   basePrice: { amount: Cents; per: "kg" | "l" | "pcs" } | null;
 }
 
+/**
+ * The stock of a product (8). `isLow` is true when a threshold is set and
+ * the quantity is at or below it; a product without a threshold is never
+ * low. Quantity 0 is sold out in the shop.
+ */
+export interface ProductStock {
+  quantity: number;
+  lowStockThreshold: number | null;
+  isLow: boolean;
+}
+
 export interface ProductSummary {
   id: Id;
   sku: string;
@@ -140,6 +154,7 @@ export interface ProductSummary {
   isAvailable: boolean;
   isFeatured: boolean;
   sortOrder: number;
+  stock: ProductStock;
   /** `null` for a product without other pack sizes. */
   variantGroupId: Id | null;
   isDefaultVariant: boolean;
@@ -167,6 +182,7 @@ export interface ProductPackSizeEntry {
   pricing: PriceView;
   status: ProductStatus;
   isAvailable: boolean;
+  stock: ProductStock;
   isDefault: boolean;
 }
 
@@ -201,6 +217,48 @@ export interface ProductDetail extends ProductSummary {
   /** `[]` for a product without a group. */
   packSizes: ProductPackSizeEntry[];
   publishedAt: IsoDateTime | null;
+}
+
+// --- Stock (8) ----------------------------------------------------------------
+
+export const STOCK_MOVEMENT_REASONS = [
+  "restock",
+  "adjustment",
+  "import",
+  "order",
+  "cancel",
+  "return",
+  "release",
+] as const;
+export type StockMovementReason = (typeof STOCK_MOVEMENT_REASONS)[number];
+
+/** One line of the stock history (8.1): `delta` positive for units that came in. */
+export interface StockMovement {
+  id: Id;
+  reason: StockMovementReason;
+  delta: number;
+  quantityAfter: number;
+  orderId: Id | null;
+  orderNumber: string | null;
+  adminId: Id | null;
+  admin?: AdminRef | null;
+  note: string | null;
+  createdAt: IsoDateTime;
+}
+
+/** `POST /products/{id}/stock`: the counted number, or units to add or remove. */
+export type StockChangeInput =
+  { quantity: number; note?: string } | { delta: number; note?: string };
+
+/** `movement` is `null` when nothing changed (the same count again). */
+export interface StockChangeResult {
+  product: ProductDetail;
+  movement: StockMovement | null;
+}
+
+export interface StockMovementQuery extends CursorQuery {
+  /** Default newest first. */
+  sort?: SortParam<"createdAt">;
 }
 
 // --- Import and export of the catalogue (8.2) ---------------------------------
@@ -274,6 +332,8 @@ export interface ProductQuery extends PageQuery {
   isAvailable?: boolean;
   onSale?: boolean;
   variantGroupId?: Id;
+  /** `true`: only products at or below their low-stock threshold. */
+  lowStock?: boolean;
   sort?: ProductSort;
 }
 
@@ -300,6 +360,10 @@ export interface ProductInput {
   brand?: string | null;
   categoryId: Id;
   packSize: { value: number; unit: PackUnit };
+  /** The opening stock, 0 to 1,000,000 (default 0). Only on create. */
+  stockQuantity?: number;
+  /** The admin is warned at or below this count; `null` removes it. */
+  lowStockThreshold?: number | null;
   /** Id of any pack size of the product to join; `null` separates. */
   variantOf?: Id | null;
   regularPrice: Cents;
@@ -320,7 +384,8 @@ export interface ProductInput {
   seo?: { title?: TranslatedOptional; description?: TranslatedOptional };
 }
 
-export type ProductPatch = Partial<ProductInput>;
+/** `PATCH /products/{id}`: the count itself changes only through `POST …/stock`. */
+export type ProductPatch = Partial<Omit<ProductInput, "stockQuantity">>;
 
 export interface DuplicateProductInput {
   sku?: string;

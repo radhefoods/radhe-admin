@@ -1,16 +1,14 @@
-// Sections 10 (orders), 11 (returns), 12 (payments and refunds),
-// 13 (invoices) and 16 (attention).
+// Sections 9 (orders), 10 (returns), 11 (payments and refunds),
+// 12 (invoices) and 15 (attention).
 
 import type { Query } from "../http";
 import type { SessionTransport } from "../session";
 import type {
-  ActivatePaymentInput,
   Attention,
   BulkChosenMethodInput,
   BulkChosenMethodResult,
   BulkChosenStatusInput,
   BulkChosenStatusResult,
-  CashPaymentInput,
   CompleteRefundInput,
   CountResult,
   CreateRefundInput,
@@ -20,7 +18,6 @@ import type {
   InvoiceQuery,
   InvoiceSummary,
   OrderCancelInput,
-  OrderCargoSummary,
   OrderDeliveryInput,
   OrderDetail,
   OrderItemAdjustmentInput,
@@ -29,11 +26,10 @@ import type {
   OrderReturn,
   OrderStatusInput,
   OrderSummary,
-  PaymentBlock,
-  PaymentJobsResult,
   Refund,
   RefundQuery,
   ReturnApproveInput,
+  ReturnCompleteInput,
   ReturnDecisionInput,
   ReturnQuery,
 } from "../types";
@@ -52,23 +48,17 @@ export function ordersApi({ request }: SessionTransport) {
         query: query as Query,
         signal,
       }),
-    /** Chosen orders on to a status; every order is answered (10). */
+    /** Chosen orders on to a status; every order is answered (9). */
     bulkStatus: (input: BulkChosenStatusInput) =>
       request<BulkChosenStatusResult>(`${base}/bulk/status`, {
         method: "POST",
         body: input,
       }),
-    /** The delivery method of chosen orders; every order is answered (10). */
+    /** The delivery method of chosen orders; every order is answered (9). */
     bulkDeliveryMethod: (input: BulkChosenMethodInput) =>
       request<BulkChosenMethodResult>(`${base}/bulk/delivery-method`, {
         method: "POST",
         body: input,
-      }),
-    /** The numbers of a cargo. */
-    summary: (cargoId: Id, signal?: AbortSignal) =>
-      request<OrderCargoSummary>(`${base}/summary`, {
-        query: { cargoId },
-        signal,
       }),
     get: (id: Id, signal?: AbortSignal) =>
       request<{ order: OrderDetail }>(`${base}/${id}`, { signal }),
@@ -80,11 +70,6 @@ export function ordersApi({ request }: SessionTransport) {
     setDelivery: (id: Id, input: OrderDeliveryInput) =>
       request<{ order: OrderDetail }>(`${base}/${id}/delivery`, {
         method: "PATCH",
-        body: input,
-      }),
-    move: (id: Id, input: { cargoId: Id; note?: string }) =>
-      request<{ order: OrderDetail }>(`${base}/${id}/move`, {
-        method: "POST",
         body: input,
       }),
     /** Corrects how many units of a product were delivered. */
@@ -99,33 +84,10 @@ export function ordersApi({ request }: SessionTransport) {
         body: input,
       }),
 
-    // 12 Payment of an order
+    // 11 Payment of an order
     payment: (id: Id, signal?: AbortSignal) =>
       request<OrderPayment>(`${base}/${id}/payment`, { signal }),
-    activatePayment: (id: Id, input: ActivatePaymentInput) =>
-      request<{ order: OrderDetail }>(`${base}/${id}/payment/activate`, {
-        method: "POST",
-        body: input,
-      }),
-    recordCash: (id: Id, input: CashPaymentInput) =>
-      request<{ order: OrderDetail }>(`${base}/${id}/payment/cash`, {
-        method: "POST",
-        body: input,
-      }),
-    waivePayment: (id: Id, reason: string) =>
-      request<{ order: OrderDetail }>(`${base}/${id}/payment/waive`, {
-        method: "POST",
-        body: { reason },
-      }),
-    setRemindersPaused: (id: Id, paused: boolean) =>
-      request<{ payment: PaymentBlock }>(`${base}/${id}/payment/reminders`, {
-        method: "PATCH",
-        body: { paused },
-      }),
-    remindNow: (id: Id) =>
-      request<{ payment: PaymentBlock }>(`${base}/${id}/payment/remind`, {
-        method: "POST",
-      }),
+    /** Decides a refund: through Stripe, or by hand. */
     createRefund: (id: Id, input: CreateRefundInput) =>
       request<{ refund: Refund }>(`${base}/${id}/payment/refunds`, {
         method: "POST",
@@ -159,8 +121,8 @@ export function returnsApi({ request }: SessionTransport) {
         method: "POST",
         body: input,
       }),
-    /** The goods are back: the bill goes down, a credit note is issued. */
-    complete: (id: Id, input: ReturnDecisionInput) =>
+    /** The goods are back: the bill goes down, a credit note is issued, `restock` puts the units back. */
+    complete: (id: Id, input: ReturnCompleteInput) =>
       request<{ return: OrderReturn }>(`${base}/${id}/complete`, {
         method: "POST",
         body: input,
@@ -194,16 +156,6 @@ export function refundsApi({ request }: SessionTransport) {
     /** Asks Stripe how a Stripe refund stands. */
     sync: (id: Id) =>
       request<{ refund: Refund }>(`${base}/${id}/sync`, { method: "POST" }),
-  };
-}
-
-export function paymentsApi({ request }: SessionTransport) {
-  return {
-    /** Overdue check and due reminders, now. */
-    runJobs: () =>
-      request<PaymentJobsResult>("/v1/admin/payments/run-jobs", {
-        method: "POST",
-      }),
   };
 }
 

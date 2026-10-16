@@ -39,7 +39,7 @@ import type {
   InvoiceType,
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
-import { formatDate, formatDay, formatDeadline } from "@/lib/format/dates";
+import { formatDate } from "@/lib/format/dates";
 import { formatVatRate } from "@/lib/format/money";
 import { LOCALE_LABEL } from "@/lib/format/names";
 import { param, useUrlState } from "@/lib/hooks/use-url-state";
@@ -132,15 +132,15 @@ const columns: Column<InvoiceSummary>[] = [
     meta: { from: "sm", skeleton: "w-16" },
   },
   {
-    id: "due",
-    header: "Due",
+    id: "paid",
+    header: "Paid",
     cell: ({ row }) =>
       row.original.type === "credit_note" ? (
         <span className="text-ink-subtle">—</span>
       ) : row.original.paidAt ? (
         <Badge tone="success">Paid {formatDate(row.original.paidAt)}</Badge>
       ) : (
-        <span className="tabular">{formatDeadline(row.original.dueAt)}</span>
+        <span className="text-ink-subtle">—</span>
       ),
     meta: { from: "md", skeleton: "w-28" },
   },
@@ -546,20 +546,8 @@ export function InvoiceView() {
                   </>
                 ) : (
                   <>
-                    <Fact label="Due">
-                      <span
-                        className={
-                          invoice.paidAt ? "" : "font-medium text-gold"
-                        }
-                      >
-                        {formatDeadline(invoice.dueAt)}
-                      </span>
-                    </Fact>
                     <Fact label="Paid">
                       <DateTime value={invoice.paidAt} />
-                    </Fact>
-                    <Fact label="Delivered on">
-                      {formatDay(invoice.deliveredOn)}
                     </Fact>
                   </>
                 )}

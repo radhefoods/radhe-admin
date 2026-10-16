@@ -51,10 +51,10 @@ describe("hasPermission mirrors the API's rule (0.5)", () => {
     expect(hasAllPermissions(granted, ["orders.read", "payments.manage"])).toBe(
       false,
     );
-    expect(hasAnyPermission(granted, ["cargos.read", "payments.read"])).toBe(
+    expect(hasAnyPermission(granted, ["legal.read", "payments.read"])).toBe(
       true,
     );
-    expect(hasAnyPermission(granted, ["cargos.read"])).toBe(false);
+    expect(hasAnyPermission(granted, ["legal.read"])).toBe(false);
   });
 
   it("names a permission for a person", () => {
@@ -80,11 +80,11 @@ describe("the navigation follows the permissions", () => {
   });
 
   it("shows only what the role may read", () => {
-    expect(labels(["catalog.read", "catalog.manage", "cargos.read"])).toEqual([
+    expect(labels(["catalog.read", "catalog.manage", "legal.read"])).toEqual([
       "Today",
-      "Cargos",
       "Products",
       "Categories",
+      "Legal texts",
     ]);
   });
 

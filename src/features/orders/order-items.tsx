@@ -88,7 +88,7 @@ export function OrderItemsCard({
         title="Items"
         description={
           changeable
-            ? "If less arrived than was ordered, correct the delivered units: the customer pays only for what arrived."
+            ? "If less arrived than was ordered, correct the delivered units: the customer pays only for what arrived, the rest goes back to the stock."
             : `The items can no longer be corrected: the order is ${ORDER_STATUS[order.status].label.toLowerCase()}.`
         }
       />
@@ -151,7 +151,8 @@ export function OrderItemsCard({
                   </th>
                   <td className="px-3 py-2.5 text-right whitespace-nowrap tabular">
                     <Money cents={item.unitPrice} />
-                    {item.regularUnitPrice !== item.unitPrice ? (
+                    {item.regularUnitPrice !== null &&
+                    item.regularUnitPrice !== item.unitPrice ? (
                       <span className="block text-13 text-ink-subtle line-through">
                         <Money cents={item.regularUnitPrice} />
                       </span>

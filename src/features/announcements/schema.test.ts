@@ -128,7 +128,6 @@ describe("what the API gets", () => {
         link: " https://radhefoods.de/products/alphonso-mango ",
         linkLabel: { en: "See the product", de: "Zum Produkt" },
         productId: "66f1a2b3c4d5e6f7a8b9c0d1",
-        cargoId: "66f0a2b3c4d5e6f7a8b9c0d1",
         email: true,
         whatsapp: true,
       }),
@@ -140,7 +139,6 @@ describe("what the API gets", () => {
       link: "https://radhefoods.de/products/alphonso-mango",
       linkLabel: { en: "See the product", de: "Zum Produkt" },
       productId: "66f1a2b3c4d5e6f7a8b9c0d1",
-      cargoId: "66f0a2b3c4d5e6f7a8b9c0d1",
       channels: ["email", "whatsapp"],
     });
   });

@@ -6,7 +6,7 @@ import {
 } from "./company-section";
 import { feeFor, sortTiers, tierProblems, tierSentences } from "./delivery-fee";
 import { deliveryFeeDefaults, deliveryFeeSchema } from "./delivery-fee-section";
-import { hourLabel, paymentsSchema } from "./payments-section";
+import { paymentsSchema } from "./payments-section";
 import { missingForInvoicesText } from "./settings-frame";
 
 const tier = (minOrderValue: number, fee: number) => ({ minOrderValue, fee });
@@ -226,41 +226,17 @@ describe("the company details", () => {
 });
 
 describe("the payment settings", () => {
-  it("keeps to the ranges of the API", () => {
-    const ok = paymentsSchema.safeParse({
-      reminderHour: "0",
-      defaultDeadlineDays: "60",
-      checkoutMinutes: "1440",
-    });
-    expect(ok.success && ok.data).toEqual({
-      reminderHour: 0,
-      defaultDeadlineDays: 60,
-      checkoutMinutes: 1440,
-    });
+  it("keeps to the range of the API", () => {
+    const ok = paymentsSchema.safeParse({ checkoutMinutes: "1440" });
+    expect(ok.success && ok.data).toEqual({ checkoutMinutes: 1440 });
     const paths = (values: Record<string, string>) => {
       const result = paymentsSchema.safeParse(values);
       return result.success
         ? []
         : result.error.issues.map((issue) => issue.path[0]);
     };
-    expect(
-      paths({
-        reminderHour: "24",
-        defaultDeadlineDays: "0",
-        checkoutMinutes: "29",
-      }),
-    ).toEqual(["reminderHour", "defaultDeadlineDays", "checkoutMinutes"]);
-    expect(
-      paths({
-        reminderHour: "9",
-        defaultDeadlineDays: "61",
-        checkoutMinutes: "1441",
-      }),
-    ).toEqual(["defaultDeadlineDays", "checkoutMinutes"]);
-  });
-
-  it("prints an hour as a time", () => {
-    expect(hourLabel(9)).toBe("09:00");
-    expect(hourLabel(23)).toBe("23:00");
+    expect(paths({ checkoutMinutes: "29" })).toEqual(["checkoutMinutes"]);
+    expect(paths({ checkoutMinutes: "1441" })).toEqual(["checkoutMinutes"]);
+    expect(paths({ checkoutMinutes: "30" })).toEqual([]);
   });
 });

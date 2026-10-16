@@ -25,23 +25,15 @@ describe("planSearch", () => {
     expect(planSearch("1084").productQuery).toBe("1084");
   });
 
-  it("reads a cargo code", () => {
-    expect(planSearch("RF-C027").cargoCode).toBe("RF-C027");
-    expect(planSearch("c27").cargoCode).toBe("RF-C027");
-    expect(planSearch("rf-c027").query).toBeNull();
-  });
-
   it("searches orders and customers by any words, products unless it is an email", () => {
     expect(planSearch("priya")).toEqual({
       query: "priya",
       productQuery: "priya",
-      cargoCode: null,
     });
     expect(planSearch("anna schmidt").query).toBe("anna schmidt");
     expect(planSearch("priya@exa")).toEqual({
       query: "priya@exa",
       productQuery: null,
-      cargoCode: null,
     });
   });
 
@@ -63,7 +55,7 @@ describe("addresses", () => {
     expect(
       withQuery(routes.orders, {
         status: "delivered",
-        cargoId: "",
+        customerId: "",
         page: undefined,
       }),
     ).toBe("/orders?status=delivered");

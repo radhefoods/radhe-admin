@@ -70,7 +70,7 @@ const server = createServer(async (incoming, outgoing) => {
   }
 });
 
-// The scheduled jobs of the API: the cargo check and the payment jobs.
+// The scheduled jobs of the API: the checkout cleanup (section 16).
 setInterval(() => api.runJobs(), 10 * 60_000).unref();
 
 server.listen(port, () => {

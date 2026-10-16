@@ -66,8 +66,6 @@ const SURFACES = [
 ] as const;
 
 const STATUS_TITLES: Record<StatusKind, string> = {
-  cargo: "Cargo",
-  cargoAttention: "Cargo needs",
   order: "Order",
   payment: "Payment",
   return: "Return",
@@ -288,20 +286,20 @@ export function StyleguideView() {
               Card payments are not connected yet. Cash and bank transfer work.
             </Alert>
             <Alert tone="success" title="Done">
-              Payment was activated for 14 orders.
+              14 orders were marked dispatched.
             </Alert>
             <Alert tone="time" title="About time">
-              Ordering closes on Thursday at 23:59, German time.
+              The payment page is open until Thursday, 23:59, German time.
             </Alert>
             <Alert tone="warning" title="Check this">
-              3 products of this cargo have no German name.
+              3 products are at or below their low-stock threshold.
             </Alert>
             <Alert
               tone="danger"
               title="This did not work"
               actions={<Button size="sm">Try again</Button>}
             >
-              The order window overlaps with cargo RF-C029.
+              Only 3 units are in stock; 5 cannot be removed.
             </Alert>
           </div>
           <Row label="Toasts">
@@ -349,18 +347,18 @@ export function StyleguideView() {
             open={confirming === "danger"}
             onOpenChange={(open) => setConfirming(open ? "danger" : null)}
             tone="danger"
-            title="Cancel cargo RF-C028?"
-            description="Its 23 orders are cancelled and the customers are told. This cannot be undone."
+            title="Cancel order RF-1084?"
+            description="The order is cancelled for good and the customer is told. What was paid waits for a refund."
             facts={[
-              { label: "Orders cancelled", value: "23" },
+              { label: "Customer", value: "Priya Shah" },
               {
-                label: "Booked value lost",
-                value: formatMoney(214300),
+                label: "Paid, to refund afterwards",
+                value: formatMoney(3097),
                 strong: true,
               },
             ]}
-            requireText="RF-C028"
-            confirmLabel="Cancel the cargo"
+            requireText="RF-1084"
+            confirmLabel="Cancel the order"
             onConfirm={() =>
               notify.success("Nothing happened: a demonstration")
             }

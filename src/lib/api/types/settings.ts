@@ -26,27 +26,34 @@ export interface CompanySettings {
   registration?: string;
   logoUrl?: string;
   invoiceFooter?: string;
-  /** What still blocks invoicing. */
+  /** What still blocks invoicing, and with it every sale. */
   missingForInvoices: CompanyMissingField[];
 }
 
 export type CompanyInput = Omit<CompanySettings, "missingForInvoices">;
 
+/** The method every new order gets, and the estimate shown at checkout and in the emails. */
+export interface DeliverySettings {
+  defaultMethod: DeliveryMethod;
+  /** Both languages required, 1 to 120 characters. */
+  estimate: { en: string; de: string };
+}
+
 export interface PaymentSettings {
+  /** How long a Stripe payment page stays open: 30 to 1440 minutes. */
+  checkoutMinutes: number;
   /** Whether the server has Stripe keys (repeated from `integrations`). */
   stripeConnected?: boolean;
-  /** 0 to 23, German time. */
-  reminderHour: number;
-  /** 1 to 60. */
-  defaultDeadlineDays: number;
-  /** 30 to 1440. */
+}
+
+export interface PaymentsInput {
   checkoutMinutes: number;
 }
 
 export interface Settings {
   deliveryFee: { tiers: DeliveryFeeTier[] };
   orderPolicy: { customerCancellation: CustomerCancellation };
-  delivery: { defaultMethod: DeliveryMethod };
+  delivery: DeliverySettings;
   returnPolicy: { windowDays: number };
   company: CompanySettings;
   payments: PaymentSettings;

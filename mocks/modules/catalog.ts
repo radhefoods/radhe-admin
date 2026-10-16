@@ -1,4 +1,4 @@
-// Sections 7 (categories) and 8 (products and images).
+// Sections 7 (categories) and 8 (products, stock and images).
 
 import { z } from "zod";
 import type { AdminImage } from "../../src/lib/api/types/index.ts";
@@ -10,7 +10,9 @@ import {
   orderedCategories,
   packLabel,
   productDetail,
+  productInUse,
   productSummary,
+  stockView,
 } from "../domain.ts";
 import {
   HttpError,
@@ -31,6 +33,7 @@ import {
 import { readImage, storeImage, uploadedFiles } from "../media.ts";
 import type { Router } from "../router.ts";
 import { iso } from "../time.ts";
+import { recordMovement } from "./stock.ts";
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const zSlug = z.strictObject({
@@ -198,6 +201,7 @@ const productFields = {
   sortOrder: z.number().int().min(0).max(1_000_000).optional(),
   minOrderQuantity: z.number().int().min(1).max(10000).optional(),
   maxOrderQuantity: z.number().int().min(1).max(10000).nullish(),
+  lowStockThreshold: z.number().int().min(0).max(1_000_000).nullish(),
   storageType: z.enum(["ambient", "chilled", "frozen"]).optional(),
   food: z
     .strictObject({
@@ -224,6 +228,8 @@ const createProduct = z.strictObject({
   packSize: zPack,
   regularPrice: zCents(1),
   vatRate: z.number().int().min(0).max(10000),
+  /** The opening stock; only on create (8). */
+  stockQuantity: z.number().int().min(0).max(1_000_000).optional(),
   ...productFields,
 });
 const updateProduct = z.strictObject({
@@ -433,6 +439,8 @@ export function applyProductFields(
   if (input.isFeatured !== undefined) product.isFeatured = input.isFeatured;
   if (input.sortOrder !== undefined) product.sortOrder = input.sortOrder;
   if (input.storageType !== undefined) product.storageType = input.storageType;
+  if (input.lowStockThreshold !== undefined)
+    product.stock.lowStockThreshold = input.lowStockThreshold;
   if (input.tags !== undefined) product.tags = input.tags;
   if (input.searchKeywords !== undefined)
     product.searchKeywords = input.searchKeywords;
@@ -694,6 +702,7 @@ export function registerCatalog(router: Router): void {
     const variantGroupId = idParam(ctx.query, "variantGroupId");
     const isAvailable = boolParam(ctx.query, "isAvailable");
     const onSale = boolParam(ctx.query, "onSale");
+    const lowStock = boolParam(ctx.query, "lowStock");
     const sort = enumParam(ctx.query, "sort", SORTS) ?? "newest";
     const q = ctx.query.get("q")?.trim();
     if (q !== undefined && q !== "" && (q.length < 2 || q.length > 80)) {
@@ -714,6 +723,8 @@ export function registerCatalog(router: Router): void {
           (!variantGroupId || product.variantGroupId === variantGroupId) &&
           (isAvailable === undefined || product.isAvailable === isAvailable) &&
           (onSale === undefined || (product.salePrice !== null) === onSale) &&
+          (lowStock === undefined ||
+            stockView(product.stock).isLow === lowStock) &&
           (!q || matchesSearch(product, q)),
       )
       .sort((a, b) => {
@@ -780,6 +791,7 @@ export function registerCatalog(router: Router): void {
       minOrderQuantity: min,
       maxOrderQuantity: max,
       storageType: "ambient",
+      stock: { quantity: 0, lowStockThreshold: null },
       food: null,
       tags: [],
       searchKeywords: [],
@@ -793,6 +805,17 @@ export function registerCatalog(router: Router): void {
     ctx.db.products.push(product);
     if (input.variantOf) applyVariantOf(ctx.db, product, input.variantOf);
     logPrice(ctx.db, product, ctx.admin.id, ctx.now);
+    // The opening stock starts the history with a restock (8).
+    if (input.stockQuantity) {
+      recordMovement(
+        ctx.db,
+        product,
+        "restock",
+        input.stockQuantity,
+        { adminId: ctx.admin.id, note: "Opening stock" },
+        ctx.now,
+      );
+    }
     return json({ product: productDetail(ctx.db, product) }, 201);
   });
 
@@ -875,11 +898,12 @@ export function registerCatalog(router: Router): void {
         "Archive the product before deleting it.",
       );
     }
-    if (ctx.db.cargoProducts.some((entry) => entry.productId === product.id)) {
+    const orders = productInUse(ctx.db, product.id);
+    if (orders > 0) {
       throw fail(
         409,
         "PRODUCT_IN_USE",
-        "The product is part of a cargo. Archive it instead.",
+        `The product cannot be deleted. It is part of ${orders} order(s). Archive it instead.`,
       );
     }
     if (product.variantGroupId) applyVariantOf(ctx.db, product, null);
@@ -914,6 +938,11 @@ export function registerCatalog(router: Router): void {
         status: "draft",
         variantGroupId: null,
         isDefaultVariant: true,
+        // The copy starts with a stock of 0 and an empty history (8).
+        stock: {
+          quantity: 0,
+          lowStockThreshold: source.stock.lowStockThreshold,
+        },
         images:
           input.copyImages === false
             ? []

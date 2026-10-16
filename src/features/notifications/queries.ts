@@ -97,14 +97,13 @@ export function useRunQueue() {
 
 // --- Names for ids -----------------------------------------------------------
 
-type RecordKind = "customer" | "order" | "announcement" | "product" | "cargo";
+type RecordKind = "customer" | "order" | "announcement" | "product";
 
 const RECORD_PERMISSION: Record<RecordKind, string> = {
   customer: "customers.read",
   order: "orders.read",
   announcement: "notifications.read",
   product: "catalog.read",
-  cargo: "cargos.read",
 };
 
 const RECORD_KEY: Record<RecordKind, (id: Id) => readonly unknown[]> = {
@@ -112,7 +111,6 @@ const RECORD_KEY: Record<RecordKind, (id: Id) => readonly unknown[]> = {
   order: queryKeys.orders.detail,
   announcement: queryKeys.announcements.detail,
   product: queryKeys.products.detail,
-  cargo: queryKeys.cargos.detail,
 };
 
 async function recordName(
@@ -129,8 +127,6 @@ async function recordName(
       return (await api.announcements.get(id, signal)).announcement.subject.en;
     case "product":
       return (await api.products.get(id, signal)).product.name.en;
-    case "cargo":
-      return (await api.cargos.get(id, signal)).cargo.code;
   }
 }
 

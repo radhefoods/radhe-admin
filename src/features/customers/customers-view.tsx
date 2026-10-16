@@ -15,7 +15,6 @@ import { RequirePermission } from "@/components/domain/permission";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { DateTime, TwoLine } from "@/components/domain/values";
 import { PageBody, PageHeader } from "@/components/shell/page";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, EmptyState } from "@/components/ui/surface";
 import { errorMessage } from "@/lib/api/error-text";
@@ -27,7 +26,6 @@ import type {
 } from "@/lib/api/types";
 import { formatDate } from "@/lib/format/dates";
 import { LOCALE_LABEL, personName } from "@/lib/format/names";
-import { useNow } from "@/lib/hooks/use-now";
 import { param, useUrlState } from "@/lib/hooks/use-url-state";
 import { routes } from "@/lib/routes";
 import { CUSTOMER_STATUS, statusOptions } from "@/lib/status";
@@ -49,31 +47,6 @@ const SORT_VALUES = SORTS.map((option) => option.value);
 /** The name when the customer gave one; the email stands in otherwise. */
 function hasName(customer: Customer): boolean {
   return Boolean(customer.firstName?.trim() || customer.lastName?.trim());
-}
-
-/** A decision about ordering that applies right now, as a badge next to the status. */
-export function OrderingBadge({
-  customer,
-  short = false,
-}: {
-  customer: Customer;
-  /** In a list: without the day the allowance ends. */
-  short?: boolean;
-}) {
-  const now = useNow();
-  const override = customer.orderingOverride;
-  if (!override) return null;
-  if (override.until !== null && Date.parse(override.until) <= now.getTime())
-    return null;
-  if (override.mode === "blocked")
-    return <Badge tone="danger">Ordering blocked</Badge>;
-  return (
-    <Badge tone="attention">
-      {short || !override.until
-        ? "Ordering allowed"
-        : `May order until ${formatDate(override.until)}`}
-    </Badge>
-  );
 }
 
 /** An opt-in as a word with a mark: never the colour alone. */
@@ -128,10 +101,7 @@ const columns: Column<Customer>[] = [
     id: "status",
     header: "Status",
     cell: ({ row }) => (
-      <span className="flex flex-wrap items-center gap-1.5">
-        <StatusBadge kind="customer" value={row.original.status} />
-        <OrderingBadge customer={row.original} short />
-      </span>
+      <StatusBadge kind="customer" value={row.original.status} />
     ),
   },
   {
@@ -195,7 +165,6 @@ function CustomerCard({ customer }: { customer: Customer }) {
       </span>
       <span className="flex flex-wrap items-center gap-1.5">
         <StatusBadge kind="customer" value={customer.status} />
-        <OrderingBadge customer={customer} short />
         <span className="ml-auto text-13 text-ink-subtle">
           Since {formatDate(customer.createdAt)}
         </span>
@@ -227,7 +196,7 @@ export function CustomersView() {
     <RequirePermission permission="customers.read">
       <PageHeader
         title="Customers"
-        description="Everyone with an account in the shop, newest first. Customers keep their own details; here you look them up, block an account, and decide who may order."
+        description="Everyone with an account in the shop, newest first. Customers keep their own details; here you look them up and block or unblock an account."
       />
       <PageBody className="gap-3">
         <FilterBar active={filtered || Boolean(state.sort)} onClear={clear}>

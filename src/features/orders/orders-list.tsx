@@ -12,7 +12,6 @@ import {
 } from "@/components/data/filter-bar";
 import { LoadMore } from "@/components/data/pagination";
 import { EmptyState } from "@/components/ui/surface";
-import { useCargoChoices } from "@/features/cargos/queries";
 import {
   DELIVERY_METHODS,
   ORDER_STATUSES,
@@ -33,7 +32,7 @@ import { OrderCard, orderColumns } from "./order-columns";
 import { OrdersBulkBar } from "./orders-bulk";
 import { useOrderCount, useOrders } from "./queries";
 
-/** The orders of the list the API offers (10). */
+/** The orders of the list the API offers (9). */
 export const ORDER_SORTS: readonly SortOption<SortParam<OrderSortField>>[] = [
   { value: "createdAt:desc", label: "Newest first" },
   { value: "createdAt:asc", label: "Oldest first" },
@@ -48,17 +47,22 @@ const columns = orderColumns();
 
 export interface OrdersListProps {
   /** A filter the page fixes (the payments page fixes the payment status). */
-  fixed?: { status?: OrderStatus; paymentStatus?: PaymentStatus };
+  fixed?: {
+    status?: OrderStatus;
+    paymentStatus?: PaymentStatus;
+    needsRefund?: boolean;
+  };
   /** Hides the filters the page fixes. */
   hide?: ("status" | "paymentStatus")[];
   caption?: string;
 }
 
 /**
- * The list of orders with exactly the filters of the API: cargo, status,
- * payment status, delivery method, the search by words of the number, the
- * customer's name, email or phone (`q`), and the sort. The filters live in
- * the address, so a view can be bookmarked and linked to.
+ * The list of orders with exactly the filters of the API: status, payment
+ * status, delivery method, the money waiting for a refund, the search by
+ * words of the number, the customer's name, email or phone (`q`), and the
+ * sort. The filters live in the address, so a view can be bookmarked and
+ * linked to.
  */
 export function OrdersList({
   fixed,
@@ -69,41 +73,41 @@ export function OrdersList({
   const [state, setState, clear] = useUrlState({
     q: param.text(100),
     sort: param.oneOf(SORT_VALUES),
-    cargoId: param.id(),
     customerId: param.id(),
     status: param.oneOf(ORDER_STATUSES),
     paymentStatus: param.oneOf(PAYMENT_STATUSES),
     deliveryMethod: param.oneOf(DELIVERY_METHODS),
+    // The start page and the payments page name the orders waiting for a refund.
+    needsRefund: param.flag(),
     // Links from other pages name the order directly.
     orderNumber: param.text(20),
   });
   const q = state.q.trim() || undefined;
+  const needsRefund = fixed?.needsRefund ?? state.needsRefund;
   const query: Omit<OrderQuery, "cursor" | "limit"> = {
-    cargoId: state.cargoId,
     customerId: state.customerId,
     status: fixed?.status ?? state.status,
     paymentStatus: fixed?.paymentStatus ?? state.paymentStatus,
     deliveryMethod: state.deliveryMethod,
+    needsRefund: needsRefund === true ? true : undefined,
     orderNumber: q ? undefined : state.orderNumber.trim() || undefined,
     q,
     sort: state.sort,
   };
   const orders = useOrders(query);
   const count = useOrderCount(query);
-  // The orders ticked for an action on all of them at once (10).
+  // The orders ticked for an action on all of them at once (9).
   const [selected, setSelected] = useState<Set<Id>>(new Set());
   const manage = can("orders.manage");
-  const cargos = useCargoChoices(can("cargos.read")).data;
   const rows = orders.data?.pages.flatMap((page) => page.items);
-  const cargo = cargos?.items.find((entry) => entry.id === state.cargoId);
   const filtered = Boolean(
     q ||
     state.orderNumber ||
-    state.cargoId ||
     state.customerId ||
     state.status ||
     state.paymentStatus ||
-    state.deliveryMethod,
+    state.deliveryMethod ||
+    state.needsRefund,
   );
   const sortLabel =
     ORDER_SORTS.find((option) => option.value === state.sort)?.label ??
@@ -118,22 +122,6 @@ export function OrdersList({
           value={state.q || state.orderNumber}
           onChange={(value) => setState({ q: value, orderNumber: "" })}
         />
-        {cargos ? (
-          <FilterSelect
-            label="Cargo"
-            value={state.cargoId}
-            options={cargos.items.map((entry) => ({
-              value: entry.id,
-              label: entry.code,
-            }))}
-            onChange={(cargoId) => setState({ cargoId })}
-          />
-        ) : state.cargoId ? (
-          <Chip
-            label="One cargo"
-            onRemove={() => setState({ cargoId: undefined })}
-          />
-        ) : null}
         {hide.includes("status") ? null : (
           <FilterSelect
             label="Status"
@@ -164,6 +152,12 @@ export function OrdersList({
           options={ORDER_SORTS}
           onChange={(sort) => setState({ sort })}
         />
+        {state.needsRefund && fixed?.needsRefund === undefined ? (
+          <Chip
+            label="Waiting for a refund"
+            onRemove={() => setState({ needsRefund: undefined })}
+          />
+        ) : null}
         {state.customerId ? (
           <Chip
             label="One customer"
@@ -181,7 +175,7 @@ export function OrdersList({
       ) : null}
 
       <DataTable
-        caption={`${caption}, ${sortLabel.toLowerCase()}${cargo ? `, cargo ${cargo.code}` : ""}`}
+        caption={`${caption}, ${sortLabel.toLowerCase()}`}
         columns={columns}
         data={rows}
         getRowId={(order) => order.id}
@@ -210,9 +204,11 @@ export function OrdersList({
               ? `There is no order ${query.orderNumber}.`
               : q
                 ? `Nothing matches "${q}". The search looks at the order number and at the customer's name, email and phone; every word must begin one of them.`
-                : filtered
-                  ? "Change the filters or clear them."
-                  : "Orders appear here as soon as customers confirm a pre-order in an open cargo."}
+                : needsRefund
+                  ? "No paid order waits for a refund."
+                  : filtered
+                    ? "Change the filters or clear them."
+                    : "Orders appear here as soon as customers check out in the shop."}
           </EmptyState>
         }
         footer={

@@ -16,11 +16,7 @@ export function StatusBadge({
 }) {
   const meta = statusMeta(kind, value);
   return (
-    <Badge
-      tone={meta.tone}
-      live={kind === "cargo" && value === "taking_orders"}
-      className={className}
-    >
+    <Badge tone={meta.tone} className={className}>
       {meta.label}
     </Badge>
   );

@@ -59,6 +59,7 @@ function product(overrides: Partial<ProductDetail> = {}): ProductDetail {
     isAvailable: true,
     isFeatured: false,
     sortOrder: 0,
+    stock: { quantity: 40, lowStockThreshold: null, isLow: false },
     variantGroupId: null,
     isDefaultVariant: true,
     packSizeCount: 1,

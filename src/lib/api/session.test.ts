@@ -101,16 +101,18 @@ describe("every call", () => {
 
   it("turns the API's error format into an ApiError", async () => {
     const { transport } = transportWith([
-      apiError(409, "CARGO_ANOTHER_TAKING_ORDERS", {
-        cargo: "RF-C027",
+      apiError(409, "STOCK_INSUFFICIENT", {
+        sku: "RF-00042",
         id: "x",
       }),
     ]);
-    const error = await failure(transport.request("/v1/admin/cargos/1/open"));
+    const error = await failure(
+      transport.request("/v1/admin/products/1/stock"),
+    );
     expect(error).toBeInstanceOf(ApiError);
     expect(error.status).toBe(409);
-    expect(error.code).toBe("CARGO_ANOTHER_TAKING_ORDERS");
-    expect(error.details).toEqual({ cargo: "RF-C027", id: "x" });
+    expect(error.code).toBe("STOCK_INSUFFICIENT");
+    expect(error.details).toEqual({ sku: "RF-00042", id: "x" });
     expect(error.requestId).toBe("req-12345678");
   });
 
@@ -388,12 +390,8 @@ describe("errors", () => {
       withDetails("ADMIN_ACCOUNT_LOCKED", { retryAfterSeconds: 840 }, 429),
     ).toContain("about 14 minutes");
     expect(
-      withDetails(
-        "PAYMENT_AMOUNT_MISMATCH",
-        { amountDue: 3193, amount: 3000 },
-        400,
-      ),
-    ).toContain("€31.93");
+      withDetails("ORDER_QUANTITY_INVALID", { min: 1, max: 3 }, 400),
+    ).toContain("between 1 and 3");
     expect(
       withDetails("COMPANY_DETAILS_MISSING", {
         missing: ["email", "vatId or taxNumber"],
@@ -402,13 +400,18 @@ describe("errors", () => {
     expect(
       withDetails("ORDER_TRANSITION_NOT_ALLOWED", {
         from: "delivered",
-        to: "preparing",
+        to: "processing",
         allowed: ["dispatched"],
       }),
     ).toBe('From "delivered" this step is not possible. Possible: dispatched.');
     expect(
-      withDetails("CARGO_ANOTHER_TAKING_ORDERS", { cargo: "RF-C027", id: "1" }),
-    ).toContain("RF-C027");
+      withDetails("STOCK_INSUFFICIENT", {
+        productId: "1",
+        sku: "RF-00042",
+        available: 3,
+        wanted: 5,
+      }),
+    ).toBe("Only 3 units are in stock; 5 cannot be removed.");
     expect(withDetails("REFUND_AMOUNT_INVALID", { maximum: 499 }, 400)).toBe(
       "At most €4.99 can be refunded.",
     );

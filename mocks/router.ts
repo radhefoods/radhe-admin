@@ -76,7 +76,7 @@ export class Router {
     this.add("DELETE", pattern, options, handler);
   }
 
-  /** A fixed segment wins over a parameter (`/cargos/overview` before `/cargos/:id`). */
+  /** A fixed segment wins over a parameter (`/orders/count` before `/orders/:id`). */
   match(method: string, path: string): Match | null {
     const parts = path.split("/").filter(Boolean);
     let best: { match: Match; fixed: number } | null = null;

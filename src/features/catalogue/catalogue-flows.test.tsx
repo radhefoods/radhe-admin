@@ -58,6 +58,17 @@ const record = (id: string) => {
 /** The requests that change something. */
 const writes = () => api.calls.filter((call) => call.method !== "GET");
 
+/** Makes sure a delivered order of the demo data holds the product. */
+function putInAnOrder(productId: string): void {
+  const db = api.mock.db();
+  const order = db.orders.find((entry) => entry.status === "delivered");
+  if (!order) throw new Error("No delivered order in the demo data");
+  if (order.items.some((item) => item.productId === productId)) return;
+  const first = order.items[0];
+  if (!first) throw new Error("The order has no items");
+  order.items.push({ ...first, productId, sku: record(productId).sku });
+}
+
 /** A field of a form by the name the form gives it (`name.en`, `regularPrice`). */
 function field(name: string): HTMLInputElement {
   const found = document.querySelector<HTMLInputElement>(`[name="${name}"]`);
@@ -349,7 +360,7 @@ describe("saving a product", () => {
           path: `/v1/admin/products/${dal.id}`,
           body: {
             highlights: {
-              en: ["Authentic quality", "Imported with each cargo"],
+              en: ["Authentic quality", "Imported from India"],
               de: ["Authentische Qualität", "Reich an Eiweiß"],
             },
           },
@@ -411,7 +422,7 @@ describe("deleting and archiving a product", () => {
     expect(record(dal.id).status).toBe("archived");
   });
 
-  it("deletes a draft that was never part of a cargo, after a confirmation", async () => {
+  it("deletes a draft that is not part of an order, after a confirmation", async () => {
     const paneer = product("Paneer 400 g");
     expect(paneer.status).toBe("draft");
     const { user } = renderProduct(paneer.id);
@@ -443,10 +454,11 @@ describe("deleting and archiving a product", () => {
     );
   });
 
-  it("explains a product that was part of a cargo and offers to archive it, without asking the API", async () => {
+  it("explains a product that is part of an order and offers to archive it, without asking the API", async () => {
     const dal = product("Toor Dal 1 kg");
-    // A draft again, but cargos still refer to it: the product says so.
+    // A draft again, but an order still refers to it: the product says so.
     record(dal.id).status = "draft";
+    putInAnOrder(dal.id);
     const { user, unhandled } = renderProduct(dal.id);
     await chooseDelete(user);
 
@@ -454,7 +466,7 @@ describe("deleting and archiving a product", () => {
       name: "Toor Dal 1 kg cannot be deleted",
     });
     expect(refusal).toBeInTheDocument();
-    expect(screen.getByText(/It was part of a cargo/)).toBeInTheDocument();
+    expect(screen.getByText(/It is part of an order/)).toBeInTheDocument();
     expect(writes().some((call) => call.method === "DELETE")).toBe(false);
     expect(api.mock.db().products.some((entry) => entry.id === dal.id)).toBe(
       true,
@@ -468,9 +480,10 @@ describe("deleting and archiving a product", () => {
     );
   });
 
-  it("says that an archived product of a cargo stays as it is", async () => {
+  it("says that an archived product of an order stays as it is", async () => {
     const dal = product("Toor Dal 1 kg");
     record(dal.id).status = "archived";
+    putInAnOrder(dal.id);
     const { user } = renderProduct(dal.id);
     await user.click(
       await screen.findByRole("button", {

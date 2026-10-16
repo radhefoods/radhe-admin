@@ -202,7 +202,6 @@ export function useSetAvailable() {
     onSuccess: (product) => keepProduct(client, product),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.products.all });
-      void client.invalidateQueries({ queryKey: queryKeys.cargos.all });
     },
   });
 }

@@ -241,14 +241,22 @@ describe("orders and returns", () => {
       screen.getByRole("combobox", { name: "Method of every new order" }),
       "dhl",
     );
+    const german = screen.getByRole("textbox", {
+      name: /Delivery estimate \(German\)/,
+    });
+    await user.clear(german);
+    await user.type(german, "3 bis 5 Werktage");
     await user.click(
-      screen.getByRole("button", { name: "Save the delivery method" }),
+      screen.getByRole("button", { name: "Save the delivery settings" }),
     );
     await waitFor(() =>
       expect(writes()).toContainEqual({
         method: "PUT",
         path: "/v1/admin/settings/delivery",
-        body: { defaultMethod: "dhl" },
+        body: {
+          defaultMethod: "dhl",
+          estimate: { en: "2 to 4 working days", de: "3 bis 5 Werktage" },
+        },
       }),
     );
 
@@ -274,6 +282,7 @@ describe("orders and returns", () => {
     const settings = api.mock.db().settings;
     expect(settings.orderPolicy.customerCancellation).toBe("never");
     expect(settings.delivery.defaultMethod).toBe("dhl");
+    expect(settings.delivery.estimate.de).toBe("3 bis 5 Werktage");
     expect(settings.returnPolicy.windowDays).toBe(0);
   });
 
@@ -293,6 +302,21 @@ describe("orders and returns", () => {
     ).toBeChecked();
   });
 
+  it("needs the delivery estimate in both languages", async () => {
+    const { user } = renderSection(<OrdersSection />, "/settings/orders");
+    const english = await screen.findByRole("textbox", {
+      name: /Delivery estimate \(English\)/,
+    });
+    await user.clear(english);
+    await user.click(
+      screen.getByRole("button", { name: "Save the delivery settings" }),
+    );
+    expect(
+      await screen.findByText("The English estimate is required."),
+    ).toBeInTheDocument();
+    expect(writes()).toHaveLength(0);
+  });
+
   it("refuses a return window outside 0 to 365 days", async () => {
     const { user } = renderSection(<OrdersSection />, "/settings/orders");
     const days = await screen.findByRole("textbox", { name: /Return window/ });
@@ -307,17 +331,10 @@ describe("orders and returns", () => {
 });
 
 describe("the payment settings", () => {
-  it("sends the three values as numbers", async () => {
+  it("sends the minutes of the payment page as a number", async () => {
     const { user } = renderSection(<PaymentsSection />, "/settings/payments");
-    const days = await screen.findByRole("textbox", { name: /Days to pay/ });
-    await user.clear(days);
-    await user.type(days, "7");
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: /Reminders go out at/ }),
-      "18",
-    );
-    const minutes = screen.getByRole("textbox", {
-      name: /online checkout stays open/,
+    const minutes = await screen.findByRole("textbox", {
+      name: /payment page stays open/,
     });
     await user.clear(minutes);
     await user.type(minutes, "120");
@@ -329,14 +346,14 @@ describe("the payment settings", () => {
     expect(writes()[0]).toEqual({
       method: "PUT",
       path: "/v1/admin/settings/payments",
-      body: { reminderHour: 18, defaultDeadlineDays: 7, checkoutMinutes: 120 },
+      body: { checkoutMinutes: 120 },
     });
   });
 
   it("keeps to the ranges of the API", async () => {
     const { user } = renderSection(<PaymentsSection />, "/settings/payments");
     const minutes = await screen.findByRole("textbox", {
-      name: /online checkout stays open/,
+      name: /payment page stays open/,
     });
     await user.clear(minutes);
     await user.type(minutes, "20");
@@ -354,9 +371,11 @@ describe("permissions", () => {
   it("shows the settings to a reader, locked", async () => {
     await api.signIn("viewer");
     renderSection(<PaymentsSection />, "/settings/payments", ["settings.read"]);
-    const days = await screen.findByRole("textbox", { name: /Days to pay/ });
-    expect(days).toHaveValue("5");
-    expect(days).toBeDisabled();
+    const minutes = await screen.findByRole("textbox", {
+      name: /payment page stays open/,
+    });
+    expect(minutes).toHaveValue("60");
+    expect(minutes).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "Save the payment settings" }),
     ).toBeDisabled();

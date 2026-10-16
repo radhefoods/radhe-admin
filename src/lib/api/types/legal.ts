@@ -2,7 +2,7 @@
 
 import type { Id, IsoDateTime, Translated, TranslatedOptional } from "./common";
 
-export type LegalType = "terms" | "preorder_terms" | "privacy";
+export type LegalType = "terms" | "privacy";
 export type LegalStatus = "draft" | "published";
 
 export interface LegalDocumentSummary {
@@ -26,6 +26,7 @@ export interface LegalDocument extends Omit<LegalDocumentSummary, "isCurrent"> {
 
 export interface LegalDocumentList {
   items: LegalDocumentSummary[];
+  /** Both must be published before anyone can check out. */
   requiredTypes: LegalType[];
 }
 

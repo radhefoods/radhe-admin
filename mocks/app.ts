@@ -9,14 +9,15 @@ import { authenticate, registerAuth, revokeSessions } from "./auth.ts";
 import type { Db } from "./db.ts";
 import { HttpError, fail, json, noContent, setPeople } from "./http.ts";
 import { placeholderSvg } from "./media.ts";
-import { registerCargos, runCargoCheck } from "./modules/cargos.ts";
 import { registerCatalog } from "./modules/catalog.ts";
 import { registerCatalogSheets } from "./modules/catalog-sheets.ts";
 import { registerCommunication } from "./modules/communication.ts";
 import { registerOrders } from "./modules/orders.ts";
-import { registerPayments, runPaymentJobs } from "./modules/payments.ts";
+import { registerPayments } from "./modules/payments.ts";
 import { registerShop } from "./modules/shop.ts";
+import { registerStock } from "./modules/stock.ts";
 import { registerTeam } from "./modules/team.ts";
+import { runCheckoutCleanup } from "./order-ops.ts";
 import { Router, bodyReader, checkIds } from "./router.ts";
 import { seed } from "./seed.ts";
 
@@ -37,7 +38,7 @@ export interface MockApi {
   db: () => Db;
   /** Back to the demo data. */
   reset: (overrides?: { stripe?: boolean; whatsapp?: boolean }) => void;
-  /** What the scheduled jobs of the API do (section 17). */
+  /** What the scheduled jobs of the API do (section 16): the checkout cleanup. */
   runJobs: () => void;
 }
 
@@ -82,7 +83,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   registerShop(router);
   registerCatalog(router);
   registerCatalogSheets(router);
-  registerCargos(router);
+  registerStock(router);
   registerOrders(router);
   registerPayments(router);
   registerCommunication(router);
@@ -342,8 +343,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       db = fresh();
     },
     runJobs() {
-      runCargoCheck(db, clock());
-      runPaymentJobs(db, clock());
+      runCheckoutCleanup(db, clock());
     },
   };
 }

@@ -66,8 +66,9 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
               )
             }
           >
-            Payment cannot be activated for any order until the company details
-            are complete. Still missing: {missingForInvoicesText(missing)}.
+            The invoice is issued the moment an order is paid, so nothing can be
+            sold until the company details are complete. Still missing:{" "}
+            {missingForInvoicesText(missing)}.
           </Alert>
         ) : null}
         {children}

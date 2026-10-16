@@ -2,7 +2,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { OrderRecord } from "../../../mocks/db.ts";
-import { formatMoney } from "@/lib/format/money";
+import { centsToInput, formatMoney } from "@/lib/format/money";
 import { installTestApi, type TestApi } from "@/test/api";
 import { renderPanel, testNavigation } from "@/test/render";
 import { billAfterCorrection } from "./order-dialogs";
@@ -21,6 +21,13 @@ function find(
   return order;
 }
 const fresh = (id: string) => find((order) => order.id === id, "such order");
+
+/** A paid order that was cancelled and waits for a refund, untouched so far. */
+const waitingForRefund = (entry: OrderRecord) =>
+  entry.status === "cancelled" &&
+  entry.payment.paidAmount > 0 &&
+  entry.payment.refundedAmount === 0 &&
+  !api.mock.db().refunds.some((refund) => refund.orderId === entry.id);
 
 async function open(order: OrderRecord, permissions?: string[]) {
   const view = renderPanel(<OrderView />, {
@@ -50,16 +57,18 @@ describe("the status of an order", () => {
     );
     const { user } = await open(order);
 
-    // dispatched → delivered, delivery_failed; one step back in the menu.
+    // dispatched → delivered; one step back in the menu.
     expect(
       screen.getByRole("button", { name: "Mark delivered" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Delivery failed" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Mark preparing" }),
+      screen.queryByRole("button", { name: "Mark processing" }),
     ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /More actions/ }));
+    expect(
+      await screen.findByRole("menuitem", { name: "Back to processing" }),
+    ).toBeInTheDocument();
+    await user.keyboard("{Escape}");
 
     await user.click(screen.getByRole("button", { name: "Mark delivered" }));
     const dialog = await screen.findByRole("alertdialog");
@@ -67,7 +76,7 @@ describe("the status of an order", () => {
       within(dialog).getByText(/told by email that the order was delivered/),
     ).toBeInTheDocument();
     expect(
-      within(dialog).getByText(formatMoney(order.finalTotals.total)),
+      within(dialog).getByText(formatMoney(order.payment.paidAmount)),
     ).toBeInTheDocument();
     expect(changes()).toHaveLength(0);
 
@@ -86,7 +95,63 @@ describe("the status of an order", () => {
     expect(fresh(order.id).status).toBe("delivered");
   });
 
-  it("needs a reason to cancel", async () => {
+  it("asks for the tracking number when a carrier order is dispatched", async () => {
+    const order = find(
+      (entry) =>
+        entry.status === "confirmed" && entry.delivery.method === "dhl",
+      "confirmed order delivered by DHL",
+    );
+    const { user } = await open(order);
+    // The next step is processing; dispatching straight away is offered too.
+    expect(
+      screen.getByRole("button", { name: "Mark processing" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Mark dispatched" }));
+    const dialog = await screen.findByRole("alertdialog");
+    await user.type(
+      within(dialog).getByRole("textbox", { name: /DHL tracking number/ }),
+      "00340434161094015902",
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "Mark dispatched" }),
+    );
+    await waitFor(() =>
+      expect(changes()).toEqual([
+        {
+          method: "POST",
+          path: `/v1/admin/orders/${order.id}/status`,
+          body: {
+            status: "dispatched",
+            trackingNumber: "00340434161094015902",
+          },
+        },
+      ]),
+    );
+    const after = fresh(order.id);
+    expect(after.status).toBe("dispatched");
+    expect(after.delivery.trackingNumber).toBe("00340434161094015902");
+  });
+
+  it("offers no step for a pending order: the payment confirms it", async () => {
+    const order = find(
+      (entry) => entry.status === "pending_payment",
+      "pending order",
+    );
+    const { user } = await open(order);
+    expect(
+      screen.queryByRole("button", { name: /^Mark / }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Waiting for the payment: it confirms the order."),
+    ).toBeInTheDocument();
+    // It can still be cancelled.
+    await user.click(screen.getByRole("button", { name: /More actions/ }));
+    expect(
+      await screen.findByRole("menuitem", { name: "Cancel the order" }),
+    ).toBeInTheDocument();
+  });
+
+  it("needs a reason to cancel, and says that the payment waits for a refund", async () => {
     const order = find(
       (entry) => entry.status === "confirmed",
       "confirmed order",
@@ -98,6 +163,7 @@ describe("the status of an order", () => {
       await screen.findByRole("menuitem", { name: "Cancel the order" }),
     );
     const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText(/waits for a refund/)).toBeInTheDocument();
     const confirm = within(dialog).getByRole("button", {
       name: "Cancel the order",
     });
@@ -118,6 +184,12 @@ describe("the status of an order", () => {
       ]),
     );
     expect(fresh(order.id).status).toBe("cancelled");
+    // The money waits for a decision, and the page says so.
+    expect(
+      await screen.findByText(
+        `${formatMoney(order.payment.paidAmount)} waits for a refund`,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("offers no step for a cancelled order", async () => {
@@ -138,164 +210,26 @@ describe("the status of an order", () => {
   });
 });
 
-describe("payment of an order", () => {
-  it("activates payment with the amount and the deadline restated", async () => {
-    const order = find(
-      (entry) => entry.status === "delivered" && !entry.payment,
-      "delivered order without an invoice",
-    );
+describe("the refund decision", () => {
+  it("restates what waits for a refund and refunds it by hand", async () => {
+    const order = find(waitingForRefund, "cancelled paid order");
+    const paid = order.payment.paidAmount;
     const { user } = await open(order);
 
-    await user.click(screen.getByRole("button", { name: "Activate payment" }));
-    const dialog = await screen.findByRole("alertdialog");
     expect(
-      within(dialog).getByText(formatMoney(order.finalTotals.total)),
+      await screen.findByText(`${formatMoney(paid)} waits for a refund`),
     ).toBeInTheDocument();
-    expect(within(dialog).getByText(/German time/)).toBeInTheDocument();
-
-    await user.click(
-      within(dialog).getByRole("button", {
-        name: "Activate and send the invoice",
-      }),
-    );
-    await waitFor(() =>
-      expect(changes()).toEqual([
-        {
-          method: "POST",
-          path: `/v1/admin/orders/${order.id}/payment/activate`,
-          body: { deadlineDays: 5 },
-        },
-      ]),
-    );
-    const after = fresh(order.id);
-    expect(after.paymentStatus).toBe("due");
-    expect(after.payment?.amountDue).toBe(order.finalTotals.total);
-  });
-
-  it("cannot activate payment before delivery", async () => {
-    const order = find(
-      (entry) => entry.status === "dispatched",
-      "dispatched order",
-    );
-    await open(order);
-    expect(
-      screen.getByRole("button", { name: "Activate payment" }),
-    ).toBeDisabled();
-    expect(
-      screen.getByLabelText(
-        "Payment can be activated once the order is delivered.",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("records cash for exactly the amount due", async () => {
-    const order = find(
-      (entry) => entry.paymentStatus === "due",
-      "order that is due",
-    );
-    const due = order.payment?.amountDue ?? 0;
-    const { user } = await open(order);
-
-    await user.click(
-      await screen.findByRole("button", { name: "Record cash" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Decide the refund" }));
     const dialog = await screen.findByRole("alertdialog");
-    // The amount is not typed: partial payments do not exist.
-    expect(
-      within(dialog).queryByRole("textbox", { name: /amount/i }),
-    ).not.toBeInTheDocument();
-    await user.click(
-      within(dialog).getByRole("button", {
-        name: `Record ${formatMoney(due)} in cash`,
-      }),
-    );
-    await waitFor(() =>
-      expect(changes()).toEqual([
-        {
-          method: "POST",
-          path: `/v1/admin/orders/${order.id}/payment/cash`,
-          body: { amount: due },
-        },
-      ]),
-    );
-    const after = fresh(order.id);
-    expect(after.paymentStatus).toBe("paid");
-    expect(after.payment?.method).toBe("cash");
-    expect(after.payment?.amountDue).toBe(0);
-  });
-
-  it("waives only with a reason", async () => {
-    const order = find(
-      (entry) => entry.paymentStatus === "overdue",
-      "overdue order",
-    );
-    const { user } = await open(order);
-
-    await user.click(await screen.findByRole("button", { name: "Waive" }));
-    const dialog = await screen.findByRole("alertdialog");
-    const confirm = within(dialog).getByRole("button", { name: /^Waive €/ });
-    expect(confirm).toBeDisabled();
-    await user.type(
-      within(dialog).getByRole("textbox", { name: "Reason" }),
-      "Damaged on arrival",
-    );
-    await user.click(confirm);
-    await waitFor(() =>
-      expect(changes()).toEqual([
-        {
-          method: "POST",
-          path: `/v1/admin/orders/${order.id}/payment/waive`,
-          body: { reason: "Damaged on arrival" },
-        },
-      ]),
-    );
-    expect(fresh(order.id).paymentStatus).toBe("waived");
-  });
-
-  it("pauses the reminders", async () => {
-    const order = find(
-      (entry) => entry.paymentStatus === "due",
-      "order that is due",
-    );
-    const { user } = await open(order);
-    await user.click(
-      await screen.findByRole("button", { name: "Pause reminders" }),
-    );
-    await waitFor(() =>
-      expect(changes()).toEqual([
-        {
-          method: "PATCH",
-          path: `/v1/admin/orders/${order.id}/payment/reminders`,
-          body: { paused: true },
-        },
-      ]),
-    );
-    expect(
-      await screen.findByRole("button", { name: "Resume reminders" }),
-    ).toBeInTheDocument();
-  });
-});
-
-describe("refunds", () => {
-  const paidInCash = (entry: OrderRecord) =>
-    entry.paymentStatus === "paid" &&
-    entry.payment?.method === "cash" &&
-    entry.payment.refundedAmount === 0 &&
-    !api.mock.db().refunds.some((refund) => refund.orderId === entry.id);
-
-  it("refunds by hand, up to what was paid", async () => {
-    const order = find(paidInCash, "paid order");
-    const paid = order.payment?.paidAmount ?? 0;
-    const { user } = await open(order);
-
-    await user.click(await screen.findByRole("button", { name: "Refund" }));
-    const dialog = await screen.findByRole("alertdialog");
-    // Stripe is not connected (section 19): refunding through Stripe is not offered.
+    // Stripe is not connected (section 18): refunding through Stripe is not offered.
     expect(
       within(dialog).queryByRole("option", { name: /Through Stripe/ }),
     ).not.toBeInTheDocument();
-
+    // The suggested amount is restated and prefilled.
+    expect(within(dialog).getByText("Waits for a refund")).toBeInTheDocument();
     const amount = within(dialog).getByRole("textbox", { name: "Amount" });
+    expect(amount).toHaveValue(centsToInput(paid));
+
     await user.clear(amount);
     await user.type(amount, "9999");
     expect(
@@ -306,17 +240,19 @@ describe("refunds", () => {
     ).toBeDisabled();
 
     await user.clear(amount);
-    await user.type(amount, "1,50");
+    await user.type(amount, (paid / 100).toFixed(2));
     await user.selectOptions(
       within(dialog).getByRole("combobox", { name: "Reason" }),
-      "goodwill",
+      "other",
     );
     await user.selectOptions(
       within(dialog).getByRole("combobox", { name: "Sent by" }),
       "bank_transfer",
     );
     await user.click(
-      within(dialog).getByRole("button", { name: "Refund €1.50" }),
+      within(dialog).getByRole("button", {
+        name: `Refund ${formatMoney(paid)}`,
+      }),
     );
 
     await waitFor(() =>
@@ -325,8 +261,8 @@ describe("refunds", () => {
           method: "POST",
           path: `/v1/admin/orders/${order.id}/payment/refunds`,
           body: {
-            amount: 150,
-            reason: "goodwill",
+            amount: paid,
+            reason: "other",
             method: "manual",
             manual: { way: "bank_transfer" },
           },
@@ -337,36 +273,38 @@ describe("refunds", () => {
       .db()
       .refunds.find((entry) => entry.orderId === order.id);
     expect(refund?.status).toBe("pending");
-    expect(refund?.amount).toBe(150);
+    expect(refund?.amount).toBe(paid);
   });
 
-  it("offers Stripe when the order was paid through Stripe", async () => {
+  it("offers Stripe when Stripe is connected and the order was paid through it", async () => {
     api = installTestApi({ stripe: true });
     await api.signIn();
-    const order = find(
-      (entry) =>
-        entry.paymentStatus === "paid" && entry.payment?.method === "stripe",
-      "order paid through Stripe",
-    );
+    const order = find(waitingForRefund, "cancelled paid order");
     const { user } = await open(order);
-    await user.click(await screen.findByRole("button", { name: "Refund" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Decide the refund" }),
+    );
     const dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).getByRole("combobox", { name: "How" })).toHaveValue(
       "stripe",
     );
     await user.selectOptions(
       within(dialog).getByRole("combobox", { name: "Reason" }),
-      "goodwill",
+      "other",
     );
     await user.click(within(dialog).getByRole("button", { name: /^Refund €/ }));
     await waitFor(() => expect(changes()).toHaveLength(1));
     expect(changes()[0]?.body).toMatchObject({
       method: "stripe",
-      reason: "goodwill",
+      reason: "other",
     });
-    expect(
-      api.mock.db().refunds.find((entry) => entry.orderId === order.id)?.status,
-    ).toBe("processing");
+    // The stand-in for Stripe confirms at once: the money is booked on the order.
+    const refund = api.mock
+      .db()
+      .refunds.find((entry) => entry.orderId === order.id);
+    expect(refund?.status).toBe("completed");
+    expect(refund?.statusHistory.at(-1)?.by).toBe("stripe");
+    expect(fresh(order.id).paymentStatus).toBe("refunded");
   });
 
   it("checks the form the way the API will", () => {
@@ -407,23 +345,22 @@ describe("refunds", () => {
 });
 
 describe("correcting what was delivered", () => {
-  it("lowers the bill and, after the invoice, issues a credit note", async () => {
-    const order = find(
-      (entry) =>
-        entry.paymentStatus === "due" &&
-        entry.items.some(
-          (item) =>
-            item.quantity > 1 && item.deliveredQuantity === item.quantity,
-        ),
-      "invoiced order with more than one unit of a product",
-    );
-    const item = order.items.find(
-      (entry) =>
-        entry.quantity > 1 && entry.deliveredQuantity === entry.quantity,
-    );
+  const correctable = (entry: OrderRecord) =>
+    entry.status === "delivered" &&
+    entry.adjustments.length === 0 &&
+    entry.items.every((item) => item.returnedQuantity === 0) &&
+    entry.items.some((item) => item.quantity > 1);
+
+  it("lowers the bill, issues a credit note and gives the units back", async () => {
+    const order = find(correctable, "delivered order with more than one unit");
+    const item = order.items.find((entry) => entry.quantity > 1);
     if (!item) throw new Error("no item");
     const before = order.finalTotals.total;
     const invoices = api.mock.db().invoices.length;
+    const product = api.mock
+      .db()
+      .products.find((entry) => entry.id === item.productId);
+    const stockBefore = product?.stock.quantity ?? 0;
     const { user } = await open(order);
 
     await user.click(
@@ -465,14 +402,18 @@ describe("correcting what was delivered", () => {
     expect(after.finalTotals.total).toBe(before - item.unitPrice);
     expect(after.totals.total).toBe(order.totals.total);
     expect(api.mock.db().invoices).toHaveLength(invoices + 1);
-    expect(after.payment?.creditedAmount).toBe(item.unitPrice);
+    expect(after.payment.creditedAmount).toBe(item.unitPrice);
+    expect(product?.stock.quantity).toBe(stockBefore + 1);
+    // The credited money waits for a refund.
+    expect(
+      await screen.findByText(
+        `${formatMoney(item.unitPrice)} waits for a refund`,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("refuses more than was ordered and less than was returned", async () => {
-    const order = find(
-      (entry) => entry.status === "delivered" && !entry.payment,
-      "delivered order",
-    );
+    const order = find(correctable, "delivered order");
     const item = order.items[0];
     if (!item) throw new Error("no item");
     const { user } = await open(order);
@@ -509,7 +450,7 @@ describe("correcting what was delivered", () => {
       imageUrl: null,
       quantity,
       unitPrice,
-      regularUnitPrice: unitPrice,
+      regularUnitPrice: null,
       lineTotal: quantity * unitPrice,
       vatRate: 700,
       vatPercent: 7,
@@ -563,24 +504,16 @@ describe("correcting what was delivered", () => {
 
 describe("permissions on an order", () => {
   it("keeps the actions visible but disabled for a read-only role", async () => {
-    const order = find(
-      (entry) => entry.paymentStatus === "due",
-      "order that is due",
-    );
+    const order = find(waitingForRefund, "cancelled paid order");
     await open(order, ["orders.read", "payments.read"]);
     expect(
-      await screen.findByRole("button", { name: "Record cash" }),
+      await screen.findByRole("button", { name: "Decide the refund" }),
     ).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Waive" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Refund" })).toBeDisabled();
     expect(
       screen.getAllByLabelText('Your role does not include "Payments: manage".')
         .length,
     ).toBeGreaterThan(0);
-    for (const button of screen.getAllByRole("button", {
-      name: /Correct the delivered units/,
-    })) {
-      expect(button).toBeDisabled();
-    }
     // Nothing that changes the order hides in a menu.
     expect(
       screen.queryByRole("button", { name: /More actions/ }),
@@ -589,17 +522,20 @@ describe("permissions on an order", () => {
 
   it("separates order and payment permissions", async () => {
     const order = find(
-      (entry) => entry.status === "delivered" && !entry.payment,
+      (entry) => entry.status === "delivered" && entry.adjustments.length === 0,
       "delivered order",
     );
     await open(order, ["orders.read", "orders.manage"]);
-    // May correct the items, may not activate payment.
+    // May correct the items, may not read the payment's documents.
     expect(
       screen.getAllByRole("button", { name: /Correct the delivered units/ })[0],
     ).toBeEnabled();
     expect(
-      screen.getByRole("button", { name: "Activate payment" }),
-    ).toBeDisabled();
+      screen.getByText(/Documents and refunds need the permission/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Refund" }),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -636,11 +572,43 @@ describe("finding and reading orders", () => {
     expect(testNavigation.location).toBe("/orders?q=priya&sort=total%3Adesc");
   });
 
-  it("folds the daily reminders of the history into one line", () => {
+  it("lists the orders waiting for a refund from the address, as a chip", async () => {
+    const { user } = renderPanel(<OrdersList />, {
+      path: "/orders?needsRefund=true",
+    });
+    await waitFor(() =>
+      expect(api.calls.map((call) => call.path)).toContain(
+        "/v1/admin/orders?needsRefund=true&limit=25",
+      ),
+    );
+    const waiting = api.mock
+      .db()
+      .orders.filter(
+        (order) =>
+          order.payment.paidAmount - order.payment.refundedAmount > 0 &&
+          (order.status === "cancelled" ||
+            order.payment.creditedAmount - order.payment.refundedAmount > 0),
+      );
+    expect(waiting.length).toBeGreaterThan(0);
+    for (const order of waiting) {
+      expect(
+        await screen.findByRole("link", { name: order.orderNumber }),
+      ).toBeInTheDocument();
+    }
+    await user.click(
+      screen.getByRole("button", {
+        name: "Remove the filter: Waiting for a refund",
+      }),
+    );
+    await waitFor(() => expect(testNavigation.location).toBe("/orders"));
+  });
+
+  it("reads the history newest first, in words", () => {
     const entry = (
+      field: "order" | "payment" | "delivery",
       to: string,
       at: string,
-      field: "order" | "payment" = "payment",
+      note: string | null = null,
     ) => ({
       field,
       from: null,
@@ -648,29 +616,36 @@ describe("finding and reading orders", () => {
       at,
       by: "system" as const,
       adminId: null,
-      note: null,
+      note,
     });
     const timeline = orderTimeline(
       [
-        entry("delivered", "2026-09-10T09:00:00.000Z", "order"),
-        entry("due", "2026-09-13T18:00:00.000Z"),
-        entry("reminder_sent", "2026-09-14T07:00:00.000Z"),
-        entry("reminder_sent", "2026-09-15T07:00:00.000Z"),
-        entry("reminder_sent", "2026-09-16T07:00:00.000Z"),
-        entry("overdue", "2026-09-18T22:00:00.000Z"),
-        entry("reminder_sent", "2026-09-19T07:00:00.000Z"),
+        entry("order", "pending_payment", "2026-09-10T09:00:00.000Z"),
+        entry("payment", "authorized", "2026-09-10T09:05:00.000Z"),
+        entry("order", "confirmed", "2026-09-10T09:05:02.000Z"),
+        entry("payment", "paid", "2026-09-10T09:05:02.000Z"),
+        entry("delivery", "dhl", "2026-09-11T08:00:00.000Z"),
+        entry(
+          "payment",
+          "credited",
+          "2026-09-14T10:00:00.000Z",
+          "CN-2026-000007",
+        ),
+        entry("payment", "refunded", "2026-09-15T10:00:00.000Z", "RF-1084-RF1"),
       ],
       () => "Admin",
     );
     expect(timeline.map((line) => line.title)).toEqual([
-      "Reminder sent",
-      "Payment overdue",
-      "3 reminders sent",
-      "Payment due",
-      "Delivered",
+      "Refund completed",
+      "Credit note issued",
+      "Delivery method: DHL",
+      "Payment captured",
+      "Confirmed",
+      "Payment approved by the bank",
+      "Pending payment",
     ]);
-    expect(timeline[2]?.by).toBe("daily since 14 Sep 2026");
-    expect(timeline[2]?.at).toBe("2026-09-16T07:00:00.000Z");
+    expect(timeline[0]?.note).toBe("RF-1084-RF1");
+    expect(timeline[0]?.by).toBe("The system");
   });
 });
 
@@ -694,7 +669,7 @@ describe("acting on chosen orders", () => {
     return { confirmed: confirmed.slice(0, 2), cancelled };
   }
 
-  it("ticks orders, sends their ids, and names the ones the API left as they are", async () => {
+  it("ticks orders, sends their ids, and names what happened to each", async () => {
     // Sorted by status, cancelled orders come first, then confirmed ones.
     const { user } = renderPanel(<OrdersList />, {
       path: "/orders?sort=status%3Aasc",
@@ -715,16 +690,16 @@ describe("acting on chosen orders", () => {
     api.calls.length = 0;
 
     await user.click(
-      within(bar).getByRole("button", { name: "Mark preparing" }),
+      within(bar).getByRole("button", { name: "Mark processing" }),
     );
     const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent("Mark preparing: 3 orders?");
+    expect(dialog).toHaveTextContent("Mark processing: 3 orders?");
     await user.type(
       within(dialog).getByRole("textbox", { name: /Note for the history/ }),
       "Packing started",
     );
     await user.click(
-      within(dialog).getByRole("button", { name: "Mark preparing" }),
+      within(dialog).getByRole("button", { name: "Mark processing" }),
     );
 
     await waitFor(() => expect(changes()).toHaveLength(1));
@@ -733,23 +708,27 @@ describe("acting on chosen orders", () => {
       path: "/v1/admin/orders/bulk/status",
       body: {
         orderIds: [...confirmed, cancelled].map((order) => order.id),
-        status: "preparing",
+        status: "processing",
         note: "Packing started",
       },
     });
     for (const order of confirmed) {
-      expect(fresh(order.id).status).toBe("preparing");
+      expect(fresh(order.id).status).toBe("processing");
     }
     expect(fresh(cancelled.id).status).toBe("cancelled");
 
-    // What the API refused is listed with its reason, not hidden in a count.
+    // Every order is answered: what changed, and what was left with its reason.
     const outcome = await screen.findByRole("dialog", {
       name: "2 orders changed, 1 order not",
     });
     expect(outcome).toHaveTextContent(cancelled.orderNumber);
     expect(outcome).toHaveTextContent(
-      'An order that is "cancelled" cannot be set to "preparing".',
+      'An order that is "cancelled" cannot be set to "processing".',
     );
+    for (const order of confirmed) {
+      expect(outcome).toHaveTextContent(order.orderNumber);
+    }
+    expect(within(outcome).getAllByText("Changed")).toHaveLength(2);
     await user.click(
       within(outcome).getByRole("button", { name: "Understood" }),
     );
@@ -806,7 +785,7 @@ describe("acting on chosen orders", () => {
   it("offers no choice to an admin who may only read", async () => {
     renderPanel(<OrdersList />, {
       path: "/orders",
-      permissions: ["orders.read", "cargos.read"],
+      permissions: ["orders.read", "payments.read"],
     });
     await screen.findAllByRole("link", { name: /^RF-\d{4}$/ });
     expect(screen.queryAllByRole("checkbox")).toHaveLength(0);

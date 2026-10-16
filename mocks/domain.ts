@@ -1,89 +1,61 @@
 // The rules the mock shares between its seed data and its routes: bills,
-// invoices, messages, and how stored records become the API's objects.
+// invoices, messages, the payment of an order, and how stored records
+// become the API's objects.
 
 import type {
-  CargoStatus,
+  Category,
+  Customer,
   InvoiceDetail,
   InvoiceSummary,
   NotificationChannel,
   NotificationDetail,
   NotificationType,
+  OrderDetail,
   OrderStatus,
+  OrderSummary,
   PaymentBlock,
-  PaymentStatus,
   PriceView,
   ProductDetail,
   ProductSummary,
+  Refundable,
   SettableOrderStatus,
   Totals,
-  Category,
-  Cargo,
-  CargoDetail,
-  OrderDetail,
-  OrderSummary,
-  CargoAttention,
-  Customer,
 } from "../src/lib/api/types/index.ts";
 import type {
-  CargoRecord,
   CategoryRecord,
   Db,
   OrderRecord,
   ProductRecord,
+  StockRecord,
 } from "./db.ts";
 import { newId } from "./http.ts";
-import { berlinDay, deadlineAfterDays, iso, nextReminder } from "./time.ts";
+import { berlinDay, iso } from "./time.ts";
 
-// --- State machines (9.1, 10.1) ---------------------------------------------
+// --- State machine (9.1) ----------------------------------------------------
 
-export const CARGO_ALLOWED: Record<CargoStatus, CargoStatus[]> = {
-  draft: ["scheduled", "taking_orders", "cancelled"],
-  scheduled: ["draft", "taking_orders", "cancelled"],
-  taking_orders: ["orders_closed", "cancelled"],
-  orders_closed: ["taking_orders", "in_transit", "cancelled"],
-  in_transit: ["orders_closed", "arrived", "cancelled"],
-  arrived: ["in_transit", "delivering"],
-  delivering: ["arrived", "delivered"],
-  delivered: ["delivering"],
-  cancelled: [],
-};
-
+/** What the admin can set from each status; a pending order is confirmed by its payment. */
 export const ORDER_ALLOWED: Record<OrderStatus, SettableOrderStatus[]> = {
-  confirmed: ["preparing", "dispatched"],
-  preparing: ["confirmed", "dispatched"],
-  dispatched: ["preparing", "delivered", "delivery_failed"],
-  delivery_failed: ["dispatched", "delivered"],
+  pending_payment: [],
+  confirmed: ["processing", "dispatched"],
+  processing: ["confirmed", "dispatched"],
+  dispatched: ["processing", "delivered"],
   delivered: ["dispatched"],
   returned: [],
   cancelled: [],
 };
 
 export const CANCELLABLE: OrderStatus[] = [
+  "pending_payment",
   "confirmed",
-  "preparing",
+  "processing",
   "dispatched",
-  "delivery_failed",
 ];
-export const MOVABLE: OrderStatus[] = [
-  "confirmed",
-  "preparing",
-  "delivery_failed",
-];
+/** Delivery method, tracking and quantity corrections. */
 export const CHANGEABLE: OrderStatus[] = [
   "confirmed",
-  "preparing",
+  "processing",
   "dispatched",
-  "delivery_failed",
   "delivered",
-];
-/** A cargo in one of these can be given orders. */
-export const CAN_TAKE_ORDERS: CargoStatus[] = [
-  "draft",
-  "scheduled",
-  "taking_orders",
-  "orders_closed",
-  "in_transit",
-  "arrived",
 ];
 
 // --- Catalogue --------------------------------------------------------------
@@ -136,6 +108,17 @@ export function vatOf(gross: number, rate: number): number {
   return Math.round((gross * rate) / (10000 + rate));
 }
 
+/** The stock as the API shows it (8): `isLow` needs a threshold. */
+export function stockView(stock: StockRecord) {
+  return {
+    quantity: stock.quantity,
+    lowStockThreshold: stock.lowStockThreshold,
+    isLow:
+      stock.lowStockThreshold !== null &&
+      stock.quantity <= stock.lowStockThreshold,
+  };
+}
+
 function groupOf(db: Db, product: ProductRecord): ProductRecord[] {
   if (!product.variantGroupId) return [];
   return db.products
@@ -165,6 +148,7 @@ export function productSummary(db: Db, product: ProductRecord): ProductSummary {
     isAvailable: product.isAvailable,
     isFeatured: product.isFeatured,
     sortOrder: product.sortOrder,
+    stock: stockView(product.stock),
     variantGroupId: product.variantGroupId,
     isDefaultVariant: product.isDefaultVariant,
     packSizeCount: Math.max(1, groupOf(db, product).length),
@@ -183,18 +167,28 @@ export function productSummary(db: Db, product: ProductRecord): ProductSummary {
   };
 }
 
+/** Orders that count for "in use": every one that was not cancelled. */
+export function productInUse(db: Db, productId: string): number {
+  return db.orders.filter(
+    (order) =>
+      order.status !== "cancelled" &&
+      order.items.some((item) => item.productId === productId),
+  ).length;
+}
+
 export function productDetail(db: Db, product: ProductRecord): ProductDetail {
   // Whether `DELETE` would succeed now (8), with the reason of a refusal.
+  const orders = productInUse(db, product.id);
   const notDeletableReason =
     product.status === "active"
       ? {
           code: "PRODUCT_IS_ACTIVE" as const,
           message: "Archive the product before deleting it.",
         }
-      : db.cargoProducts.some((entry) => entry.productId === product.id)
+      : orders > 0
         ? {
             code: "PRODUCT_IN_USE" as const,
-            message: "The product was part of a cargo and cannot be deleted.",
+            message: `The product cannot be deleted. It is part of ${orders} order(s). Archive it instead.`,
           }
         : null;
   return {
@@ -228,6 +222,7 @@ export function productDetail(db: Db, product: ProductRecord): ProductDetail {
       pricing: priceView(entry),
       status: entry.status,
       isAvailable: entry.isAvailable,
+      stock: stockView(entry.stock),
       isDefault: entry.isDefaultVariant,
     })),
     publishedAt: product.publishedAt,
@@ -272,48 +267,6 @@ export function orderedCategories(
     .filter((entry) => entry.parentId === parentId)
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .flatMap((entry) => [entry, ...orderedCategories(db, entry.id)]);
-}
-
-// --- Cargos -----------------------------------------------------------------
-
-export function cargoAttention(
-  cargo: CargoRecord,
-  now: number,
-): CargoAttention | null {
-  const open = Date.parse(cargo.orderOpenAt);
-  const close = Date.parse(cargo.orderCloseAt);
-  if (cargo.status === "scheduled" && now >= close) return "window_missed";
-  if (cargo.status === "scheduled" && now >= open) return "opening_due";
-  if (cargo.status === "taking_orders" && now >= close) return "closing_due";
-  return null;
-}
-
-export function cargoView(db: Db, cargo: CargoRecord, now: number): Cargo {
-  const settings = db.cargoProducts.filter(
-    (entry) => entry.cargoId === cargo.id,
-  );
-  const { statusHistory: _history, ...rest } = cargo;
-  return {
-    ...rest,
-    isAcceptingOrders:
-      cargo.status === "taking_orders" &&
-      now >= Date.parse(cargo.orderOpenAt) &&
-      now < Date.parse(cargo.orderCloseAt),
-    attention: cargoAttention(cargo, now),
-    allowedStatuses: CARGO_ALLOWED[cargo.status],
-    products: {
-      total: settings.length,
-      enabled: settings.filter((entry) => entry.isEnabled).length,
-    },
-  };
-}
-
-export function cargoDetail(
-  db: Db,
-  cargo: CargoRecord,
-  now: number,
-): CargoDetail {
-  return { ...cargoView(db, cargo, now), statusHistory: cargo.statusHistory };
 }
 
 // --- Bills ------------------------------------------------------------------
@@ -387,24 +340,102 @@ export function recomputeFinal(order: OrderRecord): void {
 
 // --- Orders -----------------------------------------------------------------
 
-export function paymentBlock(db: Db, order: OrderRecord): PaymentBlock {
-  if (!order.payment) {
-    return {
-      status: "not_enabled",
-      canActivate: order.status === "delivered" && order.finalTotals.total > 0,
-    };
-  }
-  const owing =
-    order.paymentStatus === "due" || order.paymentStatus === "overdue";
-  const { failedAt: _failedAt, ...payment } = order.payment;
+/** `refundableAmount` and `needsRefund` of the payment block (11.1). */
+export function refundState(order: OrderRecord): {
+  refundableAmount: number;
+  needsRefund: boolean;
+} {
+  const payment = order.payment;
+  const refundableAmount = Math.max(
+    0,
+    payment.paidAmount - payment.refundedAmount,
+  );
   return {
-    ...payment,
-    status: order.paymentStatus as Exclude<PaymentStatus, "not_enabled">,
-    canActivate: false,
-    isOverdue: order.paymentStatus === "overdue",
-    canPayOnline: owing && db.config.stripe,
-    canRecordCash: owing,
-    canWaive: owing,
+    refundableAmount,
+    needsRefund:
+      refundableAmount > 0 &&
+      (order.status === "cancelled" ||
+        payment.creditedAmount - payment.refundedAmount > 0),
+  };
+}
+
+export function paymentBlock(
+  db: Db,
+  order: OrderRecord,
+  now: number,
+): PaymentBlock {
+  const payment = order.payment;
+  const invoice = payment.invoiceId
+    ? db.invoices.find((entry) => entry.id === payment.invoiceId)
+    : undefined;
+  const pageOpen =
+    order.status === "pending_payment" &&
+    payment.checkoutUrl !== null &&
+    payment.checkoutExpiresAt !== null &&
+    Date.parse(payment.checkoutExpiresAt) > now;
+  return {
+    status: order.paymentStatus,
+    amount: payment.amount,
+    paidAmount: payment.paidAmount,
+    creditedAmount: payment.creditedAmount,
+    refundedAmount: payment.refundedAmount,
+    method: payment.paymentType,
+    paidAt: payment.paidAt,
+    receiptUrl: payment.receiptUrl,
+    invoice: invoice
+      ? {
+          number: invoice.number,
+          issuedAt: invoice.issuedAt,
+          pdfPath: `/v1/store/invoices/${invoice.number}/pdf`,
+        }
+      : null,
+    checkout: pageOpen
+      ? { url: payment.checkoutUrl!, expiresAt: payment.checkoutExpiresAt! }
+      : null,
+    canPayOnline:
+      order.status === "pending_payment" &&
+      (order.paymentStatus === "pending" || order.paymentStatus === "failed") &&
+      db.config.stripe,
+    lastFailure: payment.lastFailure,
+    attempts: payment.attempts,
+    checkoutSessionId: payment.checkoutSessionId,
+    checkoutExpiresAt: payment.checkoutExpiresAt,
+    paymentIntentId: payment.paymentIntentId,
+    chargeId: payment.chargeId,
+    authorizedAt: payment.authorizedAt,
+    invoiceId: payment.invoiceId,
+    ...refundState(order),
+  };
+}
+
+/** What can be refunded, and what the cancellation or the credit notes call for (11). */
+export function refundableOf(db: Db, order: OrderRecord): Refundable {
+  const payment = order.payment;
+  const openAmount = db.refunds
+    .filter(
+      (refund) =>
+        refund.orderId === order.id &&
+        (refund.status === "pending" || refund.status === "processing"),
+    )
+    .reduce((sum, refund) => sum + refund.amount, 0);
+  const maximum = Math.max(
+    0,
+    payment.paidAmount - payment.refundedAmount - openAmount,
+  );
+  const calledFor =
+    order.status === "cancelled" ? payment.paidAmount : payment.creditedAmount;
+  const suggested = Math.min(
+    maximum,
+    Math.max(0, calledFor - payment.refundedAmount - openAmount),
+  );
+  return {
+    paidAmount: payment.paidAmount,
+    refundedAmount: payment.refundedAmount,
+    openAmount,
+    maximum,
+    suggested,
+    // Stripe can refund what it captured, once it is connected (18).
+    stripePossible: db.config.stripe && payment.paymentIntentId !== null,
   };
 }
 
@@ -426,7 +457,6 @@ export function orderSummary(order: OrderRecord): OrderSummary {
   return {
     id: order.id,
     orderNumber: order.orderNumber,
-    type: order.type,
     status: order.status,
     paymentStatus: order.paymentStatus,
     placedAt: order.placedAt,
@@ -438,9 +468,9 @@ export function orderSummary(order: OrderRecord): OrderSummary {
           .filter((part) => part && part.trim() !== "")
           .join(" ") || null,
     },
-    cargo: order.cargo,
     total: order.totals.total,
     finalTotal: order.finalTotals.total,
+    paidAmount: order.payment.paidAmount,
     currency: "EUR",
     lineCount: order.items.length,
     itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
@@ -456,7 +486,11 @@ export function orderSummary(order: OrderRecord): OrderSummary {
   };
 }
 
-export function orderDetail(db: Db, order: OrderRecord): OrderDetail {
+export function orderDetail(
+  db: Db,
+  order: OrderRecord,
+  now: number,
+): OrderDetail {
   return {
     ...orderSummary(order),
     language: order.language,
@@ -466,10 +500,9 @@ export function orderDetail(db: Db, order: OrderRecord): OrderDetail {
     adjustments: order.adjustments,
     deliveryAddress: order.deliveryAddress,
     note: order.note,
-    payment: paymentBlock(db, order),
+    payment: paymentBlock(db, order, now),
     canCancel: CANCELLABLE.includes(order.status),
     allowedStatuses: ORDER_ALLOWED[order.status],
-    canMove: MOVABLE.includes(order.status),
     cancellation: order.cancellation,
     consent: order.consent,
     statusHistory: order.statusHistory,
@@ -480,7 +513,7 @@ export function orderDetail(db: Db, order: OrderRecord): OrderDetail {
 export function pushHistory(
   order: OrderRecord,
   entry: {
-    field: "order" | "payment" | "cargo" | "delivery" | "delivery_window";
+    field: "order" | "payment" | "delivery";
     from: string | null;
     to: string;
     by?: "customer" | "admin" | "system";
@@ -501,62 +534,23 @@ export function pushHistory(
   order.updatedAt = iso(now);
 }
 
-/** Releases or takes the units of an order in its cargo. */
-export function reserve(
-  db: Db,
-  order: OrderRecord,
-  cargoId: string,
-  sign: 1 | -1,
-): void {
-  for (const item of order.items) {
-    let setting = db.cargoProducts.find(
-      (entry) =>
-        entry.cargoId === cargoId && entry.productId === item.productId,
-    );
-    if (!setting && sign === 1) {
-      setting = {
-        cargoId,
-        productId: item.productId,
-        isEnabled: true,
-        maxQuantity: null,
-        orderedQuantity: 0,
-      };
-      db.cargoProducts.push(setting);
-    }
-    if (setting) {
-      setting.orderedQuantity = Math.max(
-        0,
-        setting.orderedQuantity + sign * item.quantity,
-      );
-    }
-  }
+/** Whether the money of an order is listed as waiting for a refund (9: `needsRefund`). */
+export function orderNeedsRefund(order: OrderRecord): boolean {
+  return refundState(order).needsRefund;
 }
 
-// --- Messages (14) ----------------------------------------------------------
+// --- Messages (13) ----------------------------------------------------------
 
-const WHATSAPP_TYPES: NotificationType[] = [
-  "order_dispatched",
-  "payment_request",
-  "payment_reminder",
-  "announcement",
-];
+const WHATSAPP_TYPES: NotificationType[] = ["order_dispatched", "announcement"];
 
 const SUBJECT: Record<NotificationType, [string, string]> = {
   order_confirmed: [
-    "Your pre-order {n} is confirmed",
-    "Ihre Vorbestellung {n} ist bestätigt",
+    "Your order {n} is confirmed",
+    "Ihre Bestellung {n} ist bestätigt",
   ],
   order_cancelled: [
     "Your order {n} was cancelled",
     "Ihre Bestellung {n} wurde storniert",
-  ],
-  order_moved: [
-    "New delivery days for order {n}",
-    "Neue Liefertage für Bestellung {n}",
-  ],
-  delivery_rescheduled: [
-    "The delivery of order {n} has new days",
-    "Die Lieferung von Bestellung {n} hat neue Tage",
   ],
   order_dispatched: [
     "Your order {n} is on its way",
@@ -565,10 +559,6 @@ const SUBJECT: Record<NotificationType, [string, string]> = {
   order_delivered: [
     "Your order {n} was delivered",
     "Ihre Bestellung {n} wurde geliefert",
-  ],
-  delivery_failed: [
-    "We could not deliver order {n}",
-    "Wir konnten Bestellung {n} nicht zustellen",
   ],
   return_requested: [
     "We received your return request",
@@ -583,18 +573,9 @@ const SUBJECT: Record<NotificationType, [string, string]> = {
     "Your return is complete",
     "Ihre Rücksendung ist abgeschlossen",
   ],
-  payment_request: ["Your invoice {i}", "Ihre Rechnung {i}"],
-  payment_reminder: [
-    "Reminder: invoice {i} is open",
-    "Erinnerung: Rechnung {i} ist offen",
-  ],
-  payment_received: [
-    "Payment received for order {n}",
-    "Zahlung erhalten für Bestellung {n}",
-  ],
   payment_failed: [
-    "Your payment did not go through",
-    "Ihre Zahlung ist fehlgeschlagen",
+    "Your payment for order {n} did not go through",
+    "Ihre Zahlung für Bestellung {n} ist fehlgeschlagen",
   ],
   refund_completed: [
     "Your refund is on its way",
@@ -625,18 +606,16 @@ export interface MessageInput {
  * Queues the message of an event. One record per channel: email always;
  * WhatsApp for the types that have a template, to customers who gave a
  * number and said yes. While WhatsApp is not configured, such a record is
- * stored as `skipped` and can be retried later (section 19).
+ * stored as `skipped` and can be retried later (section 18).
  */
 export function queueMessage(db: Db, input: MessageInput, now: number): void {
   const { customer, order } = input;
   const locale = order?.language ?? customer.locale;
-  const invoiceNumber = order?.payment?.invoice.number ?? "";
   const pattern = SUBJECT[input.type][locale === "de" ? 1 : 0];
   const announcementSubject =
     (locale === "de" ? input.subject?.de : null) ?? input.subject?.en ?? "";
   const subject = pattern
     .replace("{n}", order?.orderNumber ?? "")
-    .replace("{i}", invoiceNumber)
     .replace("{s}", announcementSubject);
 
   const wantsWhatsapp =
@@ -668,7 +647,6 @@ export function queueMessage(db: Db, input: MessageInput, now: number): void {
       customerId: customer.id,
       orderId: order?.id ?? null,
       orderNumber: order?.orderNumber ?? null,
-      cargoId: order?.cargo.id ?? null,
       productId: input.productId ?? null,
       returnId: input.returnId ?? null,
       refundId: input.refundId ?? null,
@@ -724,7 +702,7 @@ export function queueMessage(db: Db, input: MessageInput, now: number): void {
   }
 }
 
-// --- Invoices (13) and payment activation (12) ------------------------------
+// --- Invoices (12) ----------------------------------------------------------
 
 function nextNumber(
   db: Db,
@@ -777,18 +755,14 @@ export function companyMissing(db: Db) {
 }
 
 /**
- * Activates the payment of a delivered order: the invoice is written from
- * the final bill, the deadline is the end of the chosen day in German time,
- * the first reminder is due the next day at the reminder hour.
+ * The invoice of a paid order, issued the moment the money is captured
+ * (12): from the agreed bill, issued and paid at the same moment.
  */
-export function activatePayment(
+export function issueInvoice(
   db: Db,
   order: OrderRecord,
-  deadlineDays: number,
-  adminId: string | null,
   now: number,
 ): InvoiceDetail {
-  const deadline = deadlineAfterDays(deadlineDays, now);
   const language = order.language;
   const invoice: InvoiceDetail = {
     id: newId(now),
@@ -796,90 +770,54 @@ export function activatePayment(
     type: "invoice",
     orderNumber: order.orderNumber,
     issuedAt: iso(now),
-    dueAt: deadline,
-    paidAt: null,
-    total: order.finalTotals.total,
+    paidAt: iso(now),
+    total: order.totals.total,
     currency: "EUR",
     language,
     invoiceNumber: null,
     creditReason: null,
     orderId: order.id,
     customerId: order.customer.id,
-    cargoId: order.cargo.id,
-    deliveredOn: order.delivery.deliveredAt
-      ? berlinDay(Date.parse(order.delivery.deliveredAt))
-      : null,
     creditReference: null,
     seller: sellerOf(db),
     customer: customerBlock(order),
     lines: [
-      ...order.items
-        .filter((item) => item.finalLineTotal > 0)
-        .map((item) => ({
-          description: `${(language === "de" ? item.name.de : null) ?? item.name.en}, ${item.packSize.label}`,
-          sku: item.sku,
-          quantity: Math.max(0, item.deliveredQuantity - item.returnedQuantity),
-          unitPrice: item.unitPrice,
-          vatRate: item.vatRate,
-          vatPercent: item.vatPercent,
-          lineTotal: item.finalLineTotal,
-        })),
-      ...(order.finalTotals.deliveryFee > 0
+      ...order.items.map((item) => ({
+        description: `${(language === "de" ? item.name.de : null) ?? item.name.en}, ${item.packSize.label}`,
+        sku: item.sku,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        vatRate: item.vatRate,
+        vatPercent: item.vatPercent,
+        lineTotal: item.lineTotal,
+      })),
+      ...(order.totals.deliveryFee > 0
         ? [
             {
               description: language === "de" ? "Lieferung" : "Delivery",
               sku: null,
               quantity: 1,
-              unitPrice: order.finalTotals.deliveryFee,
-              vatRate: order.finalTotals.vat[0]?.vatRate ?? 700,
-              vatPercent: (order.finalTotals.vat[0]?.vatRate ?? 700) / 100,
-              lineTotal: order.finalTotals.deliveryFee,
+              unitPrice: order.totals.deliveryFee,
+              vatRate: order.totals.vat[0]?.vatRate ?? 700,
+              vatPercent: (order.totals.vat[0]?.vatRate ?? 700) / 100,
+              lineTotal: order.totals.deliveryFee,
             },
           ]
         : []),
     ],
-    totals: order.finalTotals,
+    totals: order.totals,
     footer: db.settings.company.invoiceFooter ?? null,
   };
   db.invoices.push(invoice);
-
-  order.payment = {
-    activatedAt: iso(now),
-    activatedBy: adminId,
-    deadlineDays,
-    deadline,
-    invoice: { id: invoice.id, number: invoice.number },
-    invoicedAmount: invoice.total,
-    creditedAmount: 0,
-    paidAmount: 0,
-    refundedAmount: 0,
-    amountDue: invoice.total,
-    method: null,
-    paidAt: null,
-    stripe: null,
-    cash: null,
-    reminders: {
-      nextAt: nextReminder(db.settings.payments.reminderHour, now),
-      sentCount: 0,
-      lastSentAt: null,
-      paused: false,
-    },
-    waivedReason: null,
-    failedAt: null,
-  };
-  const before = order.paymentStatus;
-  order.paymentStatus = "due";
-  pushHistory(
-    order,
-    { field: "payment", from: before, to: "due", adminId },
-    now,
-  );
+  order.payment.invoiceId = invoice.id;
+  order.payment.invoiceNumber = invoice.number;
   return invoice;
 }
 
 /**
- * A credit note after a correction or a return of an invoiced order. What
- * is owed goes down; an unpaid invoice with nothing left is settled by it.
+ * A credit note after a correction or a return of a paid order (12). The
+ * final bill went down; what was paid too much waits for a refund the
+ * admin decides (`needsRefund`).
  */
 export function issueCreditNote(
   db: Db,
@@ -890,7 +828,7 @@ export function issueCreditNote(
   reference: string | null = null,
 ): InvoiceDetail | null {
   const payment = order.payment;
-  if (!payment || amount <= 0) return null;
+  if (!payment.invoiceNumber || amount <= 0) return null;
   const rate =
     order.finalTotals.vat[0]?.vatRate ?? order.totals.vat[0]?.vatRate ?? 700;
   const totals = totalsOf([{ gross: amount, vatRate: rate }], 0);
@@ -900,17 +838,14 @@ export function issueCreditNote(
     type: "credit_note",
     orderNumber: order.orderNumber,
     issuedAt: iso(now),
-    dueAt: null,
     paidAt: null,
     total: amount,
     currency: "EUR",
     language: order.language,
-    invoiceNumber: payment.invoice.number,
+    invoiceNumber: payment.invoiceNumber,
     creditReason: reason,
     orderId: order.id,
     customerId: order.customer.id,
-    cargoId: order.cargo.id,
-    deliveredOn: null,
     creditReference: reference,
     seller: sellerOf(db),
     customer: customerBlock(order),
@@ -932,12 +867,7 @@ export function issueCreditNote(
     footer: db.settings.company.invoiceFooter ?? null,
   };
   db.invoices.push(note);
-
   payment.creditedAmount += amount;
-  payment.amountDue = Math.max(
-    0,
-    payment.invoicedAmount - payment.creditedAmount - payment.paidAmount,
-  );
   pushHistory(
     order,
     {
@@ -945,23 +875,10 @@ export function issueCreditNote(
       from: order.paymentStatus,
       to: "credited",
       by: "system",
+      note: note.number,
     },
     now,
   );
-  const owing =
-    order.paymentStatus === "due" || order.paymentStatus === "overdue";
-  if (owing && payment.amountDue === 0) {
-    const before = order.paymentStatus;
-    order.paymentStatus = "paid";
-    payment.method = "credit";
-    payment.paidAt = iso(now);
-    payment.reminders.nextAt = null;
-    pushHistory(
-      order,
-      { field: "payment", from: before, to: "paid", by: "system" },
-      now,
-    );
-  }
   return note;
 }
 
@@ -972,7 +889,6 @@ export function invoiceSummary(invoice: InvoiceDetail): InvoiceSummary {
     type: invoice.type,
     orderNumber: invoice.orderNumber,
     issuedAt: invoice.issuedAt,
-    dueAt: invoice.dueAt,
     paidAt: invoice.paidAt,
     total: invoice.total,
     currency: invoice.currency,
@@ -980,33 +896,6 @@ export function invoiceSummary(invoice: InvoiceDetail): InvoiceSummary {
     invoiceNumber: invoice.invoiceNumber,
     creditReason: invoice.creditReason,
   };
-}
-
-/** Books a payment of the full amount due. */
-export function markPaid(
-  db: Db,
-  order: OrderRecord,
-  method: "cash" | "stripe",
-  now: number,
-  by: "admin" | "customer" | "system" = "admin",
-  adminId: string | null = null,
-): void {
-  const payment = order.payment;
-  if (!payment) return;
-  const before = order.paymentStatus;
-  payment.paidAmount += payment.amountDue;
-  payment.amountDue = 0;
-  payment.method = method;
-  payment.paidAt = iso(now);
-  payment.reminders.nextAt = null;
-  order.paymentStatus = "paid";
-  const invoice = db.invoices.find((entry) => entry.id === payment.invoice.id);
-  if (invoice) invoice.paidAt = iso(now);
-  pushHistory(
-    order,
-    { field: "payment", from: before, to: "paid", by, adminId },
-    now,
-  );
 }
 
 export function customerOf(db: Db, order: OrderRecord): Customer | undefined {

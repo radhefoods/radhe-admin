@@ -401,7 +401,7 @@
 }
 
 /* The eye of the peacock feather: the one ornament of the system. It marks
-   where something is now (the current step of a cargo). */
+   where something is now (the current step of an order). */
 @utility feather-eye {
   background: radial-gradient(
     circle at 50% 52%,

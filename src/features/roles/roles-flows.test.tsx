@@ -39,10 +39,10 @@ describe("the list of roles", () => {
     renderPanel(<RolesView />);
     const manager = await rowOf("Order manager");
     expect(manager).toHaveTextContent("order_manager");
-    expect(manager).toHaveTextContent("7 of 20");
+    expect(manager).toHaveTextContent("6 of 18");
     expect(manager).toHaveTextContent("Manages Orders.");
     expect(manager).toHaveTextContent(
-      "Reads Cargos, Payments, Customers, Catalogue, Communication.",
+      "Reads Payments, Customers, Catalogue, Communication.",
     );
     await waitFor(() =>
       expect(manager).toHaveTextContent("Jan Former, Nisha Patel"),
@@ -53,7 +53,7 @@ describe("the list of roles", () => {
     expect(superAdmin).toHaveTextContent("System");
     expect(superAdmin).toHaveTextContent("Everything");
     expect(superAdmin).toHaveTextContent("Vrushabh Vasoya");
-    expect(await rowOf("Viewer")).toHaveTextContent("10 of 20");
+    expect(await rowOf("Viewer")).toHaveTextContent("9 of 18");
   });
 
   it("says that it cannot tell who has a role without the right to read the team", async () => {
@@ -110,7 +110,7 @@ describe("creating a role", () => {
     expect(key).toHaveValue("payment_clerk");
     await user.type(
       within(dialog).getByRole("textbox", { name: /Description/ }),
-      "Records cash and sends reminders",
+      "Decides and sends refunds",
     );
     await user.click(
       within(dialog).getByRole("checkbox", { name: "Payments: read" }),
@@ -132,12 +132,12 @@ describe("creating a role", () => {
       body: {
         key: "payment_clerk",
         name: "Payment clerk",
-        description: "Records cash and sends reminders",
+        description: "Decides and sends refunds",
         permissions: ["orders.read", "payments.read", "payments.manage"],
       },
     });
     expect(roleByKey("payment_clerk").isSystem).toBe(false);
-    expect(await rowOf("Payment clerk")).toHaveTextContent("3 of 20");
+    expect(await rowOf("Payment clerk")).toHaveTextContent("3 of 18");
   });
 
   it("warns about manage without read, because the pages need read", async () => {
@@ -218,7 +218,7 @@ describe("editing a role", () => {
       within(dialog).getByRole("checkbox", { name: "Orders: manage" }),
     ).toBeChecked();
     expect(
-      within(dialog).getByRole("checkbox", { name: "Cargos: manage" }),
+      within(dialog).getByRole("checkbox", { name: "Payments: manage" }),
     ).not.toBeChecked();
 
     await user.click(
@@ -258,7 +258,6 @@ describe("editing a role", () => {
       body: {
         permissions: [
           "catalog.read",
-          "cargos.read",
           "orders.read",
           "orders.manage",
           "payments.read",
@@ -297,7 +296,7 @@ describe("editing a role", () => {
 
   it("shows wildcards as such and keeps them when the role is saved", async () => {
     const role = roleByKey("catalogue_editor");
-    role.permissions = ["catalog.*", "cargos.read"];
+    role.permissions = ["catalog.*", "legal.read"];
     const { user } = renderPanel(<RolesView />);
     await choose(user, "Catalogue editor", "Edit");
     const dialog = await screen.findByRole("dialog");
@@ -326,7 +325,7 @@ describe("editing a role", () => {
         {
           method: "PATCH",
           path: `/v1/admin/roles/${role.id}`,
-          body: { permissions: ["catalog.*", "cargos.read", "orders.read"] },
+          body: { permissions: ["catalog.*", "orders.read", "legal.read"] },
         },
       ]),
     );

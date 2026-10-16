@@ -25,7 +25,7 @@ import { param, useUrlState } from "@/lib/hooks/use-url-state";
 import { routes } from "@/lib/routes";
 import { useAnnouncements } from "./queries";
 
-/** The product or the cargo the news is about, each leading to its page. */
+/** The product the news is about, leading to its page. */
 export function AnnouncementAbout({
   announcement,
   compact = false,
@@ -34,8 +34,8 @@ export function AnnouncementAbout({
   /** In a table: on one line, cut when it is long. */
   compact?: boolean;
 }) {
-  const { productId, productName, cargoId, cargoCode } = announcement;
-  if (!productId && !cargoId) {
+  const { productId, productName } = announcement;
+  if (!productId) {
     return (
       <span className="whitespace-nowrap text-ink-subtle">General news</span>
     );
@@ -51,16 +51,6 @@ export function AnnouncementAbout({
       {productId ? (
         <Link href={routes.product(productId)} className="hover:underline">
           {productName ?? `Product ${shortId(productId)}`}
-        </Link>
-      ) : null}
-      {productId && cargoId ? (
-        <span aria-hidden="true" className="text-ink-subtle">
-          ·
-        </span>
-      ) : null}
-      {cargoId ? (
-        <Link href={routes.cargo(cargoId)} className="tabular hover:underline">
-          {cargoCode ?? `Cargo ${shortId(cargoId)}`}
         </Link>
       ) : null}
     </span>
@@ -182,22 +172,17 @@ export function AnnouncementsView() {
   const can = useCan();
   const [state, setState, clear] = useUrlState({
     productId: param.id(),
-    cargoId: param.id(),
   });
-  const announcements = useAnnouncements({
-    productId: state.productId,
-    cargoId: state.cargoId,
-  });
+  const announcements = useAnnouncements({ productId: state.productId });
   const productName = useRecordName("product", state.productId);
-  const cargoName = useRecordName("cargo", state.cargoId);
   const rows = announcements.data?.pages.flatMap((page) => page.items);
-  const filtered = Boolean(state.productId || state.cargoId);
+  const filtered = Boolean(state.productId);
 
   return (
     <RequirePermission permission="notifications.read">
       <PageHeader
         title="Announcements"
-        description="News about a product or a cargo, written by you and sent to the customers who opted in to news. Nothing here goes out by itself: a new product or an opened cargo sends nothing."
+        description="News about a product or an offer, written by you and sent to the customers who opted in to news. Nothing here goes out by itself: a new product sends nothing."
         actions={
           can("notifications.manage") ? (
             <Button asChild variant="primary">
@@ -225,13 +210,6 @@ export function AnnouncementsView() {
                 label="Product"
                 value={productName ?? shortId(state.productId)}
                 onRemove={() => setState({ productId: undefined })}
-              />
-            ) : null}
-            {state.cargoId ? (
-              <FilterChip
-                label="Cargo"
-                value={cargoName ?? shortId(state.cargoId)}
-                onRemove={() => setState({ cargoId: undefined })}
               />
             ) : null}
           </FilterBar>
@@ -270,8 +248,8 @@ export function AnnouncementsView() {
               }
             >
               {filtered
-                ? "The list is narrowed to one product or cargo. Remove the filter to see the others."
-                : "Tell the customers who opted in to news about a new product or the next cargo. You see who gets it before anything is sent."}
+                ? "The list is narrowed to one product. Remove the filter to see the others."
+                : "Tell the customers who opted in to news about a new product or an offer. You see who gets it before anything is sent."}
             </EmptyState>
           }
           footer={

@@ -1,12 +1,7 @@
 // Sections 4 (customers), 5 (settings) and 6 (legal texts).
 
 import { z } from "zod";
-import type {
-  CannotOrderReason,
-  Customer,
-  CustomerOrdering,
-  LegalDocument,
-} from "../../src/lib/api/types/index.ts";
+import type { Customer, LegalDocument } from "../../src/lib/api/types/index.ts";
 import type { Db } from "../db.ts";
 import { companyMissing } from "../domain.ts";
 import {
@@ -23,7 +18,7 @@ import {
   zTranslated,
 } from "../http.ts";
 import type { Router } from "../router.ts";
-import { DAY, iso } from "../time.ts";
+import { iso } from "../time.ts";
 
 function customerById(db: Db, id: string): Customer {
   const customer = db.customers.find((entry) => entry.id === id);
@@ -32,54 +27,9 @@ function customerById(db: Db, id: string): Customer {
   return customer;
 }
 
-/** Whether the customer may place a new order, and why not (4). */
-function orderingOf(db: Db, customer: Customer, now: number): CustomerOrdering {
-  const override = customer.orderingOverride;
-  const applies =
-    override !== null &&
-    (override.until === null || Date.parse(override.until) > now);
-  const overdue = db.orders
-    .filter(
-      (order) =>
-        order.customer.id === customer.id &&
-        order.paymentStatus === "overdue" &&
-        order.payment,
-    )
-    .map((order) => ({
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      invoiceId: order.payment!.invoice.id,
-      invoiceNumber: order.payment!.invoice.number,
-      amountDue: order.payment!.amountDue,
-      deadlineAt: order.payment!.deadline,
-    }));
-
-  let reason: CannotOrderReason | null = null;
-  if (customer.status === "blocked") reason = "account_blocked";
-  else if (applies && override.mode === "blocked") reason = "ordering_blocked";
-  else if (overdue.length > 0 && !(applies && override.mode === "allowed")) {
-    reason = "payment_overdue";
-  }
-
-  return {
-    ordering: {
-      canOrder: reason === null,
-      reason,
-      override: applies ? { mode: override.mode, until: override.until } : null,
-      overdue,
-    },
-    history: [...customer.orderingHistory].reverse(),
-  };
-}
-
 const statusBody = z.strictObject({
   status: z.enum(["active", "blocked"]),
   reason: z.string().max(500).optional(),
-});
-const orderingBody = z.strictObject({
-  action: z.enum(["block", "allow", "clear"]),
-  reason: z.string().min(1).max(1000),
-  allowDays: z.number().int().min(1).max(365).optional(),
 });
 
 const tiersBody = z.strictObject({
@@ -110,12 +60,17 @@ const companyBody = z.strictObject({
   invoiceFooter: z.string().max(1000).optional(),
 });
 const paymentsBody = z.strictObject({
-  reminderHour: z.number().int().min(0).max(23),
-  defaultDeadlineDays: z.number().int().min(1).max(60),
   checkoutMinutes: z.number().int().min(30).max(1440),
 });
+const deliveryBody = z.strictObject({
+  defaultMethod: z.enum(["radhe_delivery", "dhl", "hermes"]),
+  estimate: z.strictObject({
+    en: z.string().min(1).max(120),
+    de: z.string().min(1).max(120),
+  }),
+});
 
-const LEGAL_TYPES = ["terms", "preorder_terms", "privacy"] as const;
+const LEGAL_TYPES = ["terms", "privacy"] as const;
 const legalContent = z.strictObject({
   en: z.string().max(300_000).nullish(),
   de: z.string().max(300_000).nullish(),
@@ -220,55 +175,6 @@ export function registerShop(router: Router): void {
     },
   );
 
-  router.get(
-    `${customers}/:id/ordering`,
-    { permission: "customers.read" },
-    (ctx) =>
-      json(
-        orderingOf(ctx.db, customerById(ctx.db, ctx.params.id ?? ""), ctx.now),
-      ),
-  );
-
-  router.post(
-    `${customers}/:id/ordering`,
-    { permission: "customers.manage" },
-    async (ctx) => {
-      const input = await ctx.body(orderingBody);
-      const customer = customerById(ctx.db, ctx.params.id ?? "");
-      if (input.action === "allow" && input.allowDays === undefined) {
-        throw validationFailed([
-          {
-            field: "allowDays",
-            problems: ["allowDays is required when the action is allow"],
-          },
-        ]);
-      }
-      const until =
-        input.action === "allow"
-          ? iso(ctx.now + (input.allowDays ?? 0) * DAY)
-          : null;
-      customer.orderingOverride =
-        input.action === "clear"
-          ? null
-          : {
-              mode: input.action === "block" ? "blocked" : "allowed",
-              reason: input.reason,
-              adminId: ctx.admin.id,
-              at: iso(ctx.now),
-              until,
-            };
-      customer.orderingHistory.push({
-        action: input.action,
-        reason: input.reason,
-        adminId: ctx.admin.id,
-        at: iso(ctx.now),
-        until,
-      });
-      customer.updatedAt = iso(ctx.now);
-      return json(orderingOf(ctx.db, customer, ctx.now));
-    },
-  );
-
   // --- Settings -------------------------------------------------------------
   const settings = "/v1/admin/settings";
   const company = (db: Db) => ({
@@ -334,11 +240,7 @@ export function registerShop(router: Router): void {
     `${settings}/delivery`,
     { permission: "settings.manage" },
     async (ctx) => {
-      ctx.db.settings.delivery = await ctx.body(
-        z.strictObject({
-          defaultMethod: z.enum(["radhe_delivery", "dhl", "hermes"]),
-        }),
-      );
+      ctx.db.settings.delivery = await ctx.body(deliveryBody);
       return json({ delivery: ctx.db.settings.delivery });
     },
   );

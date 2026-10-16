@@ -1,7 +1,5 @@
 import type {
   AnnouncementQuery,
-  CargoProductQuery,
-  CargoQuery,
   CustomerQuery,
   Id,
   InvoiceQuery,
@@ -19,8 +17,8 @@ import type {
  * every detail of orders.
  *
  * What a change touches is named with the mutation (`meta.invalidates`):
- * an order that changes status also changes its cargo's numbers, the
- * attention overview and the list of messages.
+ * an order that changes status also changes the attention overview and
+ * the list of messages; a cancellation gives stock back to products.
  */
 export const queryKeys = {
   me: ["me"] as const,
@@ -42,7 +40,6 @@ export const queryKeys = {
     list: (query: CustomerQuery) => ["customers", "list", query] as const,
     count: (query: CustomerQuery) => ["customers", "count", query] as const,
     detail: (id: Id) => ["customers", "detail", id] as const,
-    ordering: (id: Id) => ["customers", "ordering", id] as const,
   },
   settings: ["settings"] as const,
   legal: {
@@ -60,24 +57,13 @@ export const queryKeys = {
     list: (query: ProductQuery) => ["products", "list", query] as const,
     detail: (id: Id) => ["products", "detail", id] as const,
     priceHistory: (id: Id) => ["products", "price-history", id] as const,
-  },
-  cargos: {
-    all: ["cargos"] as const,
-    list: (query: CargoQuery) => ["cargos", "list", query] as const,
-    overview: () => ["cargos", "overview"] as const,
-    detail: (id: Id) => ["cargos", "detail", id] as const,
-    products: (id: Id, query: CargoProductQuery) =>
-      ["cargos", "products", id, query] as const,
-    productsOf: (id: Id) => ["cargos", "products", id] as const,
-    paymentSummary: (id: Id) => ["cargos", "payment-summary", id] as const,
+    /** The stock history of one product, newest first. */
+    stockMovements: (id: Id) => ["products", "stock-movements", id] as const,
   },
   orders: {
     all: ["orders"] as const,
     list: (query: OrderQuery) => ["orders", "list", query] as const,
     count: (query: OrderQuery) => ["orders", "count", query] as const,
-    /** Every order of a cargo, loaded page by page for bulk actions. */
-    ofCargo: (cargoId: Id) => ["orders", "of-cargo", cargoId] as const,
-    summary: (cargoId: Id) => ["orders", "summary", cargoId] as const,
     detail: (id: Id) => ["orders", "detail", id] as const,
     payment: (id: Id) => ["orders", "payment", id] as const,
   },
@@ -120,44 +106,38 @@ type Key = readonly unknown[];
 
 /**
  * What a change to one kind of record makes stale, beyond the record
- * itself. Orders, payments, returns and refunds hang together: a change to
- * one of them moves numbers in the others.
+ * itself. Orders, payments, returns, refunds and stock hang together: a
+ * change to one of them moves numbers in the others.
  */
 export const invalidation = {
+  /** A status change, a cancellation (stock goes back), a delivery change. */
   order: [
     queryKeys.orders.all,
-    queryKeys.cargos.all,
+    queryKeys.products.all,
     queryKeys.attention,
     queryKeys.notifications.all,
   ],
+  /** A correction, a refund: documents and money move. */
   payment: [
     queryKeys.orders.all,
-    queryKeys.cargos.all,
+    queryKeys.products.all,
     queryKeys.invoices.all,
     queryKeys.refunds.all,
     queryKeys.attention,
     queryKeys.notifications.all,
-    queryKeys.customers.all,
   ],
+  /** A decided or completed return: the order, its documents, maybe the stock. */
   return: [
     queryKeys.returns.all,
     queryKeys.orders.all,
-    queryKeys.invoices.all,
-    queryKeys.cargos.all,
-    queryKeys.attention,
-    queryKeys.notifications.all,
-  ],
-  cargo: [
-    queryKeys.cargos.all,
-    queryKeys.orders.all,
-    queryKeys.attention,
-    queryKeys.notifications.all,
-  ],
-  catalog: [
     queryKeys.products.all,
-    queryKeys.categories.all,
-    queryKeys.cargos.all,
+    queryKeys.invoices.all,
+    queryKeys.attention,
+    queryKeys.notifications.all,
   ],
+  catalog: [queryKeys.products.all, queryKeys.categories.all],
+  /** A stock change: the product, its ledger, and the low-stock group of the start page. */
+  stock: [queryKeys.products.all, queryKeys.attention],
   notification: [
     queryKeys.notifications.all,
     queryKeys.announcements.all,

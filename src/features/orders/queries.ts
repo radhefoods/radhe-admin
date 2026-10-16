@@ -9,8 +9,6 @@ import {
 import { api } from "@/lib/api/client";
 import { invalidation, queryKeys } from "@/lib/api/query-keys";
 import type {
-  ActivatePaymentInput,
-  CashPaymentInput,
   CreateRefundInput,
   Id,
   OrderCancelInput,
@@ -74,7 +72,7 @@ export function useOrderPayment(id: Id, enabled = true) {
 
 /**
  * Everything that changes one order. Each change also moves numbers
- * elsewhere (the cargo, the attention overview, the messages), which
+ * elsewhere (the stock, the attention overview, the messages), which
  * `invalidation` names.
  */
 export function useOrderActions(id: Id) {
@@ -90,44 +88,18 @@ export function useOrderActions(id: Id) {
         api.orders.setDelivery(id, input),
       meta: order,
     }),
-    move: useMutation({
-      mutationFn: (input: { cargoId: Id; note?: string }) =>
-        api.orders.move(id, input),
-      meta: order,
-    }),
     adjustItem: useMutation({
       mutationFn: ({
         productId,
         ...input
       }: OrderItemAdjustmentInput & { productId: Id }) =>
         api.orders.adjustItem(id, productId, input),
-      // A correction after the invoice issues a credit note.
+      // A correction issues a credit note and gives units back to the stock.
       meta: payment,
     }),
     cancel: useMutation({
       mutationFn: (input: OrderCancelInput) => api.orders.cancel(id, input),
-      meta: order,
-    }),
-    activatePayment: useMutation({
-      mutationFn: (input: ActivatePaymentInput) =>
-        api.orders.activatePayment(id, input),
-      meta: payment,
-    }),
-    recordCash: useMutation({
-      mutationFn: (input: CashPaymentInput) => api.orders.recordCash(id, input),
-      meta: payment,
-    }),
-    waive: useMutation({
-      mutationFn: (reason: string) => api.orders.waivePayment(id, reason),
-      meta: payment,
-    }),
-    setRemindersPaused: useMutation({
-      mutationFn: (paused: boolean) =>
-        api.orders.setRemindersPaused(id, paused),
-      meta: { invalidates: invalidation.payment },
-    }),
-    remindNow: useMutation({
-      mutationFn: () => api.orders.remindNow(id),
+      // A cancellation gives the stock back and may leave money to refund.
       meta: payment,
     }),
     createRefund: useMutation({

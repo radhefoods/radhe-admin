@@ -16,7 +16,7 @@ const ORIGIN = "http://localhost:3002";
 
 export interface TestApi {
   mock: MockApi;
-  /** Every request the panel made: `"POST /v1/admin/cargos/…/close"`. */
+  /** Every request the panel made: `"POST /v1/admin/orders/…/status"`. */
   calls: { method: string; path: string; body: unknown }[];
   /** Signs in as one of the demo admins, so that the next calls carry a session. */
   signIn: (who?: keyof typeof DEMO_ADMINS) => Promise<void>;

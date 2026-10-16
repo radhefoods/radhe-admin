@@ -507,7 +507,7 @@ export function ProductsView() {
             >
               {filtered
                 ? "Change the search or the filters. The search looks at names, article numbers, brands, keywords and tags."
-                : "Products are what customers order in a cargo. Create one with its pack size and price; pictures are added once it exists."}
+                : "Products are what customers buy in the shop. Create one with its pack size, price and opening stock; pictures are added once it exists."}
             </EmptyState>
           }
           footer={

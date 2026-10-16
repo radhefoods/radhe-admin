@@ -498,7 +498,7 @@ export function NotificationsView() {
               >
                 {filtered
                   ? "Remove a filter, or clear them all."
-                  : "Messages appear here as the shop sends them: order confirmations, dispatch notes, payment requests, reminders and news."}
+                  : "Messages appear here as the shop sends them: order confirmations, dispatch and delivery notes, return and refund updates, and news."}
               </EmptyState>
             }
             footer={

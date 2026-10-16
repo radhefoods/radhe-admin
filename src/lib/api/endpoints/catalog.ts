@@ -1,4 +1,4 @@
-// Sections 7 (categories) and 8 (products and images).
+// Sections 7 (categories) and 8 (products, stock and images).
 
 import type { Query } from "../http";
 import type { SessionTransport } from "../session";
@@ -6,6 +6,7 @@ import type {
   Category,
   CategoryInput,
   CategoryOrderInput,
+  CursorResult,
   DuplicateProductInput,
   ExportResult,
   Id,
@@ -21,6 +22,10 @@ import type {
   ProductPatch,
   ProductQuery,
   ProductSummary,
+  StockChangeInput,
+  StockChangeResult,
+  StockMovement,
+  StockMovementQuery,
   TranslatedOptional,
 } from "../types";
 
@@ -106,6 +111,22 @@ export function productsApi({ request, upload }: SessionTransport) {
       }),
     priceHistory: (id: Id, signal?: AbortSignal) =>
       request<ListResult<PriceChange>>(`${base}/${id}/price-history`, {
+        signal,
+      }),
+    /** Sets the counted number, or adds or removes units (8). */
+    changeStock: (id: Id, input: StockChangeInput) =>
+      request<StockChangeResult>(`${base}/${id}/stock`, {
+        method: "POST",
+        body: input,
+      }),
+    /** The stock history, newest first, cursor paged (8). */
+    stockMovements: (
+      id: Id,
+      query: StockMovementQuery = {},
+      signal?: AbortSignal,
+    ) =>
+      request<CursorResult<StockMovement>>(`${base}/${id}/stock/movements`, {
+        query: query as Query,
         signal,
       }),
     /** All-or-nothing: if one file is refused, nothing is stored. */

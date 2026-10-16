@@ -24,25 +24,25 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
           className="pointer-events-none absolute -right-28 -bottom-14 opacity-90 select-none"
         />
         <p className="text-xs font-semibold tracking-[0.18em] text-on-navy-subtle uppercase">
-          Pre-order · Deliver · Collect
+          Stock · Sell · Deliver
         </p>
         <div className="relative max-w-[26rem]">
           <p className="font-display text-4xl leading-[1.1] text-on-navy">
-            Every cargo, from the first order to the last payment.
+            Every order, from the shelf to the door.
           </p>
           <ol className="mt-10 flex flex-col gap-4 text-sm text-on-navy-muted">
             {[
               [
-                "Take orders",
-                "One cargo is open. Customers confirm the full bill and pay nothing yet.",
+                "Keep stock",
+                "Every product has a count. What is on the shelf is what the shop sells.",
+              ],
+              [
+                "Sell",
+                "Customers pay at checkout. The payment confirms the order and issues the invoice.",
               ],
               [
                 "Deliver",
-                "The cargo arrives, orders go out, what was really delivered is recorded.",
-              ],
-              [
-                "Collect",
-                "Payment is activated for the cargo. Reminders follow until the last order is paid.",
+                "Prepare, dispatch with a tracking number, deliver. Returns and refunds are decided here.",
               ],
             ].map(([title, text], index) => (
               <li key={title} className="flex gap-3">

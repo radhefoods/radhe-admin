@@ -8,12 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
-import type {
-  CustomerQuery,
-  CustomerStatus,
-  Id,
-  OrderingDecisionInput,
-} from "@/lib/api/types";
+import type { CustomerQuery, CustomerStatusInput, Id } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
 
 /** How many customers one request brings (the API allows 1 to 100). */
@@ -59,14 +54,6 @@ export function useCustomer(id: Id) {
   });
 }
 
-/** Whether the customer may order now, why not, and every decision made. */
-export function useCustomerOrdering(id: Id) {
-  return useQuery({
-    queryKey: queryKeys.customers.ordering(id),
-    queryFn: ({ signal }) => api.customers.ordering(id, signal),
-  });
-}
-
 /** The customer's newest orders, for the customer page. */
 export function useCustomerOrders(customerId: Id) {
   const can = useCan();
@@ -81,17 +68,8 @@ export function useCustomerOrders(customerId: Id) {
 /** Blocks or unblocks the account. The dialog shows what the API refuses. */
 export function useSetCustomerStatus(id: Id) {
   return useMutation({
-    mutationFn: async (input: { status: CustomerStatus; reason?: string }) =>
+    mutationFn: async (input: CustomerStatusInput) =>
       (await api.customers.setStatus(id, input)).customer,
-    meta: { invalidates: [queryKeys.customers.all], silent: true },
-  });
-}
-
-/** Blocks ordering, allows it for a while, or clears the decision. */
-export function useDecideOrdering(id: Id) {
-  return useMutation({
-    mutationFn: (input: OrderingDecisionInput) =>
-      api.customers.decideOrdering(id, input),
     meta: { invalidates: [queryKeys.customers.all], silent: true },
   });
 }

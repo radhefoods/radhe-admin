@@ -9,6 +9,7 @@ import { orderedCategories, packLabel } from "../domain.ts";
 import { HttpError, fail, json, newId } from "../http.ts";
 import type { Router } from "../router.ts";
 import { iso } from "../time.ts";
+import { recordMovement } from "./stock.ts";
 import {
   PACK_UNITS,
   applyProductFields,
@@ -76,6 +77,8 @@ export const PRODUCT_COLUMNS = [
   "sort_order",
   "min_order_quantity",
   "max_order_quantity",
+  "stock_quantity",
+  "low_stock_threshold",
   "storage_type",
   "ingredients_en",
   "ingredients_de",
@@ -617,6 +620,8 @@ interface ProductPlan {
     sortOrder?: number;
     minOrderQuantity?: number;
     maxOrderQuantity?: number | null;
+    stockQuantity?: number;
+    lowStockThreshold?: number | null;
     storageType?: "ambient" | "chilled" | "frozen";
     food?: Record<string, { en?: string; de?: string } | string | undefined>;
     tags?: string[];
@@ -707,6 +712,8 @@ function planProducts(
       cells.problems.push("vat_rate: a percentage up to 100");
     const minQty = cells.int("min_order_quantity", 1, 10000);
     const maxQty = cells.int("max_order_quantity", 0, 10000);
+    const stockQuantity = cells.int("stock_quantity", 0, 1_000_000);
+    const lowStockThreshold = cells.int("low_stock_threshold", 0, 1_000_000);
     const food: ProductPlan["input"]["food"] = {};
     for (const stem of [
       "ingredients",
@@ -757,6 +764,13 @@ function planProducts(
       minOrderQuantity: minQty,
       maxOrderQuantity:
         maxQty === undefined ? undefined : maxQty === 0 ? null : maxQty,
+      stockQuantity,
+      lowStockThreshold:
+        lowStockThreshold === undefined
+          ? undefined
+          : lowStockThreshold === 0
+            ? null
+            : lowStockThreshold,
       storageType: cells.oneOf("storage_type", [
         "ambient",
         "chilled",
@@ -954,6 +968,16 @@ function planProducts(
     )
       changes.push("max_order_quantity");
     if (
+      input.stockQuantity !== undefined &&
+      input.stockQuantity !== record.stock.quantity
+    )
+      changes.push("stock");
+    if (
+      input.lowStockThreshold !== undefined &&
+      input.lowStockThreshold !== record.stock.lowStockThreshold
+    )
+      changes.push("lowStockThreshold");
+    if (
       input.storageType !== undefined &&
       input.storageType !== record.storageType
     )
@@ -1079,6 +1103,7 @@ function writeProduct(
     isAvailable: input.isAvailable,
     isFeatured: input.isFeatured,
     sortOrder: input.sortOrder,
+    lowStockThreshold: input.lowStockThreshold,
     storageType: input.storageType,
     tags: input.tags,
     searchKeywords: input.searchKeywords,
@@ -1130,6 +1155,7 @@ function writeProduct(
       minOrderQuantity: min,
       maxOrderQuantity: max,
       storageType: "ambient",
+      stock: { quantity: 0, lowStockThreshold: null },
       food: null,
       tags: [],
       searchKeywords: [],
@@ -1143,6 +1169,17 @@ function writeProduct(
     db.products.push(product);
     if (variantOf) applyVariantOf(db, product, variantOf);
     logPrice(db, product, adminId, now);
+    // A new product with a count starts its history with a restock (8.2).
+    if (input.stockQuantity) {
+      recordMovement(
+        db,
+        product,
+        "restock",
+        input.stockQuantity,
+        { adminId, note: "CSV import" },
+        now,
+      );
+    }
     plan.result.id = product.id;
     createdBySku.set(product.sku, product.id);
     return;
@@ -1194,6 +1231,20 @@ function writeProduct(
   applyProductFields(product, fields);
   product.updatedAt = iso(now);
   if (priceChanged) logPrice(db, product, adminId, now);
+  // A changed count is recorded as an import movement (8.2).
+  if (
+    input.stockQuantity !== undefined &&
+    input.stockQuantity !== product.stock.quantity
+  ) {
+    recordMovement(
+      db,
+      product,
+      "import",
+      input.stockQuantity - product.stock.quantity,
+      { adminId, note: "CSV import" },
+      now,
+    );
+  }
   createdBySku.set(product.sku, product.id);
 }
 
@@ -1377,6 +1428,11 @@ function exportProducts(db: Db) {
           product.maxOrderQuantity === null
             ? ""
             : String(product.maxOrderQuantity),
+        stock_quantity: String(product.stock.quantity),
+        low_stock_threshold:
+          product.stock.lowStockThreshold === null
+            ? ""
+            : String(product.stock.lowStockThreshold),
         storage_type: product.storageType ?? "ambient",
         ingredients_en: product.food?.ingredients?.en ?? "",
         ingredients_de: product.food?.ingredients?.de ?? "",

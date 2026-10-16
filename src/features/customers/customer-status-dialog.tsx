@@ -40,7 +40,7 @@ export function CustomerStatusDialog({
         open={open}
         onOpenChange={change}
         title={`Block ${name}?`}
-        description="Blocking signs the customer out everywhere and refuses sign-in and ordering, until the account is unblocked."
+        description="Blocking signs the customer out everywhere and refuses sign-in and checkout, until the account is unblocked."
         facts={[{ label: "Account", value: customer.email }]}
         tone="danger"
         confirmLabel="Block the account"
@@ -49,7 +49,7 @@ export function CustomerStatusDialog({
           await setStatus.mutateAsync(toStatusInput("blocked", reason));
           notify.success(
             `${name} is blocked`,
-            "Signed out everywhere; sign-in and ordering are refused.",
+            "Signed out everywhere; sign-in and checkout are refused.",
           );
         }}
       >
@@ -69,7 +69,7 @@ export function CustomerStatusDialog({
       open={open}
       onOpenChange={change}
       title={`Unblock ${name}?`}
-      description="The customer can sign in and order again."
+      description="The customer can sign in and check out again."
       facts={[
         { label: "Account", value: customer.email },
         { label: "Blocked since", value: formatDateTime(customer.blockedAt) },
@@ -80,7 +80,7 @@ export function CustomerStatusDialog({
         await setStatus.mutateAsync(toStatusInput("active"));
         notify.success(
           `${name} is unblocked`,
-          "The customer can sign in and order again.",
+          "The customer can sign in and check out again.",
         );
       }}
     >

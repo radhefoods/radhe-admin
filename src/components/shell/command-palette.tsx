@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
 import {
-  Container,
   Search,
   ShoppingBag,
   Tags,
@@ -38,8 +37,8 @@ interface Result {
 
 /**
  * The global search: orders and customers by words of the number, the
- * name, the email or the phone, a product by words, a cargo by its code,
- * and every page of the panel. Opens with `/` or Ctrl/⌘ K.
+ * name, the email or the phone, a product by words, and every page of the
+ * panel. Opens with `/` or Ctrl/⌘ K.
  */
 export function CommandPalette({
   open,
@@ -66,7 +65,7 @@ export function CommandPalette({
     enabled: open && searching,
     staleTime: 15_000,
     queryFn: async ({ signal }) => {
-      const [orders, customers, products, cargos] = await Promise.all([
+      const [orders, customers, products] = await Promise.all([
         plan.query && can("orders.read")
           ? api.orders.list({ q: plan.query, limit: 5 }, signal)
           : null,
@@ -76,17 +75,11 @@ export function CommandPalette({
         plan.productQuery && can("catalog.read")
           ? api.products.list({ q: plan.productQuery, limit: 6 }, signal)
           : null,
-        plan.cargoCode && can("cargos.read")
-          ? api.cargos.list({ limit: 100 }, signal)
-          : null,
       ]);
       return {
         orders: orders?.items ?? [],
         customers: customers?.items ?? [],
         products: products?.items ?? [],
-        cargos: (cargos?.items ?? []).filter(
-          (cargo) => cargo.code === plan.cargoCode,
-        ),
       };
     },
   });
@@ -113,7 +106,7 @@ export function CommandPalette({
     href: routes.order(order.id),
     icon: ShoppingBag,
     title: order.orderNumber,
-    detail: `${personName(order.customer)} · ${order.cargo.code}`,
+    detail: `${personName(order.customer)} · ${order.postalCode} ${order.city}`,
     trailing: (
       <>
         <StatusBadge kind="order" value={order.status} />
@@ -146,18 +139,8 @@ export function CommandPalette({
       </span>
     ),
   }));
-  const cargos: Result[] = (found?.cargos ?? []).map((cargo) => ({
-    key: `cargo:${cargo.id}`,
-    href: routes.cargo(cargo.id),
-    icon: Container,
-    title: cargo.code,
-    detail: cargo.internalName,
-    trailing: <StatusBadge kind="cargo" value={cargo.status} />,
-  }));
-
   const groups = [
     { heading: "Orders", results: orders },
-    { heading: "Cargos", results: cargos },
     { heading: "Customers", results: customers },
     { heading: "Products", results: products },
     { heading: needle === "" ? "Go to" : "Pages", results: pages },
@@ -194,7 +177,7 @@ export function CommandPalette({
             <Command.Input
               value={text}
               onValueChange={setText}
-              placeholder="Order number, customer email, product, cargo…"
+              placeholder="Order number, customer email, product…"
               className="h-13 min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-ink-subtle"
             />
             <Kbd>Esc</Kbd>
@@ -204,7 +187,7 @@ export function CommandPalette({
               <p className="px-3 py-8 text-center text-13 text-ink-muted">
                 Nothing found for “{text.trim()}”. Orders and customers are
                 found by words of the order number, the name, the email or the
-                phone; products by name or article number; a cargo by its code.
+                phone; products by name or article number.
               </p>
             ) : null}
             {search.isError ? (

@@ -86,8 +86,8 @@ export type Removal =
 
 /**
  * What "Delete" leads to. The product says whether it can be deleted and
- * why not (8): an active one is never deleted, one that was in a cargo is
- * explained and archived instead, without asking the API first.
+ * why not (8): an active one is never deleted, one that is part of an
+ * order is explained and archived instead, without asking the API first.
  */
 export function removalFor(
   product: Pick<ProductDetail, "status" | "deletable" | "notDeletableReason">,
@@ -106,7 +106,7 @@ export function removalFor(
 
 /**
  * Deleting and archiving a product. The API only deletes drafts and
- * archived products that were never part of a cargo; what it refuses is
+ * archived products that are not part of an order; what it refuses is
  * explained, with archiving as the way that always works.
  */
 export function RemoveProduct({
@@ -147,7 +147,7 @@ export function RemoveProduct({
         open={step === "delete"}
         onOpenChange={closing("delete")}
         title={`Delete ${label} for good?`}
-        description="The product and its pictures are removed and cannot be brought back. The API only deletes a product that was never part of a cargo."
+        description="The product and its pictures are removed and cannot be brought back. The API only deletes a product that is not part of an order."
         facts={[
           { label: "Article number", value: product.sku },
           { label: "Pictures", value: product.images.length },
@@ -199,8 +199,8 @@ export function RemoveProduct({
         }
         description={
           refusal === "in_use"
-            ? "It was part of a cargo, so orders and invoices may refer to it. Archive it instead: it leaves the shop and stays in the records."
-            : "It is part of the shop. Archive it instead: it leaves the shop, and old orders and invoices keep it. An archived product that was never part of a cargo can be deleted afterwards."
+            ? "It is part of an order, so orders and invoices refer to it. Archive it instead: it leaves the shop and stays in the records."
+            : "It is part of the shop. Archive it instead: it leaves the shop, and old orders and invoices keep it. An archived product that is not part of an order can be deleted afterwards."
         }
         facts={[{ label: "Article number", value: product.sku }]}
         confirmLabel="Archive instead"
@@ -215,7 +215,7 @@ export function RemoveProduct({
         <DialogContent size="sm" hideClose>
           <DialogHeader
             title={`${label} cannot be deleted`}
-            description="It was part of a cargo, so orders and invoices may refer to it. It is archived already: it is out of the shop and stays in the records. That is as far as it goes."
+            description="It is part of an order, so orders and invoices refer to it. It is archived already: it is out of the shop and stays in the records. That is as far as it goes."
             className="pb-5"
           />
           <DialogFooter>
@@ -230,7 +230,7 @@ export function RemoveProduct({
         open={step === "archive"}
         onOpenChange={closing("archive")}
         title={`Archive ${label}?`}
-        description="It leaves the shop and can no longer be enabled in a cargo. Old orders and invoices keep it, and you can set it active again at any time."
+        description="It leaves the shop and can no longer be ordered. Old orders and invoices keep it, and you can set it active again at any time."
         facts={[
           { label: "Article number", value: product.sku },
           { label: "Price", value: formatMoney(product.pricing.price) },
@@ -292,7 +292,7 @@ export function ProductView() {
             "VALIDATION_FAILED",
           ) ? (
             <EmptyState icon={<Package />} title="This product does not exist">
-              It may have been deleted. Products that were part of a cargo are
+              It may have been deleted. Products that are part of an order are
               archived instead and stay in the list.
             </EmptyState>
           ) : (

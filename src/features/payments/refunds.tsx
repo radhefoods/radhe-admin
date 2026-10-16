@@ -492,7 +492,7 @@ export function RefundView() {
                     by:
                       entry.by === "admin"
                         ? adminName(entry.adminId, entry.admin)
-                        : "The system",
+                        : "Stripe",
                     note: entry.note,
                   }))}
               />

@@ -1,8 +1,7 @@
-// Section 10: orders.
+// Section 9: orders.
 
 import type {
   AdminRef,
-  CalendarDay,
   Cents,
   CursorQuery,
   Id,
@@ -17,21 +16,23 @@ import type { LegalType } from "./legal";
 import type { PaymentBlock, PaymentStatus } from "./payments";
 
 export const ORDER_STATUSES = [
+  "pending_payment",
   "confirmed",
-  "preparing",
+  "processing",
   "dispatched",
   "delivered",
-  "delivery_failed",
   "cancelled",
   "returned",
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
-/** The statuses `POST /orders/{id}/status` accepts. */
-export type SettableOrderStatus = Exclude<
-  OrderStatus,
-  "cancelled" | "returned"
->;
+/**
+ * The statuses `POST /orders/{id}/status` accepts: the forward steps and
+ * `confirmed` as the step back from `processing`. A pending order is
+ * confirmed by its payment, never by hand.
+ */
+export type SettableOrderStatus =
+  "confirmed" | "processing" | "dispatched" | "delivered";
 
 export const DELIVERY_METHODS = ["radhe_delivery", "dhl", "hermes"] as const;
 export type DeliveryMethod = (typeof DELIVERY_METHODS)[number];
@@ -39,7 +40,6 @@ export type DeliveryMethod = (typeof DELIVERY_METHODS)[number];
 export const ADMIN_CANCELLATION_REASONS = [
   "customer_request",
   "product_unavailable",
-  "cargo_cancelled",
   "duplicate_order",
   "suspected_misuse",
   "other",
@@ -53,6 +53,14 @@ export type CustomerCancellationReason =
   | "wrong_items"
   | "delivery_too_late"
   | "other";
+
+/** The shop gave the order up: the page expired, or an item sold out. */
+export type SystemCancellationReason = "payment_not_completed" | "sold_out";
+
+export type CancellationReason =
+  | AdminCancellationReason
+  | CustomerCancellationReason
+  | SystemCancellationReason;
 
 export const ADJUSTMENT_REASONS = [
   "missing",
@@ -76,28 +84,26 @@ export interface OrderCustomer {
 export interface OrderDelivery {
   method: DeliveryMethod;
   trackingNumber: string | null;
+  /** The carrier's page for DHL and Hermes, `null` for Radhe delivery. */
   trackingUrl: string | null;
   dispatchedAt: IsoDateTime | null;
   deliveredAt: IsoDateTime | null;
-  promisedStart: CalendarDay;
-  promisedEnd: CalendarDay;
-  cargo: string;
 }
 
-/** 10.2: lists and the attention overview. */
+/** 9.2: lists and the attention overview. */
 export interface OrderSummary {
   id: Id;
   orderNumber: string;
-  type: "preorder";
   status: OrderStatus;
   paymentStatus: PaymentStatus;
   placedAt: IsoDateTime;
   customer: OrderCustomer;
-  cargo: { id: Id; code: string };
   /** The agreed bill. */
   total: Cents;
-  /** After corrections and returns: the invoiced amount. */
+  /** After corrections and returns: the invoiced amount minus credit notes. */
   finalTotal: Cents;
+  /** What was captured. */
+  paidAmount: Cents;
   currency: "EUR";
   lineCount: number;
   itemCount: number;
@@ -114,7 +120,8 @@ export interface OrderItem {
   imageUrl: string | null;
   quantity: number;
   unitPrice: Cents;
-  regularUnitPrice: Cents;
+  /** The crossed-out price when the unit price was reduced, else `null`. */
+  regularUnitPrice: Cents | null;
   lineTotal: Cents;
   vatRate: VatRate;
   vatPercent: number;
@@ -170,7 +177,7 @@ export interface DeliveryAddress {
 export type Actor = "customer" | "admin" | "system";
 
 export interface OrderCancellation {
-  reason: AdminCancellationReason | CustomerCancellationReason;
+  reason: CancellationReason;
   text: string | null;
   by: Actor;
   adminId: Id | null;
@@ -186,13 +193,13 @@ export interface OrderConsent {
 }
 
 /**
- * `field: "payment"` entries use `to` values such as `due`, `overdue`,
- * `paid`, `waived`, `refunded`, `credited`, `reminders_paused`,
- * `reminders_resumed`, `reminder_sent`, `payment_failed`.
+ * `field: "payment"` entries use `to` values `authorized`, `paid`, `failed`,
+ * `credited` (a credit note was issued; `note` names it) and `refunded` (a
+ * refund completed; `note` names it). `field: "delivery"`: the method
+ * changed, `from` and `to` are methods.
  */
 export interface OrderHistoryEntry {
-  /** `delivery_window`: the promised days changed with the cargo; `from` and `to` are `start/end` days. */
-  field: "order" | "payment" | "cargo" | "delivery" | "delivery_window";
+  field: "order" | "payment" | "delivery";
   from: string | null;
   to: string;
   at: IsoDateTime;
@@ -209,14 +216,12 @@ export interface OrderDetail extends OrderSummary {
   finalTotals: Totals;
   adjustments: OrderAdjustment[];
   deliveryAddress: DeliveryAddress;
-  /** The customer's note. */
+  /** The customer's note at checkout. */
   note: string | null;
   payment: PaymentBlock;
   canCancel: boolean;
-  /** Authoritative: the statuses the API allows from here. */
+  /** Authoritative: the statuses the API allows from here; `[]` for a pending order. */
   allowedStatuses: SettableOrderStatus[];
-  /** To another cargo. */
-  canMove: boolean;
   cancellation: OrderCancellation | null;
   consent: OrderConsent;
   statusHistory: OrderHistoryEntry[];
@@ -232,7 +237,6 @@ export const ORDER_SORT_FIELDS = [
 export type OrderSortField = (typeof ORDER_SORT_FIELDS)[number];
 
 export interface OrderQuery extends CursorQuery {
-  cargoId?: Id;
   status?: OrderStatus;
   paymentStatus?: PaymentStatus;
   customerId?: Id;
@@ -241,15 +245,17 @@ export interface OrderQuery extends CursorQuery {
   /** `RF-1084` */
   orderNumber?: string;
   deliveryMethod?: DeliveryMethod;
+  /** `true`: paid orders whose money waits for the admin (11). */
+  needsRefund?: boolean;
   /** Words of the order number, the customer's name, email or phone (1–100). */
   q?: string;
   /** Default `createdAt:desc`; `total` is the final bill. */
   sort?: SortParam<OrderSortField>;
 }
 
-// --- Chosen orders at once (10: POST /orders/bulk/…) -------------------------
+// --- Chosen orders at once (9: POST /orders/bulk/…) --------------------------
 
-export type BulkChosenStatus = "preparing" | "dispatched" | "delivered";
+export type BulkChosenStatus = "processing" | "dispatched" | "delivered";
 
 export interface BulkChosenStatusInput {
   /** 1 to 500. */
@@ -286,21 +292,9 @@ export interface BulkChosenMethodResult {
   results: BulkOrderResult[];
 }
 
-export interface OrderCargoSummary {
-  cargoId: Id;
-  summary: {
-    orders: number;
-    cancelledOrders: number;
-    customers: number;
-    units: number;
-    bookedValue: Cents;
-    byStatus: { status: OrderStatus; orders: number; value: Cents }[];
-  };
-}
-
 export interface OrderStatusInput {
   status: SettableOrderStatus;
-  /** `^[A-Za-z0-9-]{4,60}$` */
+  /** `^[A-Za-z0-9-]{4,60}$`, handy when dispatching. */
   trackingNumber?: string;
   note?: string;
 }

@@ -67,26 +67,6 @@ export function berlinMoment(
   return wall - 3600_000;
 }
 
-/** 23:59:59 German time of today plus `days`: the payment deadline (12). */
-export function deadlineAfterDays(
-  days: number,
-  from: number = Date.now(),
-): string {
-  return new Date(
-    berlinMoment(addDays(berlinDay(from), days), 23, 59, 59),
-  ).toISOString();
-}
-
-/** The next reminder: the reminder hour of the day after `from`. */
-export function nextReminder(
-  reminderHour: number,
-  from: number = Date.now(),
-): string {
-  return new Date(
-    berlinMoment(addDays(berlinDay(from), 1), reminderHour),
-  ).toISOString();
-}
-
 export const iso = (at: number) => new Date(at).toISOString();
 
 export const HOUR = 3600_000;

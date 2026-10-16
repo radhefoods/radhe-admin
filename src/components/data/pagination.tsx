@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import { plural } from "@/lib/format/names";
 
 /**
- * Pages of a list the API counts (products, cargos, cargo products):
+ * Pages of a list the API counts (products):
  * "25 to 48 of 57", previous, next.
  */
 export function Pagination({

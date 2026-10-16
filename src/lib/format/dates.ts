@@ -1,4 +1,4 @@
-import type { CalendarDay, IsoDateTime } from "@/lib/api/types";
+import type { IsoDateTime } from "@/lib/api/types";
 
 // Date-times of the API are UTC; the business thinks in German time
 // (documentation, 0.7). The panel prints every moment in Europe/Berlin,
@@ -22,10 +22,6 @@ const MONTHS = [
   "Dec",
 ] as const;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-
-const EN_DASH = "–";
-/** Keeps a range from breaking right after its dash. */
-const WORD_JOINER = "⁠";
 
 export interface ZonedParts {
   year: number;
@@ -161,9 +157,7 @@ export function formatShortDateTime(
 
 const DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-function dayParts(
-  day: CalendarDay,
-): { y: number; m: number; d: number } | null {
+function dayParts(day: string): { y: number; m: number; d: number } | null {
   const match = DAY_PATTERN.exec(day);
   if (!match) return null;
   const y = Number(match[1]);
@@ -174,13 +168,9 @@ function dayParts(
   return { y, m, d };
 }
 
-export function isCalendarDay(value: string): boolean {
-  return dayParts(value) !== null;
-}
-
 /** `5 Oct 2026`, with `weekday` `Mon 5 Oct 2026`. */
 export function formatDay(
-  day: CalendarDay | null | undefined,
+  day: string | null | undefined,
   options: { weekday?: boolean; year?: boolean } = {},
 ): string {
   const p = day ? dayParts(day) : null;
@@ -192,37 +182,12 @@ export function formatDay(
   return `${weekday}${p.d} ${MONTHS[p.m - 1]}${year}`;
 }
 
-/** `5–7 Oct 2026`, `28 Sep – 2 Oct 2026`, `30 Dec 2026 – 2 Jan 2027`. */
-export function formatDayRange(
-  start: CalendarDay | null | undefined,
-  end: CalendarDay | null | undefined,
-): string {
-  const a = start ? dayParts(start) : null;
-  const b = end ? dayParts(end) : null;
-  if (!a || !b) return "—";
-  if (a.y === b.y && a.m === b.m && a.d === b.d) return formatDay(start);
-  if (a.y === b.y && a.m === b.m) {
-    return `${a.d}${EN_DASH}${WORD_JOINER}${b.d} ${MONTHS[a.m - 1]} ${a.y}`;
-  }
-  if (a.y === b.y) {
-    return `${a.d} ${MONTHS[a.m - 1]} ${EN_DASH} ${b.d} ${MONTHS[b.m - 1]} ${a.y}`;
-  }
-  return `${formatDay(start)} ${EN_DASH} ${formatDay(end)}`;
-}
-
 /** The German calendar day of a moment, as `YYYY-MM-DD`. */
 export function berlinDay(
   value: IsoDateTime | Date | number = new Date(),
-): CalendarDay {
+): string {
   const p = berlinParts(value);
   return `${p.year}-${pad(p.month)}-${pad(p.day)}`;
-}
-
-export function addDays(day: CalendarDay, days: number): CalendarDay {
-  const p = dayParts(day);
-  if (!p) return day;
-  const moved = new Date(Date.UTC(p.y, p.m - 1, p.d + days));
-  return `${moved.getUTCFullYear()}-${pad(moved.getUTCMonth() + 1)}-${pad(moved.getUTCDate())}`;
 }
 
 // --- Reading German time ----------------------------------------------------
@@ -285,7 +250,7 @@ export function berlinToDate(local: string): Date | null {
 }
 
 /**
- * What the API wants for a cargo moment: ISO with the German offset,
+ * What the API wants for a typed moment: ISO with the German offset,
  * `2026-09-26T23:59:00+02:00`.
  */
 export function berlinToIso(local: string): string | null {
@@ -313,15 +278,6 @@ export function toLocalInput(
   if (!isValid(value)) return "";
   const p = berlinParts(value as IsoDateTime);
   return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`;
-}
-
-/**
- * The payment deadline the API will set: 23:59:59 German time of today plus
- * `days` (documentation, 12). Used to restate it before the admin confirms.
- */
-export function paymentDeadline(days: number, now: Date = new Date()): Date {
-  const day = addDays(berlinDay(now), days);
-  return berlinToDate(`${day}T23:59:59`) ?? now;
 }
 
 // --- Distances --------------------------------------------------------------

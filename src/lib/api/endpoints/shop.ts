@@ -10,17 +10,16 @@ import type {
   CursorResult,
   Customer,
   CustomerCancellation,
-  CustomerOrdering,
   CustomerQuery,
-  CustomerStatus,
+  CustomerStatusInput,
   DeliveryFeeTier,
-  DeliveryMethod,
+  DeliverySettings,
   Id,
   LegalDocument,
   LegalDocumentList,
   LegalType,
-  OrderingDecisionInput,
   PaymentSettings,
+  PaymentsInput,
   Settings,
   UpdateLegalDocumentInput,
 } from "../types";
@@ -37,16 +36,10 @@ export function customersApi({ request }: SessionTransport) {
       }),
     get: (id: Id, signal?: AbortSignal) =>
       request<{ customer: Customer }>(`${base}/${id}`, { signal }),
-    setStatus: (id: Id, input: { status: CustomerStatus; reason?: string }) =>
+    /** Blocks or unblocks the account. */
+    setStatus: (id: Id, input: CustomerStatusInput) =>
       request<{ customer: Customer }>(`${base}/${id}/status`, {
         method: "PATCH",
-        body: input,
-      }),
-    ordering: (id: Id, signal?: AbortSignal) =>
-      request<CustomerOrdering>(`${base}/${id}/ordering`, { signal }),
-    decideOrdering: (id: Id, input: OrderingDecisionInput) =>
-      request<CustomerOrdering>(`${base}/${id}/ordering`, {
-        method: "POST",
         body: input,
       }),
   };
@@ -66,10 +59,11 @@ export function settingsApi({ request }: SessionTransport) {
         method: "PUT",
         body: { customerCancellation },
       }),
-    putDelivery: (defaultMethod: DeliveryMethod) =>
+    /** The default method of new orders and the delivery estimate in both languages. */
+    putDelivery: (input: DeliverySettings) =>
       request<Pick<Settings, "delivery">>(`${base}/delivery`, {
         method: "PUT",
-        body: { defaultMethod },
+        body: input,
       }),
     putReturnPolicy: (windowDays: number) =>
       request<Pick<Settings, "returnPolicy">>(`${base}/return-policy`, {
@@ -81,7 +75,8 @@ export function settingsApi({ request }: SessionTransport) {
         method: "PUT",
         body: input,
       }),
-    putPayments: (input: PaymentSettings) =>
+    /** How long a Stripe payment page stays open. */
+    putPayments: (input: PaymentsInput) =>
       request<{ payments: PaymentSettings }>(`${base}/payments`, {
         method: "PUT",
         body: input,

@@ -22,7 +22,7 @@ Files: `doc/examples/categories-example.csv` and `doc/examples/products-example.
 - **No duplicates.** A category row is matched by `slug_en`; without a slug, by the slug the name would get (`Rice & Grains` → `rice-and-grains`). A product row is matched by `sku`; without a SKU, by `slug_en`, and without that by the slug its name and pack size would get (`Basmati Rice`, 1 kg → `basmati-rice-1-kg`). A row that matches is never created again.
 - **Nothing is overwritten without asking.** `existing` in the request says what happens to a row that matches: `skip` (the default) leaves the record as it is; `update` changes the fields the row provides. The panel shows the preview and asks before it sends `update`.
 - **An empty cell means "leave it as it is"** on an update, and "the default" on a create. To remove a value, write what the column says: `sale_price` `0` ends a sale, `max_order_quantity` `0` removes the limit, `parent_slug` `none` makes a main category, `variant_of_sku` `none` separates a pack size from its product.
-- **Images are never touched**, nor the SKU of an existing product (the SKU is the key), nor the links to cargos and orders, nor the price history (a changed price is recorded there like a change made in the form).
+- **Images are never touched**, nor the SKU of an existing product (the SKU is the key), nor the links to orders, nor the price history (a changed price is recorded there like a change made in the form).
 - **Order of the rows does not matter.** Parents are created before their children, and the main pack size before its other sizes, wherever they stand in the file. A row may refer to a category or a product that another row of the same import creates.
 - **At most 2,000 rows** per type and request.
 - **The import stops at the first row that fails** while writing (for example a slug taken by a product that was created a second ago). The rows before it stay written and are reported as such; the rows after it are reported as `skip` with "Not written". Importing the same file again is safe: what exists is matched and skipped or updated.
@@ -74,6 +74,8 @@ The category image is not part of the sheet: upload it in the panel.
 | `sort_order` | no | 0–1000000. |
 | `min_order_quantity` | no | Default 1. |
 | `max_order_quantity` | no | `0` removes the limit. |
+| `stock_quantity` | no | Units in stock. On a create the opening stock (default 0); on an update the new count, written to the stock history as an import. |
+| `low_stock_threshold` | no | The admin is warned at this count or below. `0` removes the threshold. |
 | `storage_type` | no | `ambient` (default), `chilled`, `frozen`. |
 | `ingredients_en`, `ingredients_de`, `allergens_en`, `allergens_de`, `nutrition_en`, `nutrition_de`, `storage_instructions_en`, `storage_instructions_de`, `origin`, `manufacturer` | no | The food information, free text. |
 | `tags` | no | `\|` separated, lower-case letters, digits and hyphens, at most 20. |

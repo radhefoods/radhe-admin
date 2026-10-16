@@ -64,13 +64,14 @@ const KINDS: Record<ImportSheetType, SheetKind> = {
     template: "/templates/products-example.csv",
     key: "the SKU (sku); without one, the slug (slug_en); without that, the slug the name and pack size would get",
     included:
-      "Every product, each pack size as a row, by SKU: texts in both languages, category, pack size, prices and VAT, status, food information, tags and SEO.",
+      "Every product, each pack size as a row, by SKU: texts in both languages, category, pack size, prices and VAT, status, stock count and low-stock threshold, food information, tags and SEO.",
     rules: [
       "A new product needs name_en, category_slug, pack_value, pack_unit, regular_price and vat_rate; everything else has a default.",
       "category_slug is the slug_en of an existing category. variant_of_sku joins a pack size to its main product; none separates it.",
       "Prices are euros with VAT, 4.99 or 4,99; vat_rate is the percent, 7 or 19. Lists use | between entries.",
-      "An empty cell leaves a field as it is. To remove a value, write what the column says: sale_price 0 ends a sale, max_order_quantity 0 removes the limit.",
-      "The SKU of an existing product, its pictures, its cargos and its price history are never changed by an import.",
+      "An empty cell leaves a field as it is. To remove a value, write what the column says: sale_price 0 ends a sale, max_order_quantity 0 removes the limit, low_stock_threshold 0 removes the threshold.",
+      "stock_quantity is the exact count: the opening stock of a new product, the new count of an existing one (recorded in its stock history as an import).",
+      "The SKU of an existing product, its pictures, its orders and its price history are never changed by an import.",
     ],
   },
   categories: {

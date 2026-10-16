@@ -17,11 +17,8 @@ function OrderNumber({ order }: { order: OrderSummary }) {
   );
 }
 
-/** The columns of every list of orders. `cargo` is left out inside a cargo. */
-export function orderColumns(
-  options: { cargo?: boolean } = {},
-): Column<OrderSummary>[] {
-  const { cargo = true } = options;
+/** The columns of every list of orders. */
+export function orderColumns(): Column<OrderSummary>[] {
   return [
     {
       id: "order",
@@ -45,23 +42,6 @@ export function orderColumns(
       ),
       meta: { skeleton: "w-36", className: "max-w-56" },
     },
-    ...(cargo
-      ? ([
-          {
-            id: "cargo",
-            header: "Cargo",
-            cell: ({ row }) => (
-              <Link
-                href={routes.cargo(row.original.cargo.id)}
-                className="whitespace-nowrap hover:underline"
-              >
-                {row.original.cargo.code}
-              </Link>
-            ),
-            meta: { from: "lg", skeleton: "w-16" },
-          },
-        ] satisfies Column<OrderSummary>[])
-      : []),
     {
       id: "status",
       header: "Status",
@@ -141,7 +121,7 @@ export function OrderCard({ order }: { order: OrderSummary }) {
         <StatusBadge kind="order" value={order.status} />
         <StatusBadge kind="payment" value={order.paymentStatus} />
         <span className="ml-auto text-13 text-ink-subtle">
-          {DELIVERY_METHOD_LABEL[order.delivery.method]} · {order.cargo.code}
+          {DELIVERY_METHOD_LABEL[order.delivery.method]}
         </span>
       </span>
     </Link>

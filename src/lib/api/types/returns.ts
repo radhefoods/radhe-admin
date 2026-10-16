@@ -1,4 +1,4 @@
-// Section 11: returns.
+// Section 10: returns.
 
 import type {
   AdminRef,
@@ -56,7 +56,7 @@ export interface ReturnHistoryEntry {
   note: string | null;
 }
 
-/** 11.2. */
+/** 10.2. */
 export interface OrderReturn {
   id: Id;
   /** `RF-1084-R1` */
@@ -65,7 +65,6 @@ export interface OrderReturn {
   orderNumber: string;
   customerId: Id;
   customer?: CustomerRef | null;
-  cargoId: Id;
   status: ReturnStatus;
   requestedAt: IsoDateTime;
   decidedAt: IsoDateTime | null;
@@ -77,8 +76,10 @@ export interface OrderReturn {
   decisionNote: string | null;
   /** Never shown to the customer. */
   internalNote: string | null;
-  /** Set on completion. */
+  /** Set on completion: the cents the final bill went down by. */
   creditAmount: Cents | null;
+  /** Set when the return was completed with `restock: true`. */
+  restockedAt: IsoDateTime | null;
   statusHistory: ReturnHistoryEntry[];
   updatedAt: IsoDateTime;
 }
@@ -105,4 +106,9 @@ export interface ReturnApproveInput {
 export interface ReturnDecisionInput {
   note?: string;
   internalNote?: string;
+}
+
+/** `POST /returns/{id}/complete`: `restock` puts the accepted units back on the shelf. */
+export interface ReturnCompleteInput extends ReturnDecisionInput {
+  restock?: boolean;
 }

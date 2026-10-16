@@ -4,7 +4,6 @@ import { useId, useState, type ReactNode } from "react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { notify } from "@/components/ui/toast";
-import { CAN_TAKE_ORDERS, useCargoChoices } from "@/features/cargos/queries";
 import {
   ADJUSTMENT_REASONS,
   ADMIN_CANCELLATION_REASONS,
@@ -16,7 +15,6 @@ import {
   type OrderItem,
   type SettableOrderStatus,
 } from "@/lib/api/types";
-import { formatDayRange } from "@/lib/format/dates";
 import { formatMoney } from "@/lib/format/money";
 import {
   DELIVERY_METHOD_LABEL,
@@ -90,12 +88,12 @@ function NoteField({
   );
 }
 
-/** The customer hears about these steps (documentation, 10: status). */
+/** The customer hears about these steps (documentation, 9: status). */
 const TOLD: Partial<Record<SettableOrderStatus, string>> = {
   dispatched:
-    "The customer is told by email that the order is on its way, and by WhatsApp when they asked for it.",
-  delivered: "The customer is told by email that the order was delivered.",
-  delivery_failed: "The customer is told by email that the delivery failed.",
+    "The customer is told by email that the order is on its way, with the tracking number and the delivery estimate, and by WhatsApp when they asked for it.",
+  delivered:
+    "The customer is told by email that the order was delivered, and until when a return can be asked for.",
 };
 
 /** One confirmation for every status an order can be given. */
@@ -129,11 +127,7 @@ export function OrderStatusDialog({
 
   const title = back
     ? `Take ${order.orderNumber} back to "${label}"?`
-    : to === "delivery_failed"
-      ? `Did the delivery of ${order.orderNumber} fail?`
-      : from === "delivery_failed" && to === "dispatched"
-        ? `Dispatch ${order.orderNumber} again?`
-        : `Mark ${order.orderNumber} as ${label}?`;
+    : `Mark ${order.orderNumber} as ${label}?`;
   const description = back
     ? "A correction of a step taken by mistake. The customer is not told."
     : (TOLD[to] ?? "The customer is not told about this step.");
@@ -150,7 +144,6 @@ export function OrderStatusDialog({
       }}
       title={title}
       description={description}
-      tone={to === "delivery_failed" ? "danger" : "primary"}
       facts={[
         { label: "Customer", value: personName(order.customer) },
         {
@@ -161,15 +154,7 @@ export function OrderStatusDialog({
           label: "Delivery",
           value: DELIVERY_METHOD_LABEL[order.delivery.method],
         },
-        ...(to === "delivered"
-          ? [
-              {
-                label: "To pay after activation",
-                value: formatMoney(order.finalTotal),
-                strong: true,
-              },
-            ]
-          : []),
+        { label: "Paid", value: formatMoney(order.paidAmount), strong: true },
       ]}
       confirmLabel={orderActionLabel(from, to)}
       canConfirm={!askTracking || trackingValid}
@@ -204,13 +189,7 @@ export function OrderStatusDialog({
           )}
         </Labelled>
       ) : null}
-      <NoteField
-        value={note}
-        onChange={setNote}
-        label={
-          to === "delivery_failed" ? "What happened" : "Note for the history"
-        }
-      />
+      <NoteField value={note} onChange={setNote} />
     </ConfirmDialog>
   );
 }
@@ -307,100 +286,10 @@ export function OrderDeliveryDialog({
   );
 }
 
-/** Gives the order to another cargo: number, items and bill stay. */
-export function OrderMoveDialog({
-  order,
-  open,
-  actions,
-  onOpenChange,
-}: {
-  order: OrderDetail;
-  open: boolean;
-  actions: OrderActions;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const [target, setTarget] = useState("");
-  const [note, setNote] = useState("");
-  const choices = useCargoChoices(open).data;
-  const targets = (choices?.items ?? []).filter(
-    (entry) =>
-      entry.id !== order.cargo.id && CAN_TAKE_ORDERS.includes(entry.status),
-  );
-  const chosen = targets.find((entry) => entry.id === target);
-
-  return (
-    <ConfirmDialog
-      open={open}
-      onOpenChange={(value) => {
-        if (!value) {
-          setTarget("");
-          setNote("");
-        }
-        onOpenChange(value);
-      }}
-      title={`Move ${order.orderNumber} to another cargo?`}
-      description={
-        order.status === "delivery_failed"
-          ? "The order keeps its number, items and bill. In the new cargo it is confirmed again and delivered with that cargo. The customer is told the new delivery days."
-          : "The order keeps its number, items and bill and gets the delivery days of the new cargo. The customer is told."
-      }
-      facts={[
-        { label: "Now in", value: order.cargo.code },
-        {
-          label: "Promised",
-          value: formatDayRange(
-            order.delivery.promisedStart,
-            order.delivery.promisedEnd,
-          ),
-        },
-        ...(chosen
-          ? [
-              {
-                label: `New delivery days (${chosen.code})`,
-                value: formatDayRange(
-                  chosen.delivery.start,
-                  chosen.delivery.end,
-                ),
-                strong: true,
-              },
-            ]
-          : []),
-      ]}
-      confirmLabel={chosen ? `Move to ${chosen.code}` : "Move the order"}
-      canConfirm={target !== ""}
-      onConfirm={async () => {
-        await actions.move.mutateAsync({
-          cargoId: target,
-          note: note.trim() || undefined,
-        });
-        notify.success(
-          `${order.orderNumber} moved to ${chosen?.code ?? "the cargo"}`,
-        );
-      }}
-    >
-      <Labelled label="Move to">
-        {(id) => (
-          <Select
-            id={id}
-            value={target}
-            onChange={(event) => setTarget(event.target.value)}
-          >
-            <option value="">Choose a cargo</option>
-            {targets.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.code} · {entry.internalName} ·{" "}
-                {humanize(entry.status).toLowerCase()}
-              </option>
-            ))}
-          </Select>
-        )}
-      </Labelled>
-      <NoteField value={note} onChange={setNote} />
-    </ConfirmDialog>
-  );
-}
-
-/** Cancels the order: the units go back to the cargo, the customer is told. */
+/**
+ * Cancels the order (9): the units go back to the stock, the customer is
+ * told, and what was paid waits for a refund the admin decides.
+ */
 export function OrderCancelDialog({
   order,
   open,
@@ -414,6 +303,7 @@ export function OrderCancelDialog({
 }) {
   const [reason, setReason] = useState<AdminCancellationReason | "">("");
   const [text, setText] = useState("");
+  const paid = order.paidAmount > 0;
 
   return (
     <ConfirmDialog
@@ -426,12 +316,21 @@ export function OrderCancelDialog({
         onOpenChange(value);
       }}
       title={`Cancel ${order.orderNumber}?`}
-      description="The order is cancelled for good. Its units go back to the cargo and the customer is told by email. The order and its history are kept."
+      description={
+        paid
+          ? "The order is cancelled for good. Its units go back to the stock and the customer is told by email. What was paid waits for a refund you decide on this page."
+          : "The order is cancelled for good. The open payment page is closed and the customer is told by email. Nothing was charged."
+      }
       tone="danger"
       facts={[
         { label: "Customer", value: personName(order.customer) },
         { label: "Status", value: ORDER_STATUS[order.status].label },
-        { label: "Order value", value: formatMoney(order.total), strong: true },
+        { label: "Order value", value: formatMoney(order.total) },
+        {
+          label: paid ? "Paid, to refund afterwards" : "Paid",
+          value: formatMoney(order.paidAmount),
+          strong: true,
+        },
       ]}
       confirmLabel="Cancel the order"
       cancelLabel="Keep the order"
@@ -442,7 +341,10 @@ export function OrderCancelDialog({
           reason,
           text: text.trim() || undefined,
         });
-        notify.success(`${order.orderNumber} cancelled`);
+        notify.success(
+          `${order.orderNumber} cancelled`,
+          paid ? "The payment waits for your refund decision." : undefined,
+        );
       }}
     >
       <Labelled label="Reason">
@@ -515,7 +417,6 @@ export function OrderItemDialog({
     delivered >= item.returnedQuantity && delivered <= item.quantity;
   const changes = inRange && delivered !== item.deliveredQuantity;
   const after = inRange ? billAfterCorrection(order, item, delivered) : null;
-  const invoiced = order.payment.status !== "not_enabled";
   const name = `${translated(item.name)} ${item.packSize.label}`;
 
   return (
@@ -530,11 +431,7 @@ export function OrderItemDialog({
         onOpenChange(value);
       }}
       title="Correct what was delivered"
-      description={
-        invoiced
-          ? `${name}: the customer pays only for what arrived. An invoice exists already, so the difference becomes a credit note automatically.`
-          : `${name}: the customer pays only for what arrived. The agreed bill stays as a record; the final bill follows the delivered units.`
-      }
+      description={`${name}: the customer pays only for what arrived. The difference becomes a credit note on the invoice, the units go back to the stock, and the money waits for a refund you decide.`}
       facts={[
         { label: "Ordered", value: item.quantity },
         ...(item.returnedQuantity > 0

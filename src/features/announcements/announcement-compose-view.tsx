@@ -15,7 +15,6 @@ import {
 import {
   Field,
   FormError,
-  SelectField,
   TextField,
   fieldMessage,
   useSubmit,
@@ -26,7 +25,6 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Alert } from "@/components/ui/surface";
 import { notify } from "@/components/ui/toast";
-import { useCargoChoices } from "@/features/cargos/queries";
 import { useWhatsappEnabled } from "@/features/notifications/queries";
 import { WhatsappState } from "@/features/notifications/whatsapp-state";
 import type { AnnouncementInput, AnnouncementPreview } from "@/lib/api/types";
@@ -34,7 +32,6 @@ import { useCan } from "@/lib/auth/auth-provider";
 import { cn } from "@/lib/cn";
 import { plural } from "@/lib/format/names";
 import { routes } from "@/lib/routes";
-import { CARGO_STATUS } from "@/lib/status";
 import { AnnouncementPreviewPanel } from "./announcement-preview";
 import { ProductPicker, type PickedProduct } from "./product-picker";
 import { usePreviewAnnouncement, useSendAnnouncement } from "./queries";
@@ -108,7 +105,6 @@ export function AnnouncementComposeView() {
   });
   const preview = usePreviewAnnouncement();
   const send = useSendAnnouncement();
-  const cargos = useCargoChoices(can("cargos.read")).data;
   const [product, setProduct] = useState<PickedProduct | null>(null);
   const [previewed, setPreviewed] = useState<{
     input: AnnouncementInput;
@@ -138,7 +134,7 @@ export function AnnouncementComposeView() {
       <PageHeader
         title="New announcement"
         back={{ href: routes.announcements, label: "Announcements" }}
-        description="News about a product or a cargo, sent by hand. Nothing goes out before you have seen the preview and confirmed."
+        description="News about a product or an offer, sent by hand. Nothing goes out before you have seen the preview and confirmed."
       />
       <PageBody className={previewed ? undefined : "max-w-3xl"}>
         <UnsavedGuard when={form.formState.isDirty && !sent} />
@@ -213,7 +209,7 @@ export function AnnouncementComposeView() {
               </h2>
               <p className="text-13 text-ink-muted">
                 Optional, for the record: the announcement is then listed with
-                the product or the cargo.
+                the product.
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -238,25 +234,6 @@ export function AnnouncementComposeView() {
                   />
                 ) : null}
               </Field>
-              {can("cargos.read") ? (
-                <SelectField form={form} name="cargoId" label="Cargo" optional>
-                  <option value="">No cargo</option>
-                  {(cargos?.items ?? []).map((cargo) => (
-                    <option key={cargo.id} value={cargo.id}>
-                      {cargo.code} · {cargo.internalName} ·{" "}
-                      {CARGO_STATUS[cargo.status]?.label ?? cargo.status}
-                    </option>
-                  ))}
-                </SelectField>
-              ) : (
-                <Field
-                  label="Cargo"
-                  optional
-                  hint="Your role does not include cargos: no cargo can be chosen."
-                >
-                  {null}
-                </Field>
-              )}
             </div>
           </section>
 
@@ -336,9 +313,6 @@ export function AnnouncementComposeView() {
                   product && previewed.input.productId === product.id
                     ? `${product.name} (${product.sku})`
                     : undefined,
-                cargo: cargos?.items.find(
-                  (cargo) => cargo.id === previewed.input.cargoId,
-                )?.code,
               }}
             />
 

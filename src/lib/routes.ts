@@ -12,13 +12,6 @@ export const routes = {
   today: "/" as Route,
   profile: "/profile" as Route,
 
-  cargos: "/cargos" as Route,
-  cargoNew: "/cargos/new" as Route,
-  cargo: (id: Id) => `/cargos/${id}` as Route,
-  cargoProducts: (id: Id) => `/cargos/${id}/products` as Route,
-  cargoOrders: (id: Id) => `/cargos/${id}/orders` as Route,
-  cargoPayments: (id: Id) => `/cargos/${id}/payments` as Route,
-
   orders: "/orders" as Route,
   order: (id: Id) => `/orders/${id}` as Route,
   returns: "/returns" as Route,

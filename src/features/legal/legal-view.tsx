@@ -149,7 +149,7 @@ function TypeSection({
             className="py-10"
           >
             {required
-              ? "Customers cannot order until a version is published. Start the first version, write the text and publish it."
+              ? "Nobody can check out until a version is published. Start the first version, write the text and publish it."
               : "Start the first version when the shop needs this text."}
           </EmptyState>
         }
@@ -176,13 +176,13 @@ export function LegalView() {
     <RequirePermission permission="legal.read">
       <PageHeader
         title="Legal texts"
-        description="Terms, pre-order terms and the privacy policy, in versions. Customers accept the current published versions at checkout. A published version never changes: a correction is a new version."
+        description="The terms and the privacy policy, in versions. Customers accept the current published versions at checkout; both must be published before anyone can check out. A published version never changes: a correction is a new version."
       />
       <PageBody className="gap-8">
         {blocking.length > 0 ? (
           <Alert
             tone="danger"
-            title={`Orders are refused: ${blocking
+            title={`Checkout is refused: ${blocking
               .map((entry) => `the ${LEGAL_TYPE[entry].short}`)
               .join(
                 " and ",

@@ -5,7 +5,7 @@ import type {
   NotificationChannel,
 } from "@/lib/api/types";
 
-// The rules of the API for an announcement (documentation, 15.2).
+// The rules of the API for an announcement (documentation, 14.2).
 
 export const SUBJECT_MAX = 160;
 export const MESSAGE_MAX = 2000;
@@ -56,8 +56,6 @@ export const announcementSchema = z
     }),
     /** The id of the chosen product, or empty. */
     productId: z.string(),
-    /** The id of the chosen cargo, or empty. */
-    cargoId: z.string(),
     email: z.boolean(),
     whatsapp: z.boolean(),
   })
@@ -87,7 +85,6 @@ export const announcementDefaults: AnnouncementFormValues = {
   link: "",
   linkLabel: { en: "", de: "" },
   productId: "",
-  cargoId: "",
   email: true,
   whatsapp: false,
 };
@@ -119,7 +116,6 @@ export function toAnnouncementInput(
       ? { linkLabel: translated(values.linkLabel) }
       : {}),
     ...(values.productId !== "" ? { productId: values.productId } : {}),
-    ...(values.cargoId !== "" ? { cargoId: values.cargoId } : {}),
     channels,
   };
 }

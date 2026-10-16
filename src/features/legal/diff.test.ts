@@ -150,7 +150,6 @@ describe("the versions of the legal texts", () => {
   it("groups them by type, newest first", () => {
     const groups = groupByType(items);
     expect(groups.terms.map((entry) => entry.version)).toEqual([3, 2, 1]);
-    expect(groups.preorder_terms).toEqual([]);
     expect(groups.privacy).toHaveLength(1);
   });
 
@@ -183,8 +182,8 @@ describe("the versions of the legal texts", () => {
   });
 
   it("names a version", () => {
-    expect(versionName({ type: "preorder_terms", version: 2 })).toBe(
-      "Pre-order terms, version 2",
+    expect(versionName({ type: "privacy", version: 2 })).toBe(
+      "Privacy policy, version 2",
     );
   });
 

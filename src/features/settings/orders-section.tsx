@@ -4,21 +4,26 @@ import { useId } from "react";
 import { Controller } from "react-hook-form";
 import { z } from "zod";
 import { UnitField } from "@/components/form/fields";
-import { SelectField, useSubmit, useZodForm } from "@/components/form/form";
+import {
+  SelectField,
+  TextField,
+  useSubmit,
+  useZodForm,
+} from "@/components/form/form";
 import { RadioGroup, RadioItem } from "@/components/ui/controls";
 import { Alert } from "@/components/ui/surface";
 import { notify } from "@/components/ui/toast";
 import {
   DELIVERY_METHODS,
   type CustomerCancellation,
-  type DeliveryMethod,
+  type DeliverySettings,
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
 import { DELIVERY_METHOD_LABEL, plural } from "@/lib/format/names";
 import { zInt } from "@/lib/validation";
 import {
   useFollowSaved,
-  useSaveDeliveryMethod,
+  useSaveDelivery,
   useSaveOrderPolicy,
   useSaveReturnPolicy,
 } from "./queries";
@@ -36,19 +41,19 @@ export const CANCELLATION_RULES: {
     value: "while_confirmed",
     label: "While the order is confirmed",
     explanation:
-      "Customers can cancel until the team starts preparing the order. After that only the team can cancel.",
+      "Customers can cancel a paid order until the team starts processing it. After that only the team can cancel.",
   },
   {
     value: "until_dispatched",
     label: "Until the order is dispatched",
     explanation:
-      "Customers can cancel while the order is confirmed or being prepared, up to the moment it is dispatched.",
+      "Customers can cancel while the order is confirmed or in processing, up to the moment it is dispatched.",
   },
   {
     value: "never",
     label: "Never",
     explanation:
-      "Customers cannot cancel by themselves. They ask, and the team cancels the order for them.",
+      "Customers cannot cancel a paid order by themselves. They ask, and the team cancels the order for them. An unpaid order can always be given up.",
   },
 ];
 
@@ -76,7 +81,7 @@ function CancellationForm({ saved }: { saved: CustomerCancellation }) {
   return (
     <SettingsFormCard
       title="Cancellation by customers"
-      description="Until when a customer can cancel an order in the shop. The team can cancel in the panel as long as the order allows it."
+      description="Until when a customer can cancel an order in the shop. The team can cancel in the panel until the order is delivered; what was paid then waits for a refund."
       onSubmit={onSubmit}
       state={state}
       pending={pending}
@@ -125,35 +130,59 @@ function CancellationForm({ saved }: { saved: CustomerCancellation }) {
   );
 }
 
-// --- Default delivery method (PUT delivery) -----------------------------------
+// --- Delivery method and estimate (PUT delivery) ------------------------------
 
-const deliverySchema = z.object({ defaultMethod: z.enum(DELIVERY_METHODS) });
+// The rules of the API (documentation, 5): both languages, 1 to 120 characters.
+export const deliverySchema = z.object({
+  defaultMethod: z.enum(DELIVERY_METHODS),
+  estimate: z.object({
+    en: z
+      .string()
+      .trim()
+      .min(1, "The English estimate is required.")
+      .max(120, "At most 120 characters."),
+    de: z
+      .string()
+      .trim()
+      .min(1, "The German estimate is required.")
+      .max(120, "At most 120 characters."),
+  }),
+});
 
-function DeliveryMethodForm({ saved }: { saved: DeliveryMethod }) {
-  const defaults = { defaultMethod: saved };
+export type DeliveryFormValues = z.input<typeof deliverySchema>;
+
+export function deliveryDefaults(saved: DeliverySettings): DeliveryFormValues {
+  return {
+    defaultMethod: saved.defaultMethod,
+    estimate: { en: saved.estimate.en, de: saved.estimate.de },
+  };
+}
+
+function DeliveryForm({ saved }: { saved: DeliverySettings }) {
+  const defaults = deliveryDefaults(saved);
   const form = useZodForm(deliverySchema, { defaultValues: defaults });
   useFollowSaved(form, defaults);
-  const save = useSaveDeliveryMethod();
+  const save = useSaveDelivery();
   const { onSubmit, state, pending } = useSubmit(form, async (values) => {
-    const result = await save.mutateAsync(values.defaultMethod);
-    form.reset(result.delivery);
+    const result = await save.mutateAsync(values);
+    form.reset(deliveryDefaults(result.delivery));
     notify.success(
-      "Delivery method saved",
+      "Delivery settings saved",
       `New orders get ${DELIVERY_METHOD_LABEL[result.delivery.defaultMethod]}.`,
     );
   });
 
   return (
     <SettingsFormCard
-      title="Delivery method"
-      description="Every new order gets this method. Customers never choose it."
+      title="Delivery"
+      description="Every new order gets this method; customers never choose it. The estimate is shown at checkout and in the emails about an order."
       onSubmit={onSubmit}
       state={state}
       pending={pending}
       dirty={form.formState.isDirty}
-      saveLabel="Save the delivery method"
+      saveLabel="Save the delivery settings"
     >
-      <SettingRow explanation="Orders that exist keep their method. It can be changed for one order, or for all orders of a cargo at once.">
+      <SettingRow explanation="Orders that exist keep their method. It can be changed for one order on its page, or for chosen orders at once in the list.">
         <SelectField
           form={form}
           name="defaultMethod"
@@ -165,6 +194,26 @@ function DeliveryMethodForm({ saved }: { saved: DeliveryMethod }) {
             </option>
           ))}
         </SelectField>
+      </SettingRow>
+      <SettingRow explanation="How long a delivery takes, in words, in both languages. Customers read it at checkout and in the dispatch email.">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <TextField
+            form={form}
+            name="estimate.en"
+            label="Delivery estimate (English)"
+            required
+            maxLength={120}
+            placeholder="2 to 4 working days"
+          />
+          <TextField
+            form={form}
+            name="estimate.de"
+            label="Delivery estimate (German)"
+            required
+            maxLength={120}
+            placeholder="2 bis 4 Werktage"
+          />
+        </div>
       </SettingRow>
     </SettingsFormCard>
   );
@@ -240,7 +289,7 @@ export function OrdersSection() {
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       <CancellationForm saved={settings.orderPolicy.customerCancellation} />
-      <DeliveryMethodForm saved={settings.delivery.defaultMethod} />
+      <DeliveryForm saved={settings.delivery} />
       <ReturnWindowForm saved={settings.returnPolicy.windowDays} />
     </div>
   );

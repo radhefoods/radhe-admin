@@ -68,7 +68,7 @@ export const STATUS_MEANING: Record<
   },
   active: {
     label: "Active",
-    hint: "Part of the shop. It can be ordered in a cargo that has it enabled.",
+    hint: "Part of the shop. Customers can order it while it is available and in stock.",
   },
   archived: {
     label: "Archived",
@@ -609,7 +609,7 @@ export function ProductForm({
               name="isAvailable"
               label="Available"
               disabled={!manage}
-              hint="Switch it off while the product cannot be supplied. It stays in the catalogue and cannot be ordered."
+              hint="Switch it off while the product cannot be supplied. It stays in the catalogue, shown as sold out. A product with a stock of 0 is sold out as well."
             />
             <SwitchField
               form={form}

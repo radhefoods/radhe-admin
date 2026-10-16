@@ -44,18 +44,12 @@ export function setPeople(resolver: People | null): void {
   people = resolver;
 }
 
-const BY_ADMIN_KEYS = [
-  "createdBy",
-  "updatedBy",
-  "cancelledBy",
-  "activatedBy",
-  "recordedBy",
-] as const;
+const BY_ADMIN_KEYS = ["createdBy", "updatedBy", "cancelledBy"] as const;
 
 /**
  * Names next to ids (0.9), added while the answer is built, as the API
- * does: `admin` next to `adminId` (and next to `by` of a cargo history
- * entry), `createdByAdmin` and the like next to `createdBy` …, `customer`
+ * does: `admin` next to `adminId`, `createdByAdmin` and the like next to
+ * `createdBy` …, `customer`
  * next to `customerId`. Walks the whole answer; never overwrites a key.
  */
 function withPeople(value: unknown): unknown {

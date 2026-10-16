@@ -45,7 +45,7 @@ import type {
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
 import { cn } from "@/lib/cn";
-import { formatDate, formatDayRange } from "@/lib/format/dates";
+import { formatDeadline } from "@/lib/format/dates";
 import {
   DELIVERY_METHOD_LABEL,
   LOCALE_LABEL,
@@ -69,19 +69,19 @@ import {
 import {
   OrderCancelDialog,
   OrderDeliveryDialog,
-  OrderMoveDialog,
   OrderStatusDialog,
 } from "./order-dialogs";
 import { OrderItemsCard } from "./order-items";
 import { OrderPaymentCard } from "./order-payment";
 import { useOrder, useOrderActions, type OrderActions } from "./queries";
 
+/** The payment events of the history that are not a payment status (9.2). */
 const PAYMENT_EVENT: Record<string, { label: string; tone: Tone }> = {
+  authorized: { label: "Payment approved by the bank", tone: "moving" },
+  paid: { label: "Payment captured", tone: "success" },
+  failed: { label: "Payment failed", tone: "danger" },
   credited: { label: "Credit note issued", tone: "planned" },
-  reminders_paused: { label: "Reminders paused", tone: "neutral" },
-  reminders_resumed: { label: "Reminders resumed", tone: "neutral" },
-  reminder_sent: { label: "Reminder sent", tone: "attention" },
-  payment_failed: { label: "Online payment failed", tone: "danger" },
+  refunded: { label: "Refund completed", tone: "neutral" },
 };
 
 /** One line of the order's history, in words. */
@@ -98,20 +98,6 @@ function describe(entry: OrderHistoryEntry): { title: string; tone: Tone } {
       ? { title: `Payment ${meta.label.toLowerCase()}`, tone: meta.tone }
       : { title: `Payment: ${humanize(entry.to)}`, tone: "neutral" };
   }
-  if (entry.field === "cargo") {
-    return {
-      title: `Moved from ${entry.from ?? "?"} to ${entry.to}`,
-      tone: "planned",
-    };
-  }
-  if (entry.field === "delivery_window") {
-    // `from` and `to` are `start/end` calendar days.
-    const [start, end] = entry.to.split("/");
-    return {
-      title: `Delivery days changed to ${formatDayRange(start ?? entry.to, end ?? start ?? entry.to)}`,
-      tone: "planned",
-    };
-  }
   const method =
     DELIVERY_METHOD_LABEL[entry.to as keyof typeof DELIVERY_METHOD_LABEL];
   return {
@@ -120,31 +106,14 @@ function describe(entry: OrderHistoryEntry): { title: string; tone: Tone } {
   };
 }
 
-/**
- * The history of an order, newest first. The daily reminders of an unpaid
- * order would bury everything else, so a run of them becomes one line.
- */
+/** The history of an order, newest first. */
 export function orderTimeline(
   entries: OrderHistoryEntry[],
   adminName: (id: string | null, admin?: AdminRef | null) => string,
 ): TimelineEntry[] {
-  const result: TimelineEntry[] = [];
-  let run: { count: number; first: string } | null = null;
-  const newestFirst = [...entries].reverse();
-  newestFirst.forEach((entry, index) => {
+  return [...entries].reverse().map((entry, index) => {
     const { title, tone } = describe(entry);
-    const reminder = entry.field === "payment" && entry.to === "reminder_sent";
-    const last = result[result.length - 1];
-    if (reminder && run && last) {
-      run.count += 1;
-      run.first = entry.at;
-      last.title = `${run.count} reminders sent`;
-      last.note = undefined;
-      last.by = `daily since ${formatDate(run.first)}`;
-      return;
-    }
-    run = reminder ? { count: 1, first: entry.at } : null;
-    result.push({
+    return {
       key: `${entry.at}-${index}`,
       at: entry.at,
       title,
@@ -156,9 +125,8 @@ export function orderTimeline(
             ? "The customer"
             : "The system",
       note: entry.note,
-    });
+    };
   });
-  return result;
 }
 
 function Actions({
@@ -170,7 +138,7 @@ function Actions({
 }) {
   const can = useCan();
   const [target, setTarget] = useState<SettableOrderStatus | null>(null);
-  const [dialog, setDialog] = useState<"move" | "cancel" | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const steps = sortTransitions<SettableOrderStatus>(
     ORDER_PATH as readonly SettableOrderStatus[],
     order.status as SettableOrderStatus,
@@ -178,8 +146,7 @@ function Actions({
   );
   const [next, ...alternatives] = steps.forward;
   const manage = can("orders.manage");
-  const menu =
-    manage && (steps.back.length > 0 || order.canMove || order.canCancel);
+  const menu = manage && (steps.back.length > 0 || order.canCancel);
 
   return (
     <>
@@ -196,13 +163,8 @@ function Actions({
                 {orderActionLabel(order.status, status)}
               </DropdownMenuItem>
             ))}
-            {order.canMove ? (
-              <DropdownMenuItem onSelect={() => setDialog("move")}>
-                Move to another cargo
-              </DropdownMenuItem>
-            ) : null}
             {order.canCancel ? (
-              <DropdownMenuItem danger onSelect={() => setDialog("cancel")}>
+              <DropdownMenuItem danger onSelect={() => setCancelling(true)}>
                 Cancel the order
               </DropdownMenuItem>
             ) : null}
@@ -213,9 +175,7 @@ function Actions({
         <ActionButton
           key={status}
           permission="orders.manage"
-          variant={
-            status === "delivery_failed" ? "danger-outline" : "secondary"
-          }
+          variant="secondary"
           className="max-sm:h-12 max-sm:flex-1 max-sm:text-base"
           onClick={() => setTarget(status)}
         >
@@ -231,6 +191,10 @@ function Actions({
         >
           {orderActionLabel(order.status, next)}
         </ActionButton>
+      ) : order.status === "pending_payment" ? (
+        <span className="text-13 text-ink-muted">
+          Waiting for the payment: it confirms the order.
+        </span>
       ) : null}
 
       <OrderStatusDialog
@@ -241,21 +205,11 @@ function Actions({
           if (!open) setTarget(null);
         }}
       />
-      <OrderMoveDialog
-        order={order}
-        open={dialog === "move"}
-        actions={actions}
-        onOpenChange={(open) => {
-          if (!open) setDialog(null);
-        }}
-      />
       <OrderCancelDialog
         order={order}
-        open={dialog === "cancel"}
+        open={cancelling}
         actions={actions}
-        onOpenChange={(open) => {
-          if (!open) setDialog(null);
-        }}
+        onOpenChange={setCancelling}
       />
     </>
   );
@@ -328,9 +282,6 @@ function DeliveryCard({
                 ) : null}
               </span>
             ) : null}
-          </Fact>
-          <Fact label="Promised">
-            {formatDayRange(delivery.promisedStart, delivery.promisedEnd)}
           </Fact>
           {delivery.dispatchedAt ? (
             <Fact label="Dispatched">
@@ -504,6 +455,7 @@ export function OrderView() {
   }
 
   const history = orderTimeline(data.statusHistory, adminName);
+  const pending = data.status === "pending_payment";
 
   return (
     <RequirePermission permission="orders.read">
@@ -526,14 +478,8 @@ export function OrderView() {
         }
         description={
           <>
-            {personName(data.customer)} ·{" "}
-            <Link
-              href={routes.cargo(data.cargo.id)}
-              className="font-medium text-accent-text hover:underline"
-            >
-              {data.cargo.code}
-            </Link>{" "}
-            · placed <DateTime value={data.placedAt} />
+            {personName(data.customer)} · placed{" "}
+            <DateTime value={data.placedAt} />
           </>
         }
         actions={<Actions order={data} actions={actions} />}
@@ -548,16 +494,25 @@ export function OrderView() {
               ? `By ${adminName(data.cancellation.adminId, data.cancellation.admin)}`
               : data.cancellation.by === "customer"
                 ? "By the customer"
-                : "By the system"}{" "}
+                : "By the shop"}{" "}
             on <DateTime value={data.cancellation.at} />.
             {data.cancellation.text ? ` “${data.cancellation.text}”` : ""}
+            {data.payment.needsRefund
+              ? " What was paid waits for a refund: see the payment."
+              : ""}
           </Alert>
         ) : null}
-        {data.status === "delivery_failed" ? (
-          <Alert tone="danger" title="The delivery failed">
-            Dispatch the order again, mark it delivered, or move it to the next
-            cargo (More actions): there it is confirmed again and delivered with
-            that cargo.
+        {pending ? (
+          <Alert
+            tone="time"
+            title={
+              data.payment.checkout
+                ? `Waiting for the payment: the page is open until ${formatDeadline(data.payment.checkout.expiresAt)}`
+                : "Waiting for the payment"
+            }
+          >
+            The payment confirms the order; nothing is set by hand and nothing
+            is reserved meanwhile. The order can still be cancelled.
           </Alert>
         ) : null}
 
@@ -626,7 +581,7 @@ export function OrderView() {
             <Card>
               <CardHeader
                 title="What the customer accepted"
-                description="Recorded when the order was confirmed."
+                description="Recorded at checkout."
               />
               <CardBody>
                 <dl className="grid gap-4">

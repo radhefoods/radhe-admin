@@ -1,123 +1,160 @@
-# Instructions: Radhe Foods Admin Panel
+# Migration brief: Radhe Foods admin panel (`radhe-admin`)
 
-You are the lead frontend engineer and product designer for the **admin panel of Radhe Foods**. You build it from scratch in this folder. The backend API already exists and is finished; you build the web application the shop team uses every day to run the business.
-
-The owner (Vrushabh, a solo developer and the shop owner) gives direction. Where he has not decided something, you decide, with the best judgement of an experienced engineer who has built back-office tools. Aim for a result that is production-ready, efficient and pleasant to use eight hours a day, not for a demo.
+You are the engineer of the existing Next.js admin panel in this folder. Its backend, `radhe-api`, changed on 2026-10-16 from a pre-order platform to a standard online shop: products are sold from stock, customers pay at checkout on a Stripe page, and the payment confirms the order. Your job is to adapt the panel to the new backend. The owner (Vrushabh) decides; when something is unclear, ask him before you build. Never assume what the API does: read it in the API documentation or ask.
 
 ---
 
-## 1. What Radhe Foods is, and what the panel runs
+## 1. The rule above all others: the design stays
 
-Radhe Foods sells Indian groceries in Germany through a **pre-order system**: customers order during a **cargo** (an ordering cycle with a deadline), the goods are brought in, delivered, and **paid after delivery** by payment link (Stripe) or cash, with automatic reminders. Currency EUR, customer languages English and German.
+Do not change the theme, colours, fonts, typography, spacing, layouts, components, animations or the visual identity of the panel. Reuse the existing components and patterns for everything new: the data table, the filter bar, the status badge with its six tones, the confirm dialog that restates the real numbers, the form fields, the action button that is disabled without permission. What you change is functionality, business logic, API integration and the minimal UI adjustments the new model forces:
 
-The panel is where everything happens that is not the customer's own click:
-
-- Catalogue: categories, products with pack sizes and prices, images (uploaded as JPEG/PNG/WebP, the API converts them to WebP in three sizes).
-- Cargos: create, open, close, move through transit, arrival, delivery; move orders between cargos; bulk status changes; activate payment for a whole cargo.
-- Orders: status, delivery, item adjustments after packing, cancellation.
-- Payments: activation, cash receipt, waive, reminders (pause, resume, send now), refunds, invoices and credit notes.
-- Returns, customers (status, ordering decisions, blocked state), notifications log and retries, announcements to opted-in customers (email, WhatsApp), legal texts with versions, shop settings, admin users, roles and permissions.
-- An **attention overview**: what needs a human now.
-
-The attached concept documents explain the business in depth. Read them first, completely.
+- pages and controls that only existed for the old model are removed (cargos, payment activation, cash, waiving, reminders, pay links, ordering decisions per customer);
+- texts that describe the old model are rewritten in the same place;
+- what the new model adds (stock on products, the refund decision, the restock switch on a return, an order waiting for its payment) is built with existing components, inside existing pages where a natural place exists.
 
 ---
 
-## 2. The attached files and which one wins
+## 2. What changed
 
-| File | Role |
+| | Until now (pre-order) | Now (shop) |
+|---|---|---|
+| Orders | Collected per cargo; confirmed without payment; moved between cargos; delivered per cargo | Created by the customer at checkout and confirmed by the payment; the admin never confirms by hand and never moves an order |
+| Payment | Activated by the admin after delivery; deadline, reminders, pay links, cash, waiving, overdue customers | Paid at checkout through Stripe. The admin records no payment. The admin decides **refunds**: through Stripe or by hand |
+| Order statuses | `confirmed`, `preparing`, `dispatched`, `delivered`, `delivery_failed`, `cancelled`, `returned` | `pending_payment`, `confirmed`, `processing`, `dispatched`, `delivered`, `cancelled`, `returned` |
+| Payment statuses | `not_enabled`, `due`, `overdue`, `paid`, `waived`, `refunded`; methods `stripe`, `cash`, `credit` | `pending`, `authorized`, `paid`, `failed`, `refunded`; Stripe payment type `card` or `paypal` |
+| Stock | Per cargo, with limits per cargo product | Per product: `stock { quantity, lowStockThreshold }`, a movement ledger, a low-stock filter, CSV columns |
+| Customers | Ordering decisions (block, allow, overdue) | Status only (active, blocked) |
+| Settings | Payment deadline days, reminder hour, cargo defaults | `payments.checkoutMinutes` (how long a Stripe page stays open), `delivery.defaultMethod` and `delivery.estimate { en, de }` |
+| Legal texts | `terms`, `preorder_terms`, `privacy` | `terms`, `privacy` |
+| Notifications | Including `order_moved`, `delivery_rescheduled`, `delivery_failed`, `payment_request`, `payment_reminder` | `order_confirmed`, `order_cancelled`, `order_dispatched`, `order_delivered`, `return_*`, `payment_failed`, `refund_completed`, `announcement` (section 13.1) |
+| Permissions | Included the `cargos` resource | No `cargos` resource (section 17.1) |
+
+Unchanged: sign-in with password and authenticator, forced password change, admin users and roles, categories, products with pack sizes, prices, images, CSV import and export (plus the two stock columns), returns (plus the restock switch), refunds, invoices and credit notes, notifications log, announcements (without the cargo field), legal texts, company and delivery-fee settings, the return window, the cancellation rule.
+
+---
+
+## 3. Files to read, in this order
+
+| File | What to read |
 |---|---|
-| `Radhe_Foods_Preorder_Core_Concept.md`, `Radhe_Foods_Preorder.md` | The business idea and the full pre-order flow. Explains **why** |
-| `ARCHITECTURE.md` | How the whole platform is built and hosted |
-| `ADMIN_API_DOCUMENTATION.md` | **Every endpoint, field, status, transition, permission and error the panel can use. This is the authority.** |
-| Logo files | The brand mark, for the sign-in page and the header |
+| This brief | All of it |
+| `ARCHITECTURE.md` | Sections 1, 2, 4 (modules), 6 (status models), 7 (key flows), 8 (authentication) |
+| `ADMIN_API_DOCUMENTATION.md` | **The authority.** Section 0; sections 4 to 15 completely; section 17 (enums, state machines, permission matrix, error codes); sections 1 to 3 as a check that nothing changed there |
+| `CSV_IMPORT_EXPORT.md` and `examples/*.csv` | The catalogue sheet with its stock columns |
 
-Rule: **where the concept documents and the API documentation differ, the API documentation is right** (it was generated from the real implementation; the concept documents are the original plan). Build against the API. Do not invent endpoints, fields, statuses or transitions; the API documentation lists the allowed status transitions for cargos and orders, and the UI offers exactly those. If something you need is missing, say so and work around it, do not pretend it exists.
+These files come from `radhe-api/doc/` and replace the copies under `doc/` of this repository, which describe the old API. Delete `doc/Radhe_Foods_Preorder.md`, `doc/Radhe_Foods_Preorder_Core_Concept.md` and the old `doc/PROMPT_ADMIN_PANEL.md`; put this brief in their place.
 
----
-
-## 3. Non-negotiable facts about the backend
-
-Read section 0 and section 1 of the API documentation before writing any code. In short:
-
-- Base URL `https://<api host>/v1`, JSON, errors as `{ error: { code, message, details? }, requestId }`. Show the `message` for unexpected errors with the `requestId`; map the documented codes to friendly UI.
-- **Authentication is cookie based**, tokens never in bodies, every call with `credentials: 'include'`. Admin sign-in is **email + password + TOTP (authenticator app)**: the login answer is `mfa_required`, `mfa_setup_required` (show the QR code and confirm) or `authenticated`. On `401` refresh once via `POST /v1/admin/auth/refresh`, then sign-in. Admin sessions end after 12 hours without use and 72 hours in any case; handle expiry gracefully (keep unsaved form state where possible).
-- `403 ADMIN_PASSWORD_CHANGE_REQUIRED` means a **forced password change**: route to the change-password screen and allow nothing else until done.
-- **Permissions**: every admin has `<resource>.read` / `<resource>.manage` permissions (or wildcards, or the super admin role). `GET /v1/admin/auth/me` tells what the signed-in admin may do. The navigation and every action button follow the permissions: hide what cannot be read, disable with a hint what cannot be managed. A `403 FORBIDDEN` from the API is still handled, never assumed impossible.
-- Non-GET requests from the browser must come from an origin the API allows (dev: `http://localhost:3002`). Production: panel on `admin.<domain>`, API on `api.<domain>`.
-- Content fields exist **in both languages** (`en` and `de` objects for names, descriptions, SEO, legal texts). The panel UI itself is English only; the edited content is bilingual, side by side or tabbed, with a clear indicator of what is missing in a language.
-- Money is integer cents (`1999` = €19.99); VAT rates in hundredths of a percent (`700` = 7 %). Inputs show euros, the API gets cents; never floats in the payload. Dates ISO/UTC; calendar days in `Europe/Berlin`.
-- Pagination is cursor based on most lists and page based on the catalogue. Lists have the filters, search and sort that the documentation states, nothing else client-side on top unless the page holds all rows.
-- Image uploads: `multipart/form-data`, per-file and per-request limits, accepted formats and the returned variants are in the documentation. Show upload progress and the API's image errors verbatim-mapped.
-- Some features are built but not yet active (Stripe, SES, WhatsApp). Section 19 of the API documentation says how the panel shows each: never hide the function, show its state.
+Rule: **where any other text (this brief, README, CONTRIBUTING, DECISIONS, code comments) and the API documentation differ, the API documentation is right.** Do not invent endpoints, fields, statuses, transitions, permissions or error codes. Where the API lacks something you need, record it under "What the API cannot do" and ask the owner.
 
 ---
 
-## 4. Technical decisions
+## 4. API changes
 
-Use the current stable versions of everything. My defaults, which you may change with a stated reason:
+### 4.1 Removed endpoints
 
-- **Next.js (App Router), TypeScript strict**, client-heavy pages (this is an application, not a content site), `noindex` everywhere, no SEO work.
-- Tailwind CSS with design tokens; an accessible headless component base (Radix / shadcn/ui); a solid data-table layer (TanStack Table) with server-side pagination, sorting and filtering wired to the API's parameters; TanStack Query for server state with invalidation after every mutation.
-- One typed API client module: base URL, credentials, refresh-and-retry, error mapping, permission helper. Generated or hand-written types that mirror the documentation exactly.
-- Forms with zod schemas mirroring the API's validation; API `details[].field` errors shown at the field; unsaved-changes guard; optimistic updates only where a failure is harmless.
-- Environment in `.env.example` (`NEXT_PUBLIC_API_URL`, …). No secrets in the panel; it has none.
-- Tests: the money conversions, the permission gating, the status-transition logic, the checkout-critical flows (cargo close, payment activation, refunds) with component tests and a few Playwright flows against a mocked API. Lint and type checks clean.
-- Hosting: Vercel or Hostinger (Node.js). Standard Next.js build, no platform-specific services.
+Delete their client functions, types, query keys, hooks, mocks, tests and every caller:
+
+- Everything under `/v1/admin/cargos` (list, overview, create, detail, update, delete, open, close, status, check, rollover, cargo products with copy, cargo orders status, delivery method and move, payments activate and summary).
+- `GET /v1/admin/customers/{id}/ordering`, `POST /v1/admin/customers/{id}/ordering`.
+- `POST /v1/admin/orders/{id}/move`, `POST /v1/admin/orders/{id}/payment/activate`, `…/payment/cash`, `…/payment/waive`, `…/payment/remind`, `PATCH …/payment/reminders`.
+- `GET /v1/admin/orders/summary`, `POST /v1/admin/payments/run-jobs`.
+
+### 4.2 New endpoints
+
+- `POST /v1/admin/products/{id}/stock` (section 8): `{ quantity, note? }` sets the counted number, `{ delta, note? }` adds or removes units; one of the two. Errors `400 STOCK_CHANGE_INVALID`, `409 STOCK_INSUFFICIENT` (with `available` and `wanted`).
+- `GET /v1/admin/products/{id}/stock/movements` (section 8): the ledger, newest first, cursor paged.
+
+### 4.3 Changed answers and bodies
+
+Re-read these sections and update `src/lib/api/types/*.ts` to match them exactly:
+
+- Products (8): `stock { quantity, lowStockThreshold, isLow }` on summaries and details; `lowStockThreshold` is a field of the product form (`null` removes it); the count changes only through the stock endpoint and the CSV import. List filter `lowStock=true`. CSV columns `stock_quantity`, `low_stock_threshold`.
+- Orders (9): the statuses of section 2; no `cargo`, `promisedStart`/`promisedEnd`, `canMove` or `type`; `allowedStatuses` and `canCancel` on the detail; `payment.needsRefund`; list filters `status`, `paymentStatus`, `customerId`, `email`, `orderNumber`, `deliveryMethod`, `needsRefund`, `q`, `sort`; `POST …/status` takes `status`, `trackingNumber?`, `note?`; the bulk endpoints take `processing`, `dispatched` or `delivered` and answer every order in `results` with `changed` and `reason`.
+- Payments and refunds (11): the payment block of an order, `refundable { maximum, suggested, stripePossible }` from `GET /v1/admin/orders/{id}/payment`, the refund body `{ amount, reason, method: stripe | manual, manual: { way, reference? } }` as documented.
+- Returns (10): `POST …/complete` takes `restock?: boolean`; the return carries `restockedAt`.
+- Customers (4): no ordering override or history, no overdue list.
+- Settings (5): `payments { checkoutMinutes }` only; `delivery { defaultMethod, estimate { en, de } }`; `integrations { stripeConnected, whatsappConfigured }` and `company.missingForInvoices` stay.
+- Legal (6): types `terms` and `privacy`.
+- Notifications (13) and announcements (14): the types of section 13.1; no cargo on either.
+- Attention (15): `orders.toProcess`, `refunds { needed, orders, pending, failed, items }`, `returns.requested`, `stock { low, items }`, `notifications { failed, queued, items }`.
+- Error codes (17.3): remove the cargo and old payment codes with their texts.
 
 ---
 
-## 5. What the panel must contain
+## 5. What to do, by area
 
-1. **Sign-in**: email + password, TOTP step, first-time MFA setup with QR code and recovery guidance, forced password change, lockout message, "signed out everywhere" option in the profile.
-2. **Dashboard = attention overview**: the items that need a human (from the attention endpoint), the current cargo with its counts and deadline, orders and payments summaries, failed notifications. Each item links to the place where it is handled.
-3. **Cargos**: list and overview; create/edit with deadline and delivery window; the lifecycle as a clear stepper with only the allowed next transitions; rollover; cargo products (what is orderable in this cargo, with limits); bulk order actions (status, delivery method, move to another cargo); payment activation for the cargo with a summary before confirming.
-4. **Orders**: list with the documented filters and search; detail with customer, address, items, status timeline, payment block, invoices, returns, notifications sent; actions: status change, delivery details, move, adjust items (quantities actually delivered), cancel, each with confirmation and the API's reason fields.
-5. **Payments and refunds**: payment state per order, activate, record cash, waive, reminders (pause/resume/send now), create refund (Stripe or manual), refund list and lifecycle, run jobs by hand.
-6. **Invoices and credit notes**: list, detail, PDF open/download.
-7. **Returns**: list, detail, status handling, refund link.
-8. **Customers**: list/search, detail with orders and communication preferences, status (block/unblock with reason), ordering decisions (block/allow ordering).
-9. **Catalogue**: categories with image; products with bilingual content, pack sizes and prices, VAT, default pack, duplicate, price history; image manager with drag-and-drop upload, reorder, replace, alt texts, delete; make-default.
-10. **Notifications**: log with filters (type, channel, status, customer, related order), detail with failure reason and attempts, retry, cancel; run the dispatcher by hand.
-11. **Announcements**: compose bilingual, choose channels, preview with recipient counts, send, history, cancel while pending.
-12. **Legal texts**: versions per type (`terms`, `preorder_terms`, `privacy`), draft → publish, diff or at least side-by-side with the previous version, bilingual editor.
-13. **Settings**: company, delivery fee tiers, returns window, payment (deadline, reminder hour), the other sections the API exposes, each on its own form.
-14. **Admin users, roles and permissions**: users with roles, invite with temporary password, deactivate, reset MFA; roles as permission matrices; the super admin is the only one who manages roles.
-15. **Profile**: change password, MFA, sign out everywhere.
+### 5.1 Remove
+
+- The cargo pages, features, endpoints, types, query keys, mocks and tests; the "Cargos" navigation item; the cargo pill in the top bar; the cargo search in the command palette; the `cargos` resource in the permission helper and its labels.
+- On orders: the move dialog, the payment actions activate, cash, waive, pause reminders, remind now and the pay link; the delivery-window history, the promised days, the `delivery_failed` alert and transition; the cargo column and filter of the list; the pre-order copy.
+- On customers: the ordering decision dialog, the ordering badge, the overdue list, their schemas and queries.
+- On the start page: overdue payments, failed deliveries, collecting cargos.
+- In settings: deadline days, reminder hour, the pay-link copy, the per-cargo copy, the "payment cannot be activated" notice.
+- On the sign-in layout: the pre-order marketing copy.
+- In announcements and notifications: the cargo field and the related-cargo row.
+- In the catalogue: the "part of a cargo" copy.
+
+### 5.2 Orders
+
+- List: the filters of section 4.3, with `needsRefund` as a filter chip; the status badge tones for the new statuses (`pending_payment` is neutral: it waits for the customer; `confirmed` is the one that needs work: paid and not yet in processing).
+- Detail: status buttons from `allowedStatuses` only, with the new names; a `pending_payment` order has no status button ("the payment confirms it"); dispatching asks for the tracking number in the existing dialog; the delivery card keeps method and tracking number (`PATCH …/delivery`); cancel with the admin reasons of section 17; the delivered-quantity correction stays.
+- Bulk: the existing bulk bar with `processing`, `dispatched`, `delivered` and the delivery method; show every order's `changed` and `reason` from `results`, never a bare success.
+- The payment card shows the payment block (status, method and type, receipt, paid, credited, refunded amounts, attempts, last failure) and, when `needsRefund`, the refund decision: `refundable.suggested` restated in the existing confirm dialog, then the existing create-refund dialog (Stripe or manual).
+
+### 5.3 Payments page
+
+Group by the new payment statuses and add the group "waiting for a refund" (`needsRefund=true`). Remove "not invoiced", overdue and waived. The refunds and invoices pages stay; the invoice no longer has a deadline.
+
+### 5.4 Returns
+
+Add the restock switch to the complete dialog (`restock`, off by default: food that came back is not sold again unless the admin says so) and show `restockedAt` on the return. Remove the `not_enabled` payment check.
+
+### 5.5 Products and stock
+
+- The product form gets the low-stock threshold where the API accepts it.
+- The product detail gets a stock panel built from existing components: the count and the threshold, "set the counted number" and "add or remove units" with a note (one dialog, two modes), the movement ledger as a cursor list (reason, delta, quantity after, order number, admin, note, time).
+- The product list shows the stock count with the low-stock state and gets the `lowStock=true` filter chip.
+- CSV import and export: the two stock columns in the sheet handling and the templates.
+- The start page gets the "stock running low" group of the attention answer.
+
+### 5.6 Customers, settings, legal, communication
+
+- Customers: status (active, blocked) with reason only.
+- Settings: the payments tab keeps `checkoutMinutes` only; the delivery form gets the estimate in both languages next to the default method; the other tabs stay.
+- Legal: types `terms` and `privacy`; the reminder that both must be published before anyone can order.
+- Notifications and announcements: the type list of section 13.1; no cargo anywhere.
+- Today: the groups of the attention answer (orders to process, refunds needed, pending and failed, returns requested, stock low, notifications failed and queued), each linking to the filtered list.
+
+### 5.7 Permissions
+
+Resources are `admin_users`, `roles`, `customers`, `catalog`, `orders`, `settings`, `legal`, `payments`, `notifications`, each with `.read` and `.manage`, plus wildcards (section 17.1). Stock belongs to `catalog`; refunds to `payments`; returns and the order status to `orders`. Update the permission helper, the role matrix and their tests.
+
+### 5.8 Mocks and tests
+
+`mocks/`: remove the cargo, ordering, activation, cash, waiving and reminder modules; add stock (set, adjust, ledger, `STOCK_INSUFFICIENT`), the new order statuses and payment block, `needsRefund`, `refundable`, the return `restock`, the new settings and attention shapes. Update the component tests and the Playwright specs that cover the old flows (cargo and payments, auth with the cargo form, phone with mark delivered and cash, accessibility URLs); the new phone flow is: see the paid orders, mark processing, dispatch with the tracking number, mark delivered, decide a refund, correct the stock.
+
+### 5.9 Documentation of this repository
+
+Update `README.md`, `CONTRIBUTING.md` (cargos is no longer the reference feature; take orders or stock) and `DECISIONS.md` (remove the per-cargo bulk and activation batch decisions; record the new ones; keep "What the API cannot do" current).
 
 ---
 
-## 6. Design direction
+## 6. API facts you must respect
 
-For the overall design and theme, use your highest level of creativity and professional judgment. You have full freedom to create the design theme, visual system, layout, typography, spacing, colors, components, animations, interactions, and overall user experience.
+- Base URL `<NEXT_PUBLIC_API_URL>/v1`, JSON, errors as `{ error: { code, message, details? }, requestId }`. Unknown fields in a body are rejected (`400 VALIDATION_FAILED`); send only documented fields.
+- Cookie authentication, `credentials: 'include'`, refresh once on `401 AUTH_TOKEN_INVALID`, the MFA steps, the forced password change: the existing session and sign-in code does this; keep it.
+- Money is integer cents, VAT rates in hundredths of a percent; inputs show euros, the API gets cents.
+- Statuses and transitions are the API's. An order answers `allowedStatuses`; the panel offers exactly those. Forward steps email the customer; one step back tells the customer nothing. No order is confirmed by hand.
+- Nothing is reserved before the payment: the stock count is what the shop sells. A product with quantity 0 is sold out in the shop.
+- Every refund is a decision of a human, in the panel. A cancelled or credited paid order waits with `needsRefund: true` until the admin decides.
+- Some features may be off on the server (Stripe, WhatsApp, incomplete company details): `GET /v1/admin/settings` says which; show the state, never hide the function.
 
-Do not limit yourself to basic or conventional designs. Aim to create a world-class, modern, premium, highly professional, visually attractive, and polished website. Make design decisions based on current best practices and what will provide the strongest user experience, usability, accessibility, and brand presentation.
+---
 
-Where I have not provided specific design instructions, use your own expert judgment and choose what you believe will produce the best possible result.
+## 7. How to work
 
-- Clean, calm, data-dense but not cramped. A persistent left navigation grouped by workflow (Today, Cargos, Orders, Payments, Customers, Catalogue, Communication, Settings), a top bar with global search (order number, customer email, product), the signed-in admin and the current cargo state.
-- Tables that work: sticky headers, column alignment by type (numbers right), row actions, bulk selection where the API supports bulk, filter bar with chips, saved views optional. Empty states explain what to do next.
-- Status everywhere as consistent colour-coded badges with the exact API status names humanised; the same colour means the same thing across cargos, orders, payments, notifications.
-- Destructive or money-moving actions (cancel, waive, refund, close cargo, activate payment) get a confirmation that restates what will happen with the real numbers from the API.
-- Keyboard friendly: focus order, `/` for search, Esc closes, Enter submits where safe. Accessible (AA contrast, labels, live regions for toasts).
-- Light theme first; dark theme if it costs little. Brand colour from the logo used sparingly for primary actions; the rest neutral.
-- Responsive down to tablet; usable on a phone for the few things done on the road (order status, delivery confirmation, cash receipt).
-
--------------
-
-
-Use your strongest engineering judgment when designing and implementing the application architecture.
-
-You have full freedom to choose the best code organization, folder structure, component architecture, reusable abstractions, state-management patterns, caching strategy, data-fetching approach, utilities, validation structure, performance techniques, and other implementation details.
-
-The final codebase should be clean, modular, maintainable, reusable, secure, highly optimized, production-ready, and designed to scale as the platform grows.
-
-Where appropriate, you are also fully authorized to research the latest official documentation, framework recommendations, browser standards, accessibility guidance, SEO practices, security guidance, and current industry best practices before making implementation decisions. Prefer official and authoritative documentation whenever possible.
-
-The goal is not simply to make the application work. Build it to the highest practical standard in terms of design quality, user experience, SEO, performance, maintainability, scalability, security, accessibility, and overall engineering quality.
-
-------------
-
-if you have any doubt, uncertainty, missing information, conflicting requirement, or ambiguity regarding any part of the project, do not make assumptions.
-
-Feel free to ask me for clarification before making an important decision. This applies to anything related to the project, including the technology stack, architecture etc...
+1. Read the files of section 3 completely. Then write a short **plan**: every file you will remove, change or add, with the reason, the new type definitions, the permission changes, open questions, and anything the API cannot do. **Wait for the owner's go before editing.**
+2. Build in phases, each ending with lint, type check and tests green and a short note of what was done and decided: types, client and permissions → removal of the cargo and old payment parts → orders, bulk and the payment card with the refund decision → products and stock → returns, customers, settings, legal, communication, start page → mocks and tests → README, CONTRIBUTING, DECISIONS.
+3. Do not commit to Git unless asked. No secrets in the panel; it has none.
+4. When the owner gives an instruction, follow it. When you believe it harms the result, say so once with a better alternative, then do what he decides.
+5. The design does not change. If a change you think necessary would alter the look, ask first.

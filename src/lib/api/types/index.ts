@@ -8,7 +8,6 @@ export * from "./customers";
 export * from "./settings";
 export * from "./legal";
 export * from "./catalog";
-export * from "./cargos";
 export * from "./orders";
 export * from "./returns";
 export * from "./payments";

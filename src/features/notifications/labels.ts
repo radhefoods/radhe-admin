@@ -16,7 +16,7 @@ export const CHANNEL_LABEL: Record<NotificationChannel, string> = {
   whatsapp: "WhatsApp",
 };
 
-/** `payment_request` reads as `Payment request`: the API's name, made readable. */
+/** `order_dispatched` reads as `Order dispatched`: the API's name, made readable. */
 export function typeLabel(type: string): string {
   return humanize(type);
 }

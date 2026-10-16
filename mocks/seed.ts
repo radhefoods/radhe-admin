@@ -1,20 +1,20 @@
-// The demo data of the mock: a shop in the middle of its week. Cargos in
-// every stage, orders in every status, payments open, overdue and paid,
-// returns, refunds, failed messages. Dates are relative to "now", so the
-// data is always current; the same seed always gives the same shop.
+// The demo data of the mock: a shop in the middle of its week. Products
+// with their stock, orders in every status from the open payment page to
+// the delivered parcel, returns, refunds waiting for a decision, failed
+// messages. Dates are relative to "now", so the data is always current;
+// the same seed always gives the same shop.
 
 import type {
   AdminImage,
   Customer,
   DeliveryMethod,
-  OrderStatus,
   PackUnit,
+  Refund,
   Role,
   StorageType,
 } from "../src/lib/api/types/index.ts";
 import type {
   AdminRecord,
-  CargoRecord,
   CategoryRecord,
   Db,
   MockConfig,
@@ -23,10 +23,8 @@ import type {
 } from "./db.ts";
 import { emptyDb } from "./db.ts";
 import {
-  activatePayment,
   deliveryFeeFor,
   issueCreditNote,
-  markPaid,
   packLabel,
   pushHistory,
   queueMessage,
@@ -35,7 +33,19 @@ import {
   vatOf,
 } from "./domain.ts";
 import { newId } from "./http.ts";
-import { DAY, HOUR, addDays, berlinDay, berlinMoment, iso } from "./time.ts";
+import { completeRefund } from "./modules/payments.ts";
+import {
+  recordMovement,
+  releaseUnits,
+  restockReturn,
+} from "./modules/stock.ts";
+import {
+  cancelOrder,
+  failPayment,
+  setOrderStatus,
+  settleOrder,
+} from "./order-ops.ts";
+import { DAY, HOUR, berlinDay, iso } from "./time.ts";
 
 export const ALL_PERMISSIONS = [
   "admin_users.read",
@@ -46,8 +56,6 @@ export const ALL_PERMISSIONS = [
   "customers.manage",
   "catalog.read",
   "catalog.manage",
-  "cargos.read",
-  "cargos.manage",
   "orders.read",
   "orders.manage",
   "settings.read",
@@ -511,9 +519,9 @@ function slugify(text: string): string {
 }
 
 const LEGAL_EN = (title: string, version: number) =>
-  `# ${title}\n\nVersion ${version}. These terms apply to every pre-order placed at Radhe Foods.\n\n## 1. Pre-order and price\n\nYou confirm your order with the full price shown at checkout. **No payment is collected when you order.**\n\n## 2. Delivery\n\nWe deliver within the delivery window shown for the cargo your order belongs to. If a cargo is delayed, we tell you.\n\n## 3. Payment after delivery\n\nAfter delivery we send an invoice and a payment link. Payment is due by the deadline on the invoice${version > 1 ? ", at the earliest five days after the invoice" : ""}.\n\n## 4. Returns\n\nYou can ask to return single products within 14 days of delivery.\n`;
+  `# ${title}\n\nVersion ${version}. These terms apply to every order placed at Radhe Foods.\n\n## 1. Order and price\n\nYou order at the price shown at checkout, VAT included. **The order is confirmed once your payment is captured.**\n\n## 2. Payment\n\nYou pay at checkout by card or PayPal. The invoice is issued the moment the payment is captured and sent with the confirmation${version > 1 ? ", as a PDF" : ""}.\n\n## 3. Delivery\n\nWe deliver anywhere in Germany. The delivery estimate is shown at checkout.\n\n## 4. Returns\n\nYou can ask to return single products within 14 days of delivery.\n`;
 const LEGAL_DE = (title: string, version: number) =>
-  `# ${title}\n\nVersion ${version}. Diese Bedingungen gelten für jede Vorbestellung bei Radhe Foods.\n\n## 1. Vorbestellung und Preis\n\nSie bestätigen Ihre Bestellung mit dem vollständigen Preis, der an der Kasse angezeigt wird. **Bei der Bestellung wird keine Zahlung eingezogen.**\n\n## 2. Lieferung\n\nWir liefern innerhalb des Lieferzeitraums der Lieferung, zu der Ihre Bestellung gehört.\n\n## 3. Zahlung nach Lieferung\n\nNach der Lieferung senden wir eine Rechnung und einen Zahlungslink. Die Zahlung ist bis zur Frist auf der Rechnung fällig${version > 1 ? ", frühestens fünf Tage nach der Rechnung" : ""}.\n\n## 4. Rücksendungen\n\nEinzelne Produkte können Sie innerhalb von 14 Tagen nach Lieferung zurückgeben.\n`;
+  `# ${title}\n\nVersion ${version}. Diese Bedingungen gelten für jede Bestellung bei Radhe Foods.\n\n## 1. Bestellung und Preis\n\nSie bestellen zum an der Kasse angezeigten Preis inklusive Mehrwertsteuer. **Die Bestellung ist bestätigt, sobald Ihre Zahlung eingezogen ist.**\n\n## 2. Zahlung\n\nSie zahlen an der Kasse per Karte oder PayPal. Die Rechnung wird mit dem Zahlungseingang ausgestellt und mit der Bestätigung versandt${version > 1 ? ", als PDF" : ""}.\n\n## 3. Lieferung\n\nWir liefern deutschlandweit. Die voraussichtliche Lieferzeit wird an der Kasse angezeigt.\n\n## 4. Rücksendungen\n\nEinzelne Produkte können Sie innerhalb von 14 Tagen nach Lieferung zurückgeben.\n`;
 
 export interface SeedOptions extends MockConfig {
   now?: number;
@@ -527,8 +535,8 @@ export function seed(options: SeedOptions): Db {
     whatsapp: options.whatsapp,
     publicUrl: options.publicUrl,
   });
-  const today = berlinDay(now);
   const long = now - 120 * DAY;
+  void berlinDay;
 
   // --- Roles and admins -----------------------------------------------------
   const role = (
@@ -561,7 +569,6 @@ export function seed(options: SeedOptions): Db {
     [
       "orders.read",
       "orders.manage",
-      "cargos.read",
       "payments.read",
       "customers.read",
       "catalog.read",
@@ -572,7 +579,7 @@ export function seed(options: SeedOptions): Db {
     "catalogue_editor",
     "Catalogue editor",
     "Keeps products, categories and pictures.",
-    ["catalog.read", "catalog.manage", "cargos.read"],
+    ["catalog.read", "catalog.manage"],
   );
   const viewer = role(
     "viewer",
@@ -643,7 +650,7 @@ export function seed(options: SeedOptions): Db {
     missingForInvoices: [],
   };
   const legal = (
-    type: "terms" | "preorder_terms" | "privacy",
+    type: "terms" | "privacy",
     version: number,
     published: number | null,
     en: string,
@@ -678,7 +685,7 @@ export function seed(options: SeedOptions): Db {
     now - 40 * DAY,
     "Terms and Conditions",
     "Allgemeine Geschäftsbedingungen",
-    "Payment deadline clarified",
+    "Checkout and payment wording",
   );
   legal(
     "terms",
@@ -687,14 +694,6 @@ export function seed(options: SeedOptions): Db {
     "Terms and Conditions",
     "Allgemeine Geschäftsbedingungen",
     "Return window wording",
-  );
-  legal(
-    "preorder_terms",
-    1,
-    now - 110 * DAY,
-    "Pre-Order and Payment Terms",
-    "Vorbestell- und Zahlungsbedingungen",
-    null,
   );
   legal(
     "privacy",
@@ -808,13 +807,13 @@ export function seed(options: SeedOptions): Db {
           de: `${item.name[1]} in der ${label}-Packung.`,
         },
         description: {
-          en: `${item.name[0]}${item.brand ? ` by ${item.brand}` : ""}. A staple of the Indian kitchen, brought in fresh with every cargo.`,
+          en: `${item.name[0]}${item.brand ? ` by ${item.brand}` : ""}. A staple of the Indian kitchen, in stock and delivered anywhere in Germany.`,
           de: rng.chance(0.75)
             ? `${item.name[1]}${item.brand ? ` von ${item.brand}` : ""}. Ein Grundnahrungsmittel der indischen Küche.`
             : null,
         },
         highlights: {
-          en: ["Authentic quality", "Imported with each cargo"],
+          en: ["Authentic quality", "Imported from India"],
           de: ["Authentische Qualität"],
         },
         uses: { en: [], de: [] },
@@ -822,6 +821,10 @@ export function seed(options: SeedOptions): Db {
         minOrderQuantity: 1,
         maxOrderQuantity: item.storage === "chilled" ? 4 : null,
         storageType: item.storage ?? "ambient",
+        stock: {
+          quantity: 0,
+          lowStockThreshold: index === 0 ? 12 : rng.chance(0.5) ? 8 : null,
+        },
         food: {
           ingredients: item.ingredients
             ? { en: item.ingredients[0], de: item.ingredients[1] }
@@ -844,6 +847,17 @@ export function seed(options: SeedOptions): Db {
         updatedAt: iso(at + HOUR),
       };
       db.products.push(product);
+      // The opening stock, counted when the product was created.
+      if (status !== "draft") {
+        recordMovement(
+          db,
+          product,
+          "restock",
+          rng.int(40, 160),
+          { adminId: owner.id, note: "Opening stock" },
+          at + 10 * 60_000,
+        );
+      }
       const history = [
         {
           regularPrice,
@@ -920,8 +934,6 @@ export function seed(options: SeedOptions): Db {
           isDefault: true,
         },
       ],
-      orderingOverride: null,
-      orderingHistory: [],
     });
   }
   const blocked = db.customers[7] as Customer;
@@ -929,201 +941,26 @@ export function seed(options: SeedOptions): Db {
   blocked.blockedReason = "Three orders refused at the door.";
   blocked.blockedAt = iso(now - 30 * DAY);
 
-  // --- Cargos ---------------------------------------------------------------
-  interface CargoPlan {
-    name: string;
-    status: CargoRecord["status"];
-    openDays: number;
-    closeDays: number;
-    deliveryDays: [number, number];
-    path: CargoRecord["status"][];
-  }
-  const fullPath: CargoRecord["status"][] = [
-    "draft",
-    "scheduled",
-    "taking_orders",
-    "orders_closed",
-    "in_transit",
-    "arrived",
-    "delivering",
-    "delivered",
-  ];
-  const plans: CargoPlan[] = [
-    {
-      name: "August, last week",
-      status: "cancelled",
-      openDays: -62,
-      closeDays: -58,
-      deliveryDays: [-48, -46],
-      path: ["draft", "scheduled", "cancelled"],
-    },
-    {
-      name: "September, first week",
-      status: "delivered",
-      openDays: -52,
-      closeDays: -48,
-      deliveryDays: [-38, -36],
-      path: fullPath,
-    },
-    {
-      name: "September, third week",
-      status: "delivered",
-      openDays: -38,
-      closeDays: -34,
-      deliveryDays: [-24, -22],
-      path: fullPath,
-    },
-    {
-      name: "October, first week",
-      status: "delivered",
-      openDays: -24,
-      closeDays: -20,
-      deliveryDays: [-8, -6],
-      path: fullPath,
-    },
-    {
-      name: "October, second week",
-      status: "delivering",
-      openDays: -20,
-      closeDays: -13,
-      deliveryDays: [-1, 1],
-      path: fullPath.slice(0, 7),
-    },
-    {
-      name: "October, third week",
-      status: "in_transit",
-      openDays: -13,
-      closeDays: -6,
-      deliveryDays: [5, 7],
-      path: fullPath.slice(0, 5),
-    },
-    {
-      name: "October, fourth week",
-      status: "taking_orders",
-      openDays: -6,
-      closeDays: 1,
-      deliveryDays: [12, 14],
-      path: fullPath.slice(0, 3),
-    },
-    {
-      name: "November, first week",
-      status: "scheduled",
-      openDays: 2,
-      closeDays: 9,
-      deliveryDays: [19, 21],
-      path: fullPath.slice(0, 2),
-    },
-    {
-      name: "November, second week",
-      status: "draft",
-      openDays: 9,
-      closeDays: 16,
-      deliveryDays: [26, 28],
-      path: ["draft"],
-    },
-  ];
-  db.counters.cargo = 21;
-  const cargos: CargoRecord[] = plans.map((plan) => {
-    db.counters.cargo += 1;
-    const openAt = berlinMoment(addDays(today, plan.openDays), 0, 0);
-    // The open cargo closes tomorrow evening: a countdown worth looking at.
-    const closeAt =
-      plan.status === "taking_orders"
-        ? berlinMoment(addDays(today, plan.closeDays), 23, 59)
-        : berlinMoment(addDays(today, plan.closeDays - 1), 23, 59);
-    const created = openAt - 6 * DAY;
-    const stepTimes: Record<string, number> = {
-      draft: created,
-      scheduled: created + HOUR,
-      taking_orders: openAt + 3000,
-      orders_closed: closeAt + 60_000,
-      in_transit: closeAt + 2 * DAY,
-      arrived: berlinMoment(addDays(today, plan.deliveryDays[0] - 1), 15),
-      delivering: berlinMoment(addDays(today, plan.deliveryDays[0]), 6),
-      delivered: berlinMoment(addDays(today, plan.deliveryDays[1]), 19),
-      cancelled: created + 2 * DAY,
-    };
-    const record: CargoRecord = {
-      id: newId(created),
-      number: db.counters.cargo,
-      code: `RF-C${String(db.counters.cargo).padStart(3, "0")}`,
-      internalName: plan.name,
-      customerName: { en: `${plan.name.split(",")[0]} delivery`, de: null },
-      customerMessage:
-        plan.status === "taking_orders"
-          ? {
-              en: "Order by tomorrow night for delivery in two weeks.",
-              de: "Bestellen Sie bis morgen Abend für die Lieferung in zwei Wochen.",
-            }
-          : null,
-      internalNotes:
-        plan.status === "in_transit"
-          ? "Container MSCU 482913-7, ETA Hamburg on Thursday."
-          : null,
-      status: plan.status,
-      orderOpenAt: iso(openAt),
-      orderCloseAt: iso(closeAt),
-      delivery: {
-        start: addDays(today, plan.deliveryDays[0]),
-        end: addDays(today, plan.deliveryDays[1]),
-      },
-      timezone: "Europe/Berlin",
-      openedAt: plan.path.includes("taking_orders") ? iso(openAt + 3000) : null,
-      closedAt: plan.path.includes("orders_closed")
-        ? iso(closeAt + 60_000)
-        : null,
-      createdAt: iso(created),
-      updatedAt: iso(stepTimes[plan.status] ?? created),
-      statusHistory: plan.path.map((status, index) => ({
-        from: index === 0 ? null : (plan.path[index - 1] ?? null),
-        to: status,
-        at: iso(stepTimes[status] ?? created),
-        source:
-          status === "taking_orders" || status === "orders_closed"
-            ? "schedule"
-            : "admin",
-        by:
-          status === "taking_orders" || status === "orders_closed"
-            ? null
-            : owner.id,
-        note:
-          status === "cancelled" ? "Supplier cancelled the shipment." : null,
-      })),
-    };
-    db.cargos.push(record);
-    if (plan.status !== "cancelled" && plan.status !== "draft") {
-      for (const product of orderable) {
-        const limited = product.storageType === "chilled";
-        db.cargoProducts.push({
-          cargoId: record.id,
-          productId: product.id,
-          isEnabled: true,
-          maxQuantity: limited ? 60 : null,
-          orderedQuantity: 0,
-        });
-      }
-    }
-    return record;
-  });
-  const cargo = (name: string) =>
-    cargos.find((entry) => entry.internalName === name) as CargoRecord;
-
   // --- Orders ---------------------------------------------------------------
+  // Every order starts at checkout as pending; the payment confirms it
+  // (architecture 7.1, 7.2). The seed walks each one through the same steps
+  // the routes take, so the ledger, the invoices and the messages are real.
   db.counters.order = 1000;
-  interface OrderPlan {
-    status: OrderStatus;
-    method?: DeliveryMethod;
-  }
+  const buyers = db.customers.filter(
+    (customer) => customer.status === "active",
+  );
+  const stockOf = (product: ProductRecord) => product.stock.quantity;
+
   const placeOrder = (
-    target: CargoRecord,
     customer: Customer,
     placedAt: number,
-    plan: OrderPlan,
+    method?: DeliveryMethod,
   ): OrderRecord => {
     db.counters.order += 1;
-    const lines = rng.int(1, 5);
+    const lines = rng.int(1, 4);
     const chosen = new Set<ProductRecord>();
-    while (chosen.size < lines) chosen.add(rng.pick(orderable));
+    const inStock = orderable.filter((product) => stockOf(product) >= 6);
+    while (chosen.size < lines) chosen.add(rng.pick(inStock));
     const items = [...chosen].map((product) => {
       const quantity =
         product.storageType === "chilled" ? rng.int(1, 2) : rng.int(1, 3);
@@ -1136,7 +973,8 @@ export function seed(options: SeedOptions): Db {
         imageUrl: product.images[0]?.sizes.small.url ?? null,
         quantity,
         unitPrice,
-        regularUnitPrice: product.regularPrice,
+        regularUnitPrice:
+          product.salePrice === null ? null : product.regularPrice,
         lineTotal: quantity * unitPrice,
         vatRate: product.vatRate,
         vatPercent: product.vatRate / 100,
@@ -1152,21 +990,14 @@ export function seed(options: SeedOptions): Db {
       deliveryFeeFor(db, subtotal),
     );
     const address = customer.addresses[0];
-    const method =
-      plan.method ??
-      rng.pick<DeliveryMethod>([
-        "radhe_delivery",
-        "radhe_delivery",
-        "radhe_delivery",
-        "dhl",
-        "hermes",
-      ]);
+    const pageMinutes = db.settings.payments.checkoutMinutes;
+    const expiresAt = placedAt + pageMinutes * 60_000;
+    const number = db.counters.order;
     const order: OrderRecord = {
       id: newId(placedAt),
-      orderNumber: `RF-${db.counters.order}`,
-      type: "preorder",
-      status: "confirmed",
-      paymentStatus: "not_enabled",
+      orderNumber: `RF-${number}`,
+      status: "pending_payment",
+      paymentStatus: "pending",
       placedAt: iso(placedAt),
       customer: {
         id: customer.id,
@@ -1175,17 +1006,13 @@ export function seed(options: SeedOptions): Db {
         lastName: customer.lastName ?? undefined,
         ...(customer.phone ? { phone: customer.phone } : {}),
       },
-      cargo: { id: target.id, code: target.code },
       currency: "EUR",
       delivery: {
-        method,
+        method: method ?? db.settings.delivery.defaultMethod,
         trackingNumber: null,
         trackingUrl: null,
         dispatchedAt: null,
         deliveredAt: null,
-        promisedStart: target.delivery.start,
-        promisedEnd: target.delivery.end,
-        cargo: target.code,
       },
       language: customer.locale,
       items,
@@ -1212,7 +1039,27 @@ export function seed(options: SeedOptions): Db {
             "Bitte nach 17 Uhr liefern.",
           ])
         : null,
-      payment: null,
+      payment: {
+        amount: totals.total,
+        paidAmount: 0,
+        creditedAmount: 0,
+        refundedAmount: 0,
+        attempts: 1,
+        checkoutSessionId: `cs_test_demo${number}`,
+        checkoutUrl: `https://checkout.stripe.com/c/pay/cs_test_demo${number}`,
+        checkoutExpiresAt: iso(expiresAt),
+        paymentIntentId: null,
+        chargeId: null,
+        paymentType: null,
+        receiptUrl: null,
+        authorizedAt: null,
+        paidAt: null,
+        invoiceId: null,
+        invoiceNumber: null,
+        lastFailure: null,
+      },
+      pendingUntil: iso(expiresAt + 10 * 60_000),
+      stockTakenAt: null,
       cancellation: null,
       consent: {
         acceptedAt: iso(placedAt),
@@ -1239,7 +1086,7 @@ export function seed(options: SeedOptions): Db {
         {
           field: "order",
           from: null,
-          to: "confirmed",
+          to: "pending_payment",
           at: iso(placedAt),
           by: "customer",
           adminId: null,
@@ -1248,326 +1095,200 @@ export function seed(options: SeedOptions): Db {
       ],
       updatedAt: iso(placedAt),
     };
-    for (const item of items) {
-      const setting = db.cargoProducts.find(
-        (entry) =>
-          entry.cargoId === target.id && entry.productId === item.productId,
-      );
-      if (setting) setting.orderedQuantity += item.quantity;
-    }
     db.orders.push(order);
-    queueMessage(
-      db,
-      { type: "order_confirmed", customer, order },
-      placedAt + 2000,
-    );
-
-    const dispatchAt =
-      berlinMoment(target.delivery.start, 7) + rng.int(0, 90) * 60_000;
-    const deliverAt = dispatchAt + rng.int(3, 30) * HOUR;
-    const step = (to: OrderStatus, at: number, note: string | null = null) => {
-      pushHistory(
-        order,
-        {
-          field: "order",
-          from: order.status,
-          to,
-          by: "admin",
-          adminId: owner.id,
-          note,
-        },
-        at,
-      );
-      order.status = to;
-    };
-    const dispatch = () => {
-      step("dispatched", dispatchAt);
-      order.delivery.dispatchedAt = iso(dispatchAt);
-      if (method !== "radhe_delivery")
-        order.delivery.trackingNumber =
-          method === "dhl"
-            ? `0034043416109${4000000 + db.counters.order}`
-            : `H100${4800000 + db.counters.order}`;
-      queueMessage(
-        db,
-        { type: "order_dispatched", customer, order },
-        dispatchAt + 3000,
-      );
-    };
-    if (plan.status === "preparing")
-      step("preparing", Date.parse(target.orderCloseAt) + 3 * DAY);
-    if (
-      plan.status === "dispatched" ||
-      plan.status === "delivered" ||
-      plan.status === "delivery_failed"
-    )
-      dispatch();
-    if (plan.status === "delivered") {
-      step("delivered", deliverAt);
-      order.delivery.deliveredAt = iso(deliverAt);
-      queueMessage(
-        db,
-        { type: "order_delivered", customer, order },
-        deliverAt + 3000,
-      );
-    }
-    if (plan.status === "delivery_failed") {
-      step("delivery_failed", deliverAt, "Nobody at home, no neighbour.");
-      queueMessage(
-        db,
-        { type: "delivery_failed", customer, order },
-        deliverAt + 3000,
-      );
-    }
-    if (plan.status === "cancelled") {
-      const at = placedAt + rng.int(2, 30) * HOUR;
-      step("cancelled", at);
-      order.statusHistory[order.statusHistory.length - 1]!.by = "customer";
-      order.statusHistory[order.statusHistory.length - 1]!.adminId = null;
-      order.cancellation = {
-        reason: "changed_mind",
-        text: null,
-        by: "customer",
-        adminId: null,
-        at: iso(at),
-      };
-      for (const item of items) {
-        const setting = db.cargoProducts.find(
-          (entry) =>
-            entry.cargoId === target.id && entry.productId === item.productId,
-        );
-        if (setting) setting.orderedQuantity -= item.quantity;
-      }
-      queueMessage(db, { type: "order_cancelled", customer, order }, at + 3000);
-    }
     return order;
   };
 
-  const buyers = db.customers.filter(
-    (customer) => customer.status === "active",
-  );
-  const fill = (
-    target: CargoRecord,
-    count: number,
-    statusOf: (index: number) => OrderStatus,
-  ) => {
-    const open = Date.parse(target.orderOpenAt);
-    const close = Math.min(Date.parse(target.orderCloseAt), now - 20 * 60_000);
-    const created: OrderRecord[] = [];
-    for (let index = 0; index < count; index += 1) {
-      const placedAt =
-        open + Math.floor(((close - open) * (index + rng.next())) / count);
-      created.push(
-        placeOrder(target, rng.pick(buyers), placedAt, {
-          status: statusOf(index),
-        }),
-      );
-    }
-    return created;
+  /** The customer paid on the Stripe page a few minutes after checkout. */
+  const pay = (order: OrderRecord, at: number): void => {
+    const number = order.orderNumber.slice(3);
+    settleOrder(
+      db,
+      order,
+      {
+        paymentType: rng.chance(0.7) ? "card" : "paypal",
+        paymentIntentId: `pi_3Demo${number}`,
+        chargeId: `ch_3Demo${number}`,
+        receiptUrl: "https://pay.stripe.com/receipts/demo",
+      },
+      at,
+    );
   };
 
-  const collect = (
-    orders: OrderRecord[],
-    activatedAt: number,
-    deadlineDays: number,
-    outcome: (
-      index: number,
-      order: OrderRecord,
-    ) => "paid" | "due" | "overdue" | "waived" | "none",
-  ) => {
-    orders.forEach((order, index) => {
-      if (order.status !== "delivered") return;
-      const result = outcome(index, order);
-      if (result === "none") return;
-      const customer = db.customers.find(
-        (entry) => entry.id === order.customer.id,
-      ) as Customer;
-      const invoice = activatePayment(
+  const tracking = (order: OrderRecord) => {
+    if (order.delivery.method === "dhl")
+      order.delivery.trackingNumber = `0034043416109${4000000 + db.counters.order}`;
+    if (order.delivery.method === "hermes")
+      order.delivery.trackingNumber = `H100${4800000 + db.counters.order}`;
+  };
+  const actor = { adminId: owner.id };
+  const pickMethod = () =>
+    rng.pick<DeliveryMethod>([
+      "radhe_delivery",
+      "radhe_delivery",
+      "dhl",
+      "dhl",
+      "hermes",
+    ]);
+
+  type Plan =
+    | "delivered"
+    | "dispatched"
+    | "processing"
+    | "confirmed"
+    | "pending"
+    | "failed"
+    | "cancelled_by_customer"
+    | "given_up"
+    | "cancelled_by_admin";
+
+  const walk = (plan: Plan, placedAt: number): OrderRecord => {
+    const order = placeOrder(rng.pick(buyers), placedAt, pickMethod());
+    const paidAt = placedAt + rng.int(4, 12) * 60_000;
+    if (plan === "pending") return order;
+    if (plan === "failed") {
+      failPayment(db, order, "Your card was declined.", paidAt);
+      order.payment.attempts = 2;
+      return order;
+    }
+    if (plan === "given_up") {
+      cancelOrder(
         db,
         order,
-        deadlineDays,
-        owner.id,
-        activatedAt + index * 400,
-      );
-      const payment = order.payment!;
-      // The deadline counts from the activation, not from today.
-      payment.deadline = iso(
-        berlinMoment(addDays(berlinDay(activatedAt), deadlineDays), 23, 59, 59),
-      );
-      invoice.dueAt = payment.deadline;
-      queueMessage(
-        db,
         {
-          type: "payment_request",
-          customer,
-          order,
-          attachInvoiceId: invoice.id,
-          data: {
-            amountDue: invoice.total,
-            deadline: payment.deadline,
-            payUrl: `https://www.radhefoods.de/pay/demo-${order.orderNumber}`,
-          },
+          reason: "payment_not_completed",
+          text: null,
+          by: "system",
+          adminId: null,
         },
-        activatedAt + index * 400 + 3000,
+        placedAt + 70 * 60_000,
+        { email: false },
       );
-      const deadline = Date.parse(payment.deadline);
-      if (result === "paid") {
-        const paidAt = Math.min(
-          now - HOUR,
-          activatedAt + rng.int(4, deadlineDays * 22) * HOUR,
-        );
-        const byStripe = options.stripe && rng.chance(0.55);
-        markPaid(
-          db,
-          order,
-          byStripe ? "stripe" : "cash",
-          paidAt,
-          byStripe ? "customer" : "admin",
-          byStripe ? null : owner.id,
-        );
-        if (byStripe)
-          payment.stripe = {
-            paymentIntentId: `pi_3Demo${order.orderNumber.slice(3)}`,
-            chargeId: `ch_3Demo${order.orderNumber.slice(3)}`,
-            paymentType: rng.chance(0.7) ? "card" : "paypal",
-            receiptUrl: "https://pay.stripe.com/receipts/demo",
-            checkoutOpenUntil: null,
-          };
-        else
-          payment.cash = {
-            collectedAt: iso(paidAt),
-            recordedBy: owner.id,
-            note: rng.chance(0.3) ? "Paid to the driver." : null,
-          };
-        queueMessage(
-          db,
-          { type: "payment_received", customer, order },
-          paidAt + 3000,
-        );
-        return;
-      }
-      if (result === "waived") {
-        const at = activatedAt + 6 * DAY;
-        pushHistory(
-          order,
-          {
-            field: "payment",
-            from: "due",
-            to: "waived",
-            adminId: owner.id,
-            note: "Goodwill after a damaged delivery.",
-          },
-          at,
-        );
-        order.paymentStatus = "waived";
-        payment.waivedReason = "Goodwill after a damaged delivery.";
-        payment.amountDue = 0;
-        payment.reminders.nextAt = null;
-        return;
-      }
-      // Still owing: one reminder per day since the day after activation.
-      const reminders = Math.max(
-        0,
-        Math.min(14, Math.floor((now - activatedAt) / DAY)),
+      return order;
+    }
+    pay(order, paidAt);
+    if (plan === "confirmed") return order;
+    if (plan === "cancelled_by_customer") {
+      cancelOrder(
+        db,
+        order,
+        { reason: "changed_mind", text: null, by: "customer", adminId: null },
+        paidAt + rng.int(2, 20) * HOUR,
       );
-      for (let day = 1; day <= reminders; day += 1) {
-        const at = berlinMoment(addDays(berlinDay(activatedAt), day), 9);
-        if (at > now) break;
-        const fails =
-          result === "overdue" && day === reminders && index % 2 === 0;
-        queueMessage(
-          db,
-          {
-            type: "payment_reminder",
-            customer,
-            order,
-            outcome: fails ? "failed" : "sent",
-            error: fails
-              ? "554 Message rejected: mailbox unavailable"
-              : undefined,
-            data: { amountDue: payment.amountDue, deadline: payment.deadline },
-          },
-          at,
-        );
-        payment.reminders.sentCount += 1;
-        payment.reminders.lastSentAt = iso(at);
-        pushHistory(
-          order,
-          {
-            field: "payment",
-            from: order.paymentStatus,
-            to: "reminder_sent",
-            by: "system",
-          },
-          at,
-        );
-      }
-      if (result === "overdue" || deadline < now) {
-        pushHistory(
-          order,
-          { field: "payment", from: "due", to: "overdue", by: "system" },
-          Math.min(now - HOUR, deadline + 1000),
-        );
-        order.paymentStatus = "overdue";
-      }
-    });
+      return order;
+    }
+    if (plan === "cancelled_by_admin") {
+      cancelOrder(
+        db,
+        order,
+        {
+          reason: "duplicate_order",
+          text: "The same order was placed twice within a minute.",
+          by: "admin",
+          adminId: owner.id,
+        },
+        paidAt + 3 * HOUR,
+      );
+      return order;
+    }
+    const processingAt = Math.min(now - HOUR, paidAt + rng.int(2, 20) * HOUR);
+    setOrderStatus(db, order, "processing", actor, processingAt);
+    if (plan === "processing") return order;
+    tracking(order);
+    const dispatchedAt = Math.min(
+      now - HOUR,
+      processingAt + rng.int(4, 26) * HOUR,
+    );
+    setOrderStatus(db, order, "dispatched", actor, dispatchedAt);
+    if (plan === "dispatched") return order;
+    const deliveredAt = Math.min(
+      now - HOUR,
+      dispatchedAt + rng.int(20, 50) * HOUR,
+    );
+    setOrderStatus(db, order, "delivered", actor, deliveredAt);
+    return order;
   };
 
-  // September, first week: finished and fully paid.
-  const c23 = fill(cargo("September, first week"), 24, () => "delivered");
-  collect(c23, berlinMoment(addDays(today, -35), 20), 5, () => "paid");
+  const delivered: OrderRecord[] = [];
+  for (let index = 0; index < 24; index += 1) {
+    delivered.push(
+      walk("delivered", now - (50 - index * 1.7) * DAY - rng.int(1, 9) * HOUR),
+    );
+  }
+  const givenUp = walk("given_up", now - 9 * DAY - 5 * HOUR);
+  const refundedByAdmin = walk("cancelled_by_admin", now - 10 * DAY - 2 * HOUR);
+  for (let index = 0; index < 4; index += 1) {
+    walk("dispatched", now - (5 - index * 0.5) * DAY - rng.int(1, 6) * HOUR);
+  }
+  for (let index = 0; index < 3; index += 1) {
+    walk("processing", now - (2.5 - index * 0.5) * DAY - rng.int(1, 4) * HOUR);
+  }
+  const cancelledPaid = walk("cancelled_by_customer", now - 2 * DAY - 3 * HOUR);
+  const toProcess: OrderRecord[] = [];
+  for (let index = 0; index < 5; index += 1) {
+    toProcess.push(
+      walk(
+        "confirmed",
+        now - (40 - index * 7) * HOUR - rng.int(5, 50) * 60_000,
+      ),
+    );
+  }
+  walk("failed", now - 3 * HOUR);
+  const pending = walk("pending", now - 20 * 60_000);
+  void givenUp;
+  void pending;
 
-  // September, third week: collected, with the leftovers of real life.
-  const c24 = fill(cargo("September, third week"), 30, (index) =>
-    index === 11 ? "cancelled" : "delivered",
-  );
-  collect(c24, berlinMoment(addDays(today, -21), 20), 5, (index) =>
-    index === 4 || index === 17 ? "overdue" : index === 9 ? "waived" : "paid",
-  );
-
-  // October, first week: delivered last week, payment half way.
-  const c25 = fill(cargo("October, first week"), 40, (index) =>
-    index === 6 ? "delivery_failed" : index === 21 ? "cancelled" : "delivered",
-  );
-  collect(c25, berlinMoment(addDays(today, -4), 20), 5, (index) =>
-    index >= 30 ? "none" : index % 3 === 0 ? "paid" : "due",
-  );
-
-  // October, second week: being delivered right now.
-  fill(cargo("October, second week"), 35, (index) =>
-    index < 14
-      ? "delivered"
-      : index < 29
-        ? "dispatched"
-        : index === 29
-          ? "delivery_failed"
-          : index === 30
-            ? "cancelled"
-            : "preparing",
-  );
-
-  // October, third week: on the ship.
-  fill(cargo("October, third week"), 30, (index) =>
-    index % 4 === 0 ? "preparing" : "confirmed",
-  );
-
-  // October, fourth week: taking orders.
-  fill(cargo("October, fourth week"), 47, (index) =>
-    index === 13 ? "cancelled" : "confirmed",
-  );
+  // The admin cancelled a duplicate and refunded it by hand: nothing waits there.
+  {
+    const at = now - 9 * DAY;
+    const refund: Refund = {
+      id: newId(at),
+      refundNumber: `${refundedByAdmin.orderNumber}-RF1`,
+      orderId: refundedByAdmin.id,
+      orderNumber: refundedByAdmin.orderNumber,
+      customerId: refundedByAdmin.customer.id,
+      invoiceNumber: refundedByAdmin.payment.invoiceNumber,
+      amount: refundedByAdmin.payment.paidAmount,
+      reason: "duplicate_payment",
+      method: "manual",
+      status: "pending",
+      manual: {
+        way: "bank_transfer",
+        reference: "SEPA 2026-10-0391",
+        paidAt: null,
+      },
+      stripe: null,
+      note: null,
+      createdBy: owner.id,
+      createdAt: iso(at),
+      completedAt: null,
+      statusHistory: [
+        {
+          from: null,
+          to: "pending",
+          at: iso(at),
+          by: "admin",
+          adminId: owner.id,
+          note: null,
+        },
+      ],
+    };
+    db.refunds.push(refund);
+    refund.manual!.paidAt = iso(at + DAY);
+    completeRefund(db, refund, "admin", owner.id, null, at + DAY);
+  }
+  void cancelledPaid;
 
   // --- A correction, returns and refunds ------------------------------------
-  const paidOrders = c24.filter(
-    (order) =>
-      order.paymentStatus === "paid" &&
-      order.items.some((item) => item.quantity > 1),
+  const withSeveral = delivered.filter((order) =>
+    order.items.some((item) => item.quantity > 1),
   );
 
-  // A crushed box, found after the invoice was paid: credit note, refund to do.
-  const corrected = paidOrders[0];
+  // A crushed box, found after delivery: credit note, refund to decide.
+  const corrected = withSeveral[withSeveral.length - 1];
   if (corrected) {
     const item = corrected.items.find((entry) => entry.quantity > 1)!;
-    const at = berlinMoment(addDays(today, -15), 11);
+    const at = now - 4 * DAY + 3 * HOUR;
     corrected.adjustments.push({
       productId: item.productId,
       sku: item.sku,
@@ -1580,45 +1301,25 @@ export function seed(options: SeedOptions): Db {
     });
     item.deliveredQuantity -= 1;
     recomputeFinal(corrected);
-    issueCreditNote(db, corrected, item.unitPrice, "adjustment", at);
-    const refundAt = at + HOUR;
-    db.refunds.push({
-      id: newId(refundAt),
-      refundNumber: `${corrected.orderNumber}-RF1`,
-      orderId: corrected.id,
-      orderNumber: corrected.orderNumber,
-      invoiceNumber: corrected.payment!.invoice.number,
-      amount: item.unitPrice,
-      reason: "adjustment",
-      method: "manual",
-      status: "pending",
-      manual: { way: "bank_transfer", reference: null, paidAt: null },
-      stripe: null,
-      note: "Customer sent the IBAN by email.",
-      createdBy: owner.id,
-      createdAt: iso(refundAt),
-      completedAt: null,
-      statusHistory: [
-        {
-          from: null,
-          to: "pending",
-          at: iso(refundAt),
-          by: "admin",
-          adminId: owner.id,
-          note: null,
-        },
-      ],
-    });
+    releaseUnits(db, corrected, item.productId, 1, at);
+    issueCreditNote(
+      db,
+      corrected,
+      item.unitPrice,
+      "adjustment",
+      at,
+      `${item.sku}: damaged`,
+    );
   }
 
-  // A completed return with its refund sent.
-  const returned = paidOrders[1];
+  // A completed return with its refund sent: nothing waits there.
+  const returned = withSeveral[0];
   if (returned) {
     const item = returned.items[0]!;
     const customer = db.customers.find(
       (entry) => entry.id === returned.customer.id,
     )!;
-    const requested = berlinMoment(addDays(today, -18), 14);
+    const requested = now - 18 * DAY + 14 * HOUR;
     const completed = requested + 4 * DAY;
     item.returnedQuantity = 1;
     recomputeFinal(returned);
@@ -1636,7 +1337,6 @@ export function seed(options: SeedOptions): Db {
       orderId: returned.id,
       orderNumber: returned.orderNumber,
       customerId: returned.customer.id,
-      cargoId: returned.cargo.id,
       status: "completed",
       requestedAt: iso(requested),
       decidedAt: iso(requested + DAY),
@@ -1657,9 +1357,10 @@ export function seed(options: SeedOptions): Db {
       ],
       requestedAmount: item.unitPrice,
       customerComment: null,
-      decisionNote: "We collect it with the next delivery.",
+      decisionNote: "Send it back with the enclosed label.",
       internalNote: null,
       creditAmount: item.unitPrice,
+      restockedAt: null,
       statusHistory: [
         {
           from: null,
@@ -1689,27 +1390,171 @@ export function seed(options: SeedOptions): Db {
       updatedAt: iso(completed),
     });
     const refundAt = completed + 2 * HOUR;
-    const refundId = newId(refundAt);
-    db.refunds.push({
-      id: refundId,
+    const refund: Refund = {
+      id: newId(refundAt),
       refundNumber: `${returned.orderNumber}-RF1`,
       orderId: returned.id,
       orderNumber: returned.orderNumber,
-      invoiceNumber: returned.payment!.invoice.number,
+      customerId: returned.customer.id,
+      invoiceNumber: returned.payment.invoiceNumber,
       amount: item.unitPrice,
       reason: "return",
       method: "manual",
-      status: "completed",
+      status: "pending",
       manual: {
         way: "bank_transfer",
         reference: "SEPA 2026-10-0412",
-        paidAt: iso(refundAt + DAY),
+        paidAt: null,
       },
       stripe: null,
       note: null,
       createdBy: owner.id,
       createdAt: iso(refundAt),
-      completedAt: iso(refundAt + DAY),
+      completedAt: null,
+      statusHistory: [
+        {
+          from: null,
+          to: "pending",
+          at: iso(refundAt),
+          by: "admin",
+          adminId: owner.id,
+          note: null,
+        },
+      ],
+    };
+    db.refunds.push(refund);
+    refund.manual!.paidAt = iso(refundAt + DAY);
+    completeRefund(db, refund, "admin", owner.id, null, refundAt + DAY);
+    queueMessage(
+      db,
+      {
+        type: "return_completed",
+        customer,
+        order: returned,
+        returnId: db.returns[db.returns.length - 1]!.id,
+      },
+      completed + 3000,
+    );
+  }
+
+  // Everything of one order came back and went back on the shelf; the
+  // refund through Stripe failed, so the admin has to decide again.
+  const wholeReturn = delivered[2];
+  if (wholeReturn && wholeReturn !== returned && wholeReturn !== corrected) {
+    const requested = now - 12 * DAY + 10 * HOUR;
+    const completed = requested + 3 * DAY;
+    const items = wholeReturn.items.map((item) => ({
+      productId: item.productId,
+      sku: item.sku,
+      name: item.name,
+      packSize: item.packSize,
+      quantity: item.quantity,
+      approvedQuantity: item.quantity,
+      unitPrice: item.unitPrice,
+      vatRate: item.vatRate,
+      reason: "wrong_item" as const,
+      comment: "The whole parcel was for someone else.",
+    }));
+    const before = wholeReturn.finalTotals.total;
+    for (const item of wholeReturn.items) item.returnedQuantity = item.quantity;
+    recomputeFinal(wholeReturn);
+    const credit = before - wholeReturn.finalTotals.total;
+    restockReturn(
+      db,
+      wholeReturn,
+      items.map((item) => ({
+        productId: item.productId,
+        quantity: item.quantity,
+      })),
+      completed,
+    );
+    issueCreditNote(
+      db,
+      wholeReturn,
+      credit,
+      "return",
+      completed,
+      `${wholeReturn.orderNumber}-R1`,
+    );
+    pushHistory(
+      wholeReturn,
+      { field: "order", from: "delivered", to: "returned", by: "system" },
+      completed,
+    );
+    wholeReturn.status = "returned";
+    db.returns.push({
+      id: newId(requested),
+      returnNumber: `${wholeReturn.orderNumber}-R1`,
+      orderId: wholeReturn.id,
+      orderNumber: wholeReturn.orderNumber,
+      customerId: wholeReturn.customer.id,
+      status: "completed",
+      requestedAt: iso(requested),
+      decidedAt: iso(requested + 6 * HOUR),
+      completedAt: iso(completed),
+      items,
+      requestedAmount: items.reduce(
+        (sum, item) => sum + item.quantity * item.unitPrice,
+        0,
+      ),
+      customerComment:
+        "The parcel was addressed to me but held someone else's order.",
+      decisionNote:
+        "Sorry for the mix-up. We collect it and credit everything.",
+      internalNote: "Label mix-up at the packing table.",
+      creditAmount: credit,
+      restockedAt: iso(completed),
+      statusHistory: [
+        {
+          from: null,
+          to: "requested",
+          at: iso(requested),
+          by: "customer",
+          adminId: null,
+          note: null,
+        },
+        {
+          from: "requested",
+          to: "approved",
+          at: iso(requested + 6 * HOUR),
+          by: "admin",
+          adminId: owner.id,
+          note: null,
+        },
+        {
+          from: "approved",
+          to: "completed",
+          at: iso(completed),
+          by: "admin",
+          adminId: owner.id,
+          note: "Unopened, back on the shelf.",
+        },
+      ],
+      updatedAt: iso(completed),
+    });
+    const refundAt = completed + HOUR;
+    db.refunds.push({
+      id: newId(refundAt),
+      refundNumber: `${wholeReturn.orderNumber}-RF1`,
+      orderId: wholeReturn.id,
+      orderNumber: wholeReturn.orderNumber,
+      customerId: wholeReturn.customer.id,
+      invoiceNumber: wholeReturn.payment.invoiceNumber,
+      amount: credit,
+      reason: "return",
+      method: "stripe",
+      status: "failed",
+      manual: null,
+      stripe: {
+        refundId: `re_3Demo${wholeReturn.orderNumber.slice(3)}`,
+        paymentIntentId: wholeReturn.payment.paymentIntentId,
+        stripeStatus: "failed",
+        failureReason: "insufficient_funds",
+      },
+      note: null,
+      createdBy: owner.id,
+      createdAt: iso(refundAt),
+      completedAt: null,
       statusHistory: [
         {
           from: null,
@@ -1721,36 +1566,26 @@ export function seed(options: SeedOptions): Db {
         },
         {
           from: "pending",
-          to: "completed",
-          at: iso(refundAt + DAY),
-          by: "admin",
-          adminId: owner.id,
-          note: null,
+          to: "processing",
+          at: iso(refundAt + 1000),
+          by: "stripe",
+          adminId: null,
+          note: "Stripe: pending",
+        },
+        {
+          from: "processing",
+          to: "failed",
+          at: iso(refundAt + 2 * HOUR),
+          by: "stripe",
+          adminId: null,
+          note: "Stripe: insufficient_funds",
         },
       ],
     });
-    returned.payment!.refundedAmount = item.unitPrice;
-    queueMessage(
-      db,
-      {
-        type: "return_completed",
-        customer,
-        order: returned,
-        returnId: db.returns[db.returns.length - 1]!.id,
-      },
-      completed + 3000,
-    );
-    queueMessage(
-      db,
-      { type: "refund_completed", customer, order: returned, refundId },
-      refundAt + DAY + 3000,
-    );
   }
 
   // Three return requests wait for a decision; one is approved and on its way back.
-  const askers = c25
-    .filter((order) => order.status === "delivered")
-    .slice(2, 6);
+  const askers = delivered.slice(-8, -4);
   askers.forEach((order, index) => {
     const item = order.items[0]!;
     const customer = db.customers.find(
@@ -1764,7 +1599,6 @@ export function seed(options: SeedOptions): Db {
       orderId: order.id,
       orderNumber: order.orderNumber,
       customerId: order.customer.id,
-      cargoId: order.cargo.id,
       status: approved ? "approved" : "requested",
       requestedAt: iso(requested),
       decidedAt: approved ? iso(requested + 2 * HOUR) : null,
@@ -1794,11 +1628,10 @@ export function seed(options: SeedOptions): Db {
       ],
       requestedAmount: item.unitPrice,
       customerComment: index === 0 ? "Please pick it up on Monday." : null,
-      decisionNote: approved
-        ? "Hand it to the driver with your next delivery."
-        : null,
+      decisionNote: approved ? "Send it back with the enclosed label." : null,
       internalNote: null,
       creditAmount: null,
+      restockedAt: null,
       statusHistory: [
         {
           from: null,
@@ -1835,27 +1668,75 @@ export function seed(options: SeedOptions): Db {
     );
   });
 
-  // A customer who promised to pay may order although a payment is overdue.
-  const late = c24.find((order) => order.paymentStatus === "overdue");
-  const promiser = late
-    ? db.customers.find((entry) => entry.id === late.customer.id)
-    : undefined;
-  if (promiser) {
-    const at = now - 2 * DAY;
-    promiser.orderingOverride = {
-      mode: "allowed",
-      reason: "Promised to pay on Friday.",
-      adminId: owner.id,
-      at: iso(at),
-      until: iso(at + 7 * DAY),
-    };
-    promiser.orderingHistory.push({
-      action: "allow",
-      reason: "Promised to pay on Friday.",
-      adminId: owner.id,
-      at: iso(at),
-      until: iso(at + 7 * DAY),
-    });
+  // --- Stock: a count, a few products running low, one sold out -----------
+  const counted = orderable.filter(
+    (product) => product.stock.lowStockThreshold !== null,
+  );
+  counted.slice(0, 3).forEach((product, index) => {
+    const target = Math.max(
+      0,
+      (product.stock.lowStockThreshold ?? 10) - index * 3,
+    );
+    recordMovement(
+      db,
+      product,
+      "adjustment",
+      target - product.stock.quantity,
+      {
+        adminId: owner.id,
+        note: index === 0 ? "Counted the shelf." : "Broken bags.",
+      },
+      now - (index + 1) * 5 * HOUR,
+    );
+  });
+  const soldOut = orderable.find(
+    (product) =>
+      product.stock.lowStockThreshold === null && product.stock.quantity > 0,
+  );
+  if (soldOut) {
+    recordMovement(
+      db,
+      soldOut,
+      "adjustment",
+      -soldOut.stock.quantity,
+      {
+        adminId: owner.id,
+        note: "Last units given to the food bank: past their date.",
+      },
+      now - 2 * DAY,
+    );
+  }
+  const restocked = counted[4];
+  if (restocked) {
+    recordMovement(
+      db,
+      restocked,
+      "restock",
+      60,
+      { adminId: owner.id, note: "Delivery from the importer." },
+      now - 6 * HOUR,
+    );
+  }
+
+  // --- Messages that did not go out ------------------------------------------
+  const dispatchEmails = db.notifications.filter(
+    (record) =>
+      record.type === "order_dispatched" && record.channel === "email",
+  );
+  for (const record of dispatchEmails.slice(-2)) {
+    record.status = "failed";
+    record.attempts = 6;
+    record.sentAt = null;
+    record.providerMessageId = null;
+    record.lastError = "554 Message rejected: mailbox unavailable";
+    record.history = [
+      {
+        at: record.createdAt,
+        ok: false,
+        error: "554 Message rejected: mailbox unavailable",
+      },
+    ];
+    record.updatedAt = iso(now - 3 * HOUR);
   }
 
   // --- Announcements --------------------------------------------------------
@@ -1867,7 +1748,6 @@ export function seed(options: SeedOptions): Db {
     subject: [string, string],
     message: [string, string],
     productId: string | null,
-    cargoId: string | null,
   ) => {
     const id = newId(at);
     const recipients = db.customers.filter(
@@ -1892,9 +1772,6 @@ export function seed(options: SeedOptions): Db {
         at + 5000,
       );
     }
-    const target = cargoId
-      ? db.cargos.find((entry) => entry.id === cargoId)
-      : undefined;
     db.announcements.push({
       id,
       subject: { en: subject[0], de: subject[1] },
@@ -1906,8 +1783,6 @@ export function seed(options: SeedOptions): Db {
         ? (db.products.find((product) => product.id === productId)?.name.en ??
           null)
         : null,
-      cargoId,
-      cargoCode: target?.code ?? null,
       channels: ["email", "whatsapp"],
       recipients: recipients.length,
       queued: db.notifications.length - before,
@@ -1920,28 +1795,23 @@ export function seed(options: SeedOptions): Db {
     now - 30 * DAY,
     ["Kesar mangoes are back", "Kesar Mangos sind wieder da"],
     [
-      "The first Kesar mangoes of the season arrive with the next cargo. Order early: the boxes are limited.",
-      "Die ersten Kesar Mangos der Saison kommen mit der nächsten Lieferung. Bestellen Sie früh: die Kisten sind begrenzt.",
+      "The first Kesar mangoes of the season are in stock now. Order early: the boxes are limited.",
+      "Die ersten Kesar Mangos der Saison sind jetzt auf Lager. Bestellen Sie früh: die Kisten sind begrenzt.",
     ],
     mango?.id ?? null,
-    null,
   );
   announce(
     now - 5 * DAY,
+    ["Free delivery from 50 euros", "Kostenlose Lieferung ab 50 Euro"],
     [
-      "Ordering is open for the last October delivery",
-      "Jetzt für die letzte Oktober-Lieferung bestellen",
-    ],
-    [
-      "You can order until tomorrow night. Delivery in two weeks, payment after delivery as always.",
-      "Sie können bis morgen Abend bestellen. Lieferung in zwei Wochen, Zahlung wie immer nach der Lieferung.",
+      "From now on every order of 50 euros or more is delivered for free, anywhere in Germany.",
+      "Ab sofort liefern wir jede Bestellung ab 50 Euro kostenlos, überall in Deutschland.",
     ],
     null,
-    cargo("October, fourth week").id,
   );
 
   // One message is still waiting in the queue.
-  const lastOrder = db.orders[db.orders.length - 1];
+  const lastOrder = toProcess[toProcess.length - 1];
   const lastCustomer = lastOrder
     ? db.customers.find((entry) => entry.id === lastOrder.customer.id)
     : undefined;

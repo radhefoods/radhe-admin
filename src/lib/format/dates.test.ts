@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  addDays,
   berlinDay,
   berlinOffsetMinutes,
   berlinToDate,
@@ -8,13 +7,10 @@ import {
   formatDate,
   formatDateTime,
   formatDay,
-  formatDayRange,
   formatDeadline,
   formatDuration,
   formatRelative,
   formatShortDateTime,
-  isCalendarDay,
-  paymentDeadline,
   toBerlinIso,
   toLocalInput,
 } from "./dates";
@@ -71,30 +67,6 @@ describe("calendar days", () => {
     expect(formatDay("2026-10-05", { year: false })).toBe("5 Oct");
   });
 
-  it("prints a delivery window that never breaks at its dash", () => {
-    expect(formatDayRange("2026-10-05", "2026-10-07")).toBe("5–⁠7 Oct 2026");
-    expect(formatDayRange("2026-09-28", "2026-10-02")).toBe(
-      "28 Sep – 2 Oct 2026",
-    );
-    expect(formatDayRange("2026-12-30", "2027-01-02")).toBe(
-      "30 Dec 2026 – 2 Jan 2027",
-    );
-    expect(formatDayRange("2026-10-05", "2026-10-05")).toBe("5 Oct 2026");
-  });
-
-  it("knows a real day from a wrong one", () => {
-    expect(isCalendarDay("2026-02-28")).toBe(true);
-    expect(isCalendarDay("2026-02-30")).toBe(false);
-    expect(isCalendarDay("2026-13-01")).toBe(false);
-    expect(isCalendarDay("05.10.2026")).toBe(false);
-  });
-
-  it("adds days across months and years", () => {
-    expect(addDays("2026-09-28", 5)).toBe("2026-10-03");
-    expect(addDays("2026-12-30", 3)).toBe("2027-01-02");
-    expect(addDays("2026-03-01", -1)).toBe("2026-02-28");
-  });
-
   it("names the German day of a moment", () => {
     expect(berlinDay("2026-10-03T21:59:59.000Z")).toBe("2026-10-03");
     expect(berlinDay("2026-10-03T22:00:00.000Z")).toBe("2026-10-04");
@@ -108,7 +80,7 @@ describe("reading German time", () => {
   });
 
   it("turns a typed deadline into ISO with the German offset", () => {
-    // The example of the documentation (9): a cargo deadline in September.
+    // A typed moment in September, with the summer-time offset.
     expect(berlinToIso("2026-09-26T23:59")).toBe("2026-09-26T23:59:00+02:00");
     expect(berlinToIso("2026-12-18T23:59")).toBe("2026-12-18T23:59:00+01:00");
     expect(berlinToDate("2026-09-26T23:59")?.toISOString()).toBe(
@@ -151,24 +123,6 @@ describe("reading German time", () => {
   it("prints a moment with the German offset", () => {
     expect(toBerlinIso("2026-09-26T21:59:00.000Z")).toBe(
       "2026-09-26T23:59:00+02:00",
-    );
-  });
-
-  it("restates the payment deadline the API will set", () => {
-    // 23:59:59 German time of today plus the days (documentation, 12).
-    const now = new Date("2026-09-28T10:15:00.000Z");
-    expect(paymentDeadline(5, now).toISOString()).toBe(
-      "2026-10-03T21:59:59.000Z",
-    );
-    // Across the change to winter time.
-    const october = new Date("2026-10-23T10:00:00.000Z");
-    expect(paymentDeadline(5, october).toISOString()).toBe(
-      "2026-10-28T22:59:59.000Z",
-    );
-    // Late in the German evening, "today" is already the German day.
-    const late = new Date("2026-09-28T22:30:00.000Z");
-    expect(paymentDeadline(1, late).toISOString()).toBe(
-      "2026-09-30T21:59:59.000Z",
     );
   });
 });

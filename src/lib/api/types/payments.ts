@@ -1,8 +1,7 @@
-// Sections 12 (payments and refunds) and 13 (invoices and credit notes).
+// Sections 11 (payments and refunds) and 12 (invoices and credit notes).
 
 import type {
   AdminRef,
-  CalendarDay,
   Cents,
   CursorQuery,
   CustomerRef,
@@ -12,73 +11,56 @@ import type {
   SortParam,
   VatRate,
 } from "./common";
-import type { Actor, Totals } from "./orders";
+import type { OrderStatus, Totals } from "./orders";
 
 export const PAYMENT_STATUSES = [
-  "not_enabled",
-  "due",
-  "overdue",
+  "pending",
+  "authorized",
   "paid",
-  "waived",
+  "failed",
   "refunded",
 ] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
-export type PaymentMethod = "stripe" | "cash" | "credit";
+/** How the customer paid on the Stripe page. */
+export type PaymentType = "card" | "paypal";
 
-/** 12.1, before activation. */
-export interface PaymentBlockNotEnabled {
-  status: "not_enabled";
-  /** The order is `delivered` and its final bill is above 0. */
-  canActivate: boolean;
-}
-
-/** 12.1, after activation. */
-export interface PaymentBlockActive {
-  status: Exclude<PaymentStatus, "not_enabled">;
-  canActivate: false;
-  activatedAt: IsoDateTime;
-  activatedBy: Id | null;
-  activatedByAdmin?: AdminRef | null;
-  deadlineDays: number;
-  deadline: IsoDateTime;
-  isOverdue: boolean;
-  invoice: { id: Id; number: string };
-  invoicedAmount: Cents;
-  creditedAmount: Cents;
+/** 11.1: the payment of an order. */
+export interface PaymentBlock {
+  status: PaymentStatus;
+  /** The total agreed at checkout. */
+  amount: Cents;
+  /** What was captured. */
   paidAmount: Cents;
+  /** The sum of credit notes issued after the invoice. */
+  creditedAmount: Cents;
+  /** The sum of completed refunds. */
   refundedAmount: Cents;
-  amountDue: Cents;
-  method: PaymentMethod | null;
+  /** `card` or `paypal` once paid, else `null`. */
+  method: PaymentType | null;
   paidAt: IsoDateTime | null;
-  stripe: {
-    paymentIntentId: string | null;
-    chargeId: string | null;
-    paymentType: "card" | "paypal" | null;
-    receiptUrl: string | null;
-    checkoutOpenUntil: IsoDateTime | null;
-  } | null;
-  cash: {
-    collectedAt: IsoDateTime;
-    recordedBy: Id | null;
-    recordedByAdmin?: AdminRef | null;
-    note: string | null;
-  } | null;
-  reminders: {
-    nextAt: IsoDateTime | null;
-    sentCount: number;
-    lastSentAt: IsoDateTime | null;
-    paused: boolean;
-  };
-  waivedReason: string | null;
-  /** Needs Stripe configured on the server. */
+  receiptUrl: string | null;
+  /** `null` until the invoice is issued; `pdfPath` is for the shop. */
+  invoice: { number: string; issuedAt: IsoDateTime; pdfPath: string } | null;
+  /** The open payment page of a pending order, else `null`. */
+  checkout: { url: string; expiresAt: IsoDateTime } | null;
+  /** Pending or failed, and Stripe is configured. */
   canPayOnline: boolean;
-  /** True while the order is owing (`due` / `overdue`). */
-  canRecordCash: boolean;
-  canWaive: boolean;
+  /** Why the last attempt did not go through. */
+  lastFailure: string | null;
+  /** How many payment pages were opened. */
+  attempts: number;
+  checkoutSessionId: string | null;
+  checkoutExpiresAt: IsoDateTime | null;
+  paymentIntentId: string | null;
+  chargeId: string | null;
+  authorizedAt: IsoDateTime | null;
+  invoiceId: Id | null;
+  /** `paidAmount` minus `refundedAmount`. */
+  refundableAmount: Cents;
+  /** Money waits for the admin's decision (cancelled, or credited). */
+  needsRefund: boolean;
 }
-
-export type PaymentBlock = PaymentBlockNotEnabled | PaymentBlockActive;
 
 export interface Refundable {
   paidAmount: Cents;
@@ -87,34 +69,29 @@ export interface Refundable {
   openAmount: Cents;
   /** Paid minus refunded minus open refunds. */
   maximum: Cents;
-  /** What credit notes left over after the payment. */
+  /**
+   * What the cancellation (everything paid) or the credit notes call for,
+   * minus what went back or is on its way, at most `maximum`.
+   */
   suggested: Cents;
-  /** Paid through Stripe. */
+  /** Paid through Stripe: Stripe can refund. */
   stripePossible: boolean;
 }
 
+/** `GET /orders/{id}/payment`. */
 export interface OrderPayment {
   orderNumber: string;
+  /** The order status. */
+  status: OrderStatus;
   payment: PaymentBlock;
-  documents: InvoiceSummary[];
-  refunds: Refund[];
   refundable: Refundable;
+  /** Oldest first: the invoice, then its credit notes. */
+  documents: InvoiceSummary[];
+  /** Newest first. */
+  refunds: Refund[];
 }
 
-export interface ActivatePaymentInput {
-  /** 1 to 60. */
-  deadlineDays: number;
-  note?: string;
-}
-
-export interface CashPaymentInput {
-  /** The full amount due: no partial payments. */
-  amount: Cents;
-  collectedAt?: IsoDateTime;
-  note?: string;
-}
-
-// --- Refunds (12.9) ---------------------------------------------------------
+// --- Refunds (11.2) ---------------------------------------------------------
 
 export const REFUND_STATUSES = [
   "pending",
@@ -138,11 +115,12 @@ export type RefundMethod = "stripe" | "manual";
 export const MANUAL_REFUND_WAYS = ["bank_transfer", "cash", "other"] as const;
 export type ManualRefundWay = (typeof MANUAL_REFUND_WAYS)[number];
 
+/** `by` is the admin, or Stripe answering about a Stripe refund. */
 export interface RefundHistoryEntry {
   from: RefundStatus | null;
   to: RefundStatus;
   at: IsoDateTime;
-  by: Actor;
+  by: "admin" | "stripe";
   adminId: Id | null;
   admin?: AdminRef | null;
   note: string | null;
@@ -154,6 +132,8 @@ export interface Refund {
   refundNumber: string;
   orderId: Id;
   orderNumber: string;
+  customerId?: Id;
+  customer?: CustomerRef | null;
   invoiceNumber: string | null;
   amount: Cents;
   reason: RefundReason;
@@ -174,8 +154,6 @@ export interface Refund {
   note: string | null;
   createdBy: Id | null;
   createdByAdmin?: AdminRef | null;
-  customerId?: Id;
-  customer?: CustomerRef | null;
   createdAt: IsoDateTime;
   completedAt: IsoDateTime | null;
   statusHistory: RefundHistoryEntry[];
@@ -207,17 +185,12 @@ export interface CompleteRefundInput {
   note?: string;
 }
 
-export interface PaymentJobsResult {
-  overdue: number;
-  reminders: number;
-}
-
-// --- Invoices and credit notes (13) -----------------------------------------
+// --- Invoices and credit notes (12) -----------------------------------------
 
 export type InvoiceType = "invoice" | "credit_note";
 export type CreditReason = "return" | "adjustment";
 
-/** 13.1. Credit notes have `dueAt` / `paidAt` `null`. */
+/** 12.1. An invoice is issued paid; a credit note has `paidAt` `null`. */
 export interface InvoiceSummary {
   id: Id;
   /** `INV-2026-000123`, `CN-2026-000007` */
@@ -225,7 +198,6 @@ export interface InvoiceSummary {
   type: InvoiceType;
   orderNumber: string;
   issuedAt: IsoDateTime;
-  dueAt: IsoDateTime | null;
   paidAt: IsoDateTime | null;
   total: Cents;
   currency: "EUR";
@@ -248,8 +220,7 @@ export interface InvoiceLine {
 export interface InvoiceDetail extends InvoiceSummary {
   orderId: Id;
   customerId: Id;
-  cargoId: Id | null;
-  deliveredOn: CalendarDay | null;
+  /** The return number, or `<sku>: <reason>` of a correction; `null` on an invoice. */
   creditReference: string | null;
   seller: {
     name: string;

@@ -4,8 +4,6 @@
 export type Id = string;
 /** ISO 8601, UTC. */
 export type IsoDateTime = string;
-/** `YYYY-MM-DD` in the business time zone, Europe/Berlin. */
-export type CalendarDay = string;
 /** Integer cents, EUR, VAT included. Never a float. */
 export type Cents = number;
 /** Hundredths of a percent: 700 = 7 %. */
@@ -31,7 +29,7 @@ export interface TranslatedList {
   de?: string[];
 }
 
-/** Products, cargos, cargo products (0.8). */
+/** Products (0.8). */
 export interface PageResult<T> {
   items: T[];
   page: number;
