@@ -72,9 +72,9 @@ export function ordersApi({ request }: SessionTransport) {
         method: "PATCH",
         body: input,
       }),
-    /** Corrects how many units of a product were delivered. */
-    adjustItem: (id: Id, productId: Id, input: OrderItemAdjustmentInput) =>
-      request<{ order: OrderDetail }>(`${base}/${id}/items/${productId}`, {
+    /** Corrects how many units of a pack size were delivered (`items[].variantId`). */
+    adjustItem: (id: Id, variantId: Id, input: OrderItemAdjustmentInput) =>
+      request<{ order: OrderDetail }>(`${base}/${id}/items/${variantId}`, {
         method: "PATCH",
         body: input,
       }),

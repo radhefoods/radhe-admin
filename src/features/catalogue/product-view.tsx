@@ -44,10 +44,9 @@ import { plural, translated } from "@/lib/format/names";
 import { routes } from "@/lib/routes";
 import { categoryPath } from "./category-tree";
 import { ImageManager } from "./image-manager";
-import { PackSizesPanel } from "./pack-sizes-panel";
 import { PriceHistoryPanel } from "./price-history-panel";
 import { ProductForm } from "./product-form";
-import { stockState } from "./stock";
+import { overviewState } from "./stock";
 import { StockPanel } from "./stock-panel";
 import {
   useCategories,
@@ -62,18 +61,17 @@ import {
  */
 const PARTS: { id: string; label: string; aside?: boolean }[] = [
   { id: "basics", label: "Basics" },
-  { id: "price", label: "Pack size and price" },
+  { id: "pack-sizes", label: "Pack sizes and prices" },
   { id: "status", label: "Status and ordering" },
   { id: "texts", label: "Texts" },
   { id: "food", label: "Food information" },
   { id: "seo", label: "Search and SEO" },
   { id: "stock", label: "Stock", aside: true },
   { id: "pictures", label: "Pictures", aside: true },
-  { id: "pack-sizes", label: "Pack sizes", aside: true },
   { id: "price-history", label: "Price history", aside: true },
 ];
 
-/** The address of a product in the customer shop. */
+/** The address of a product in the customer shop: its base URL opens the default pack size. */
 export function shopUrl(product: Pick<ProductDetail, "slug">): string {
   return `${env.shopUrl}/products/${product.slug.en}`;
 }
@@ -128,7 +126,10 @@ export function RemoveProduct({
 }) {
   const remove = useDeleteProduct();
   const update = useUpdateProduct(product.id);
-  const label = `${translated(product.name)} ${product.packSize.label}`;
+  const label = translated(product.name);
+  const sizes = product.variants
+    .map((entry) => entry.packSize.label)
+    .join(", ");
   /** Closes a dialog, unless the step has moved on in the meantime. */
   const closing = (from: Removal) => (open: boolean) => {
     if (!open) onStep((current) => (current === from ? null : current));
@@ -150,18 +151,10 @@ export function RemoveProduct({
         open={step === "delete"}
         onOpenChange={closing("delete")}
         title={`Delete ${label} for good?`}
-        description="The product and its pictures are removed and cannot be brought back. The API only deletes a product that is not part of an order."
+        description="The product with its pack sizes and pictures is removed and cannot be brought back. The API only deletes a product no pack size of which is part of an order."
         facts={[
-          { label: "Article number", value: product.sku },
+          { label: "Pack sizes", value: sizes },
           { label: "Pictures", value: product.images.length },
-          ...(product.packSizes.length > 1
-            ? [
-                {
-                  label: "Other pack sizes",
-                  value: `${product.packSizes.length - 1} stay`,
-                },
-              ]
-            : []),
         ]}
         confirmLabel="Delete the product"
         cancelLabel="Keep it"
@@ -202,10 +195,10 @@ export function RemoveProduct({
         }
         description={
           refusal === "in_use"
-            ? "It is part of an order, so orders and invoices refer to it. Archive it instead: it leaves the shop and stays in the records."
+            ? "A pack size of it is part of an order, so orders and invoices refer to it. Archive it instead: it leaves the shop and stays in the records."
             : "It is part of the shop. Archive it instead: it leaves the shop, and old orders and invoices keep it. An archived product that is not part of an order can be deleted afterwards."
         }
-        facts={[{ label: "Article number", value: product.sku }]}
+        facts={[{ label: "Pack sizes", value: sizes }]}
         confirmLabel="Archive instead"
         cancelLabel="Leave it as it is"
         onConfirm={archive}
@@ -218,7 +211,7 @@ export function RemoveProduct({
         <DialogContent size="sm" hideClose>
           <DialogHeader
             title={`${label} cannot be deleted`}
-            description="It is part of an order, so orders and invoices refer to it. It is archived already: it is out of the shop and stays in the records. That is as far as it goes."
+            description="A pack size of it is part of an order, so orders and invoices refer to it. It is archived already: it is out of the shop and stays in the records. That is as far as it goes."
             className="pb-5"
           />
           <DialogFooter>
@@ -235,8 +228,8 @@ export function RemoveProduct({
         title={`Archive ${label}?`}
         description="It leaves the shop and can no longer be ordered. Old orders and invoices keep it, and you can set it active again at any time."
         facts={[
-          { label: "Article number", value: product.sku },
-          { label: "Price", value: formatMoney(product.pricing.price) },
+          { label: "Pack sizes", value: sizes },
+          { label: "Price from", value: formatMoney(product.priceFrom) },
         ]}
         confirmLabel="Archive the product"
         onConfirm={archive}
@@ -264,14 +257,16 @@ function Record({ product }: { product: ProductDetail }) {
               <span className="text-ink-subtle">Never</span>
             )}
           </Fact>
-          <Fact label="Label in the shop">{product.packSize.label}</Fact>
+          <Fact label="Shown in the shop as">
+            {translated(product.defaultVariant.displayName)}
+          </Fact>
         </dl>
       </CardBody>
     </Card>
   );
 }
 
-/** One product: its form, its pictures, its pack sizes and its price history. */
+/** One product: its form with the pack-size table, its stock, its pictures and its price history. */
 export function ProductView() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -280,7 +275,6 @@ export function ProductView() {
   const [deleting, setDeleting] = useState(false);
   const [gone, setGone] = useState(false);
   const product = useProduct(id, !deleting && !gone);
-  const update = useUpdateProduct(id);
   const categories = useCategories().data?.items;
   const back = { href: routes.products, label: "Products" };
 
@@ -343,17 +337,16 @@ export function ProductView() {
   const manage = can("catalog.manage");
   const name = translated(data.name);
   const path = categories ? categoryPath(categories, data.categoryId) : "";
-  const stock = stockState(data.stock);
+  const stock = overviewState(data.stock);
+  const onSale = data.variants.filter(
+    (entry) => entry.isEnabled && entry.pricing.onSale,
+  );
 
   return (
     <RequirePermission permission="catalog.read">
       <PageHeader
         back={back}
-        title={
-          <>
-            {name} <span className="text-ink-muted">{data.packSize.label}</span>
-          </>
-        }
+        title={name}
         badges={
           <>
             <StatusBadge kind="product" value={data.status} />
@@ -361,24 +354,30 @@ export function ProductView() {
               <Badge tone="neutral">Unavailable</Badge>
             )}
             {stock ? <Badge tone={stock.tone}>{stock.label}</Badge> : null}
-            {data.pricing.onSale ? (
+            {onSale.length > 0 ? (
               <Badge tone="neutral">
                 On sale
-                {data.pricing.discountPercent !== null
-                  ? `, −${data.pricing.discountPercent} %`
-                  : ""}
+                {onSale.length === 1 &&
+                onSale[0]!.pricing.discountPercent !== null
+                  ? `, −${onSale[0]!.pricing.discountPercent} %`
+                  : onSale.length < data.variants.length
+                    ? `, ${onSale.map((entry) => entry.packSize.label).join(", ")}`
+                    : ""}
               </Badge>
             ) : null}
           </>
         }
         description={
           <>
-            <span className="tabular">{data.sku}</span>
+            {data.variants.length === 1 ? (
+              <span className="tabular">{data.defaultVariant.sku}</span>
+            ) : (
+              plural(data.variants.length, "pack size")
+            )}
             {" · "}
             {path || translated(data.category.name)}
-            {data.packSizes.length > 1
-              ? ` · one of ${plural(data.packSizes.length, "pack size")}`
-              : ""}
+            {" · from "}
+            {formatMoney(data.priceFrom)}
           </>
         }
         className="pb-2"
@@ -452,21 +451,13 @@ export function ProductView() {
           "grid items-start gap-6 pb-12 xl:grid-cols-[minmax(0,1fr)_24rem] 2xl:grid-cols-[minmax(0,1fr)_26rem]",
         )}
       >
-        <ProductForm
-          product={data}
-          onUpdate={async (patch) => {
-            const updated = await update.mutateAsync(patch);
-            notify.success(`${updated.sku} saved`);
-            return updated;
-          }}
-        />
+        <ProductForm product={data} />
         <aside
-          aria-label="Stock, pictures, pack sizes and history"
+          aria-label="Stock, pictures and history"
           className="flex min-w-0 flex-col gap-6"
         >
           <StockPanel product={data} paused={deleting} />
           <ImageManager product={data} />
-          <PackSizesPanel product={data} />
           <PriceHistoryPanel product={data} paused={deleting} />
           <Record product={data} />
         </aside>

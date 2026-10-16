@@ -13,6 +13,7 @@ import type {
   NotificationDetail,
   OrderDetail,
   OrderReturn,
+  PackUnit,
   PaymentType,
   PriceChange,
   ProductDetail,
@@ -67,23 +68,39 @@ export interface StockRecord {
   lowStockThreshold: number | null;
 }
 
-/** A product as stored: the pack sizes of its group are worked out on reading. */
-export type ProductRecord = Omit<
-  ProductDetail,
-  | "packSizes"
-  | "packSizeCount"
-  | "imageCount"
-  | "image"
-  | "pricing"
-  | "category"
-  | "isDefaultVariant"
-  | "stock"
-> & {
+/**
+ * A pack size as stored (architecture, "Product document"): its URL, its
+ * display name, its prices and whether it is the default are worked out
+ * on reading.
+ */
+export interface VariantRecord {
+  id: string;
+  sku: string;
+  gtin: string | null;
+  packSize: { value: number; unit: PackUnit; label: string };
   regularPrice: number;
   salePrice: number | null;
-  vatRate: number;
-  isDefaultVariant: boolean;
+  isEnabled: boolean;
   stock: StockRecord;
+  createdAt: string;
+}
+
+/** A product as stored, with its pack sizes; everything derived is worked out on reading. */
+export type ProductRecord = Omit<
+  ProductDetail,
+  | "imageCount"
+  | "image"
+  | "category"
+  | "priceFrom"
+  | "defaultVariant"
+  | "variants"
+  | "variantCount"
+  | "stock"
+  | "deletable"
+  | "notDeletableReason"
+> & {
+  vatRate: number;
+  variants: VariantRecord[];
 };
 
 /** One line of the stock ledger, with the product it belongs to. */
@@ -163,6 +180,7 @@ export interface Db {
   legal: LegalDocument[];
   categories: CategoryRecord[];
   products: ProductRecord[];
+  /** The price history of each pack size, by its id, newest first. */
   priceChanges: Map<string, PriceChange[]>;
   stockMovements: StockMovementRecord[];
   orders: OrderRecord[];

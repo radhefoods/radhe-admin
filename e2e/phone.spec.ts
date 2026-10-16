@@ -62,7 +62,9 @@ test("a paid order is prepared, dispatched and delivered from a phone, then a re
     .getByRole("link")
     .first()
     .click();
-  await page.getByRole("button", { name: "Change the stock" }).click();
+  await page
+    .getByRole("button", { name: "Change the stock", exact: true })
+    .click();
   dialog = page.getByRole("alertdialog");
   await dialog.getByLabel("Counted number").fill("30");
   await dialog.getByRole("button", { name: "Set the stock to 30" }).click();

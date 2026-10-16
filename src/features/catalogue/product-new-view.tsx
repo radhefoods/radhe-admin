@@ -6,7 +6,7 @@ import { RequirePermission } from "@/components/domain/permission";
 import { PageBody, PageHeader } from "@/components/shell/page";
 import { Skeleton } from "@/components/ui/surface";
 import { notify } from "@/components/ui/toast";
-import { plural } from "@/lib/format/names";
+import { plural, translated } from "@/lib/format/names";
 import { param, useUrlState } from "@/lib/hooks/use-url-state";
 import { routes } from "@/lib/routes";
 import type { SizeReader } from "./image-rules";
@@ -29,7 +29,7 @@ export function ProductNewView({ readSize }: { readSize?: SizeReader }) {
       <PageHeader
         title="New product"
         back={{ href: routes.products, label: "Products" }}
-        description="One article in one pack size, with its pictures. It gets its article number when it is saved; further pack sizes are added on its page as copies."
+        description="One product with its pack sizes and pictures. Each pack size gets its article number when it is saved; more can be added on its page later."
       />
       <PageBody className="max-w-4xl">
         {categoryId && categories.isLoading ? (
@@ -68,17 +68,17 @@ export function ProductNewView({ readSize }: { readSize?: SizeReader }) {
                     ? `${plural(files.length, "picture")} stored. `
                     : "";
                 notify.success(
-                  `${product.sku} created`,
+                  `${translated(product.name)} created`,
                   product.status === "active"
-                    ? `${pictures}It is active.`
-                    : `${pictures}It is a draft: set it active when it is ready.`,
+                    ? `${pictures}${plural(product.variants.length, "pack size")}. It is active.`
+                    : `${pictures}${plural(product.variants.length, "pack size")}. It is a draft: set it active when it is ready.`,
                 );
               } else {
                 // The product exists; only its pictures are missing. Its page
                 // takes them, so that is where the admin lands.
                 notify.error(
                   upload,
-                  `${product.sku} created without its pictures`,
+                  `${translated(product.name)} created without its pictures`,
                 );
               }
               router.push(routes.product(product.id));

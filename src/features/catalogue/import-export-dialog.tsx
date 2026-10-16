@@ -62,16 +62,17 @@ const KINDS: Record<ImportSheetType, SheetKind> = {
     label: "Products",
     one: "product",
     template: "/templates/products-example.csv",
-    key: "the SKU (sku); without one, the slug (slug_en); without that, the slug the name and pack size would get",
+    key: "the SKU (sku) of a pack size; a product by its slug (slug_en), or the slug its name would get, and a row without a SKU by its pack",
     included:
-      "Every product, each pack size as a row, by SKU: texts in both languages, category, pack size, prices and VAT, status, stock count and low-stock threshold, food information, tags and SEO.",
+      "Every product, one row per pack size, by slug and then by pack: texts in both languages, category, pack, prices and VAT, whether the pack size is offered, status, stock count and low-stock threshold, food information, tags and SEO. The product columns are repeated on every row of a product.",
     rules: [
-      "A new product needs name_en, category_slug, pack_value, pack_unit, regular_price and vat_rate; everything else has a default.",
-      "category_slug is the slug_en of an existing category. variant_of_sku joins a pack size to its main product; none separates it.",
+      "One row per pack size. The rows of one product share slug_en (or name_en); its product columns are read from the first of them, the later rows need only their pack-size columns.",
+      "A new product needs name_en, category_slug, vat_rate, pack_value, pack_unit and regular_price on its first row; a further pack size needs pack_value, pack_unit, regular_price and a sku. All pack sizes of a product are of one unit family, each pack once, 20 at most.",
+      "category_slug is the slug_en of an existing category. variant_enabled takes yes or no: no takes the pack size out of the shop while the product stays.",
       "Prices are euros with VAT, 4.99 or 4,99; vat_rate is the percent, 7 or 19. Lists use | between entries.",
       "An empty cell leaves a field as it is. To remove a value, write what the column says: sale_price 0 ends a sale, max_order_quantity 0 removes the limit, low_stock_threshold 0 removes the threshold.",
-      "stock_quantity is the exact count: the opening stock of a new product, the new count of an existing one (recorded in its stock history as an import).",
-      "The SKU of an existing product, its pictures, its orders and its price history are never changed by an import.",
+      "stock_quantity is the exact count of the pack size: the opening stock of a new one, the new count of an existing one (recorded in its stock history as an import).",
+      "The SKU of an existing pack size, the pictures, the orders and the price history are never changed by an import.",
     ],
   },
   categories: {
@@ -296,7 +297,10 @@ const resultColumns: Column<ImportRowResult>[] = [
         </ul>
       ) : row.original.changes.length > 0 ? (
         <span className="text-13 text-ink-muted">
-          {row.original.changes.join(", ")}
+          {row.original.changes.length === 1 &&
+          row.original.changes[0] === "variant"
+            ? "adds a pack size to the product"
+            : row.original.changes.join(", ")}
         </span>
       ) : (
         <span className="text-ink-subtle">—</span>

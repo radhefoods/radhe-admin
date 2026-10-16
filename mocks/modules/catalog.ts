@@ -1,18 +1,29 @@
 // Sections 7 (categories) and 8 (products, stock and images).
 
 import { z } from "zod";
-import type { AdminImage } from "../../src/lib/api/types/index.ts";
-import type { CategoryRecord, Db, ProductRecord } from "../db.ts";
+import type { AdminImage, PackUnit } from "../../src/lib/api/types/index.ts";
+import type {
+  CategoryRecord,
+  Db,
+  ProductRecord,
+  VariantRecord,
+} from "../db.ts";
 import {
+  UNIT_FAMILY,
   ancestorsOf,
+  baseQuantity,
   categoryView,
+  defaultVariantOf,
   descendantIds,
   orderedCategories,
   packLabel,
   productDetail,
   productInUse,
   productSummary,
-  stockView,
+  sortedVariants,
+  stockOverview,
+  variantInUse,
+  variantSlug,
 } from "../domain.ts";
 import {
   HttpError,
@@ -179,12 +190,32 @@ const zTags = z
   .max(20)
   .refine((tags) => new Set(tags).size === tags.length, "tags must be unique");
 
-const productFields = {
+/** The fields of a pack size (8): the same on create and on `POST …/variants`. */
+const variantFields = {
   sku: z.string().optional(),
   gtin: z
     .string()
     .regex(/^(\d{8}|\d{12,14})$/, "gtin must have 8, 12, 13 or 14 digits")
     .nullish(),
+  salePrice: zCents(1).nullish(),
+  discountPercent: z.number().int().min(1).max(99).nullish(),
+  isEnabled: z.boolean().optional(),
+  lowStockThreshold: z.number().int().min(0).max(1_000_000).nullish(),
+};
+const zCreateVariant = z.strictObject({
+  packSize: zPack,
+  regularPrice: zCents(1),
+  /** The opening stock; only when the pack size is created (8). */
+  stockQuantity: z.number().int().min(0).max(1_000_000).optional(),
+  ...variantFields,
+});
+const zUpdateVariant = z.strictObject({
+  packSize: zPack.optional(),
+  regularPrice: zCents(1).optional(),
+  ...variantFields,
+});
+
+const productFields = {
   slug: zSlug.optional(),
   subtitle: zTranslatedOptional(300).optional(),
   shortDescription: zTranslatedOptional(300).optional(),
@@ -192,16 +223,12 @@ const productFields = {
   highlights: zList.optional(),
   uses: zList.optional(),
   brand: z.string().max(80).nullish(),
-  variantOf: zId.nullish(),
-  salePrice: zCents(1).nullish(),
-  discountPercent: z.number().int().min(1).max(99).nullish(),
   status: z.enum(["draft", "active", "archived"]).optional(),
   isAvailable: z.boolean().optional(),
   isFeatured: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(1_000_000).optional(),
   minOrderQuantity: z.number().int().min(1).max(10000).optional(),
   maxOrderQuantity: z.number().int().min(1).max(10000).nullish(),
-  lowStockThreshold: z.number().int().min(0).max(1_000_000).nullish(),
   storageType: z.enum(["ambient", "chilled", "frozen"]).optional(),
   food: z
     .strictObject({
@@ -225,29 +252,15 @@ const productFields = {
 const createProduct = z.strictObject({
   name: zTranslated(160),
   categoryId: zId,
-  packSize: zPack,
-  regularPrice: zCents(1),
+  variants: z.array(zCreateVariant).min(1).max(20),
   vatRate: z.number().int().min(0).max(10000),
-  /** The opening stock; only on create (8). */
-  stockQuantity: z.number().int().min(0).max(1_000_000).optional(),
   ...productFields,
 });
 const updateProduct = z.strictObject({
   name: zTranslated(160).optional(),
   categoryId: zId.optional(),
-  packSize: zPack.optional(),
-  regularPrice: zCents(1).optional(),
   vatRate: z.number().int().min(0).max(10000).optional(),
   ...productFields,
-});
-const duplicateProduct = z.strictObject({
-  sku: z.string().optional(),
-  packSize: zPack,
-  regularPrice: zCents(1),
-  salePrice: zCents(1).nullish(),
-  discountPercent: z.number().int().min(1).max(99).nullish(),
-  asVariant: z.boolean().optional(),
-  copyImages: z.boolean().optional(),
 });
 const imagePatch = z.strictObject({
   alt: zTranslatedOptional(300).optional(),
@@ -255,6 +268,8 @@ const imagePatch = z.strictObject({
 });
 
 export type ProductInput = z.output<typeof updateProduct>;
+export type VariantInput = z.output<typeof zCreateVariant>;
+export type VariantPatch = z.output<typeof zUpdateVariant>;
 
 function productById(db: Db, id: string): ProductRecord {
   const product = db.products.find((entry) => entry.id === id);
@@ -263,19 +278,48 @@ function productById(db: Db, id: string): ProductRecord {
   return product;
 }
 
+function variantById(product: ProductRecord, id: string): VariantRecord {
+  const variant = product.variants.find((entry) => entry.id === id);
+  if (!variant)
+    throw fail(
+      404,
+      "PRODUCT_VARIANT_NOT_FOUND",
+      "The pack size was not found.",
+    );
+  return variant;
+}
+
+/** Every pack size of the shop, with its product. */
+function allVariants(
+  db: Db,
+): { product: ProductRecord; variant: VariantRecord }[] {
+  return db.products.flatMap((product) =>
+    product.variants.map((variant) => ({ product, variant })),
+  );
+}
+
+/** The pack size an article number belongs to, if any. */
+export function variantBySku(
+  db: Db,
+  sku: string,
+): { product: ProductRecord; variant: VariantRecord } | undefined {
+  return allVariants(db).find((entry) => entry.variant.sku === sku);
+}
+
+/**
+ * The article number as the API stores it: upper-cased, checked, free
+ * across the shop (8). Left out, the next generated one.
+ */
 export function normalSku(
   db: Db,
   sku: string | undefined,
-  exceptId?: string,
+  exceptVariantId?: string,
 ): string {
   if (sku === undefined) {
     do {
       db.counters.sku += 1;
     } while (
-      db.products.some(
-        (entry) =>
-          entry.sku === `RF-${String(db.counters.sku).padStart(5, "0")}`,
-      )
+      variantBySku(db, `RF-${String(db.counters.sku).padStart(5, "0")}`)
     );
     return `RF-${String(db.counters.sku).padStart(5, "0")}`;
   }
@@ -288,26 +332,97 @@ export function normalSku(
       },
     ]);
   }
-  if (
-    db.products.some((entry) => entry.id !== exceptId && entry.sku === upper)
-  ) {
+  const taken = variantBySku(db, upper);
+  if (taken && taken.variant.id !== exceptVariantId) {
     throw fail(409, "PRODUCT_SKU_TAKEN", "Another product has this SKU.");
   }
   return upper;
 }
 
+/**
+ * The base slug and the URLs of the pack sizes must be free of other
+ * products (8): `PRODUCT_SLUG_TAKEN` otherwise.
+ */
 export function assertProductSlugFree(
   db: Db,
   slug: { en: string; de?: string | null },
+  packs: { value: number; unit: PackUnit }[],
   exceptId?: string,
 ): void {
-  const taken = db.products.some(
-    (entry) =>
-      entry.id !== exceptId &&
-      (entry.slug.en === slug.en || (slug.de && entry.slug.de === slug.de)),
-  );
-  if (taken)
-    throw fail(409, "PRODUCT_SLUG_TAKEN", "Another product uses this slug.");
+  const mine = new Set<string>([slug.en, ...(slug.de ? [slug.de] : [])]);
+  for (const pack of packs) {
+    const url = variantSlug(slug, pack);
+    mine.add(url.en);
+    if (url.de) mine.add(url.de);
+  }
+  for (const other of db.products) {
+    if (other.id === exceptId) continue;
+    const theirs = new Set<string>([
+      other.slug.en,
+      ...(other.slug.de ? [other.slug.de] : []),
+    ]);
+    for (const variant of other.variants) {
+      const url = variantSlug(other.slug, variant.packSize);
+      theirs.add(url.en);
+      if (url.de) theirs.add(url.de);
+    }
+    for (const entry of mine) {
+      if (theirs.has(entry)) {
+        throw fail(
+          409,
+          "PRODUCT_SLUG_TAKEN",
+          "Another product uses this slug, or the URL of one of its pack sizes.",
+        );
+      }
+    }
+  }
+}
+
+/**
+ * The rules of the pack sizes (8): one unit family, no pack twice, no
+ * article number twice, at most 20.
+ */
+export function assertPackSizes(
+  packs: { value: number; unit: PackUnit }[],
+  skus: (string | undefined)[],
+): void {
+  if (packs.length > 20) {
+    throw validationFailed([
+      { field: "variants", problems: ["a product has at most 20 pack sizes"] },
+    ]);
+  }
+  const families = [...new Set(packs.map((pack) => UNIT_FAMILY[pack.unit]))];
+  if (families.length > 1) {
+    throw fail(
+      400,
+      "PRODUCT_VARIANT_INVALID",
+      "The pack sizes of a product must be of one unit family.",
+      { families },
+    );
+  }
+  const seen = new Set<number>();
+  for (const pack of packs) {
+    const base = baseQuantity(pack);
+    if (seen.has(base)) {
+      throw fail(
+        400,
+        "PRODUCT_VARIANT_INVALID",
+        "The same pack appears twice.",
+        { baseQuantity: base },
+      );
+    }
+    seen.add(base);
+  }
+  const named = skus.filter((sku): sku is string => sku !== undefined);
+  const twice = named.find((sku, index) => named.indexOf(sku) !== index);
+  if (twice) {
+    throw fail(
+      400,
+      "PRODUCT_VARIANT_INVALID",
+      "The same article number appears twice.",
+      { sku: twice },
+    );
+  }
 }
 
 /** The sale price that follows from the input, or the documented refusal. */
@@ -361,72 +476,119 @@ export function assertQuantities(min: number, max: number | null): void {
   }
 }
 
-/** Joins the pack sizes of another product, or leaves the group (`null`). */
-export function applyVariantOf(
-  db: Db,
-  product: ProductRecord,
-  variantOf: string | null,
-): void {
-  const oldGroup = product.variantGroupId;
-  if (variantOf === null) {
-    product.variantGroupId = null;
-    product.isDefaultVariant = true;
-  } else {
-    const target = db.products.find((entry) => entry.id === variantOf);
-    if (!target || target.id === product.id) {
-      throw fail(
-        400,
-        "PRODUCT_VARIANT_INVALID",
-        "variantOf is the product itself or unknown.",
-      );
-    }
-    if (!target.variantGroupId) {
-      target.variantGroupId = newId();
-      target.isDefaultVariant = true;
-    }
-    product.variantGroupId = target.variantGroupId;
-    product.isDefaultVariant = false;
-  }
-  if (oldGroup && oldGroup !== product.variantGroupId) {
-    const left = db.products.filter(
-      (entry) => entry.variantGroupId === oldGroup,
-    );
-    if (left.length === 1 && left[0]) {
-      left[0].variantGroupId = null;
-      left[0].isDefaultVariant = true;
-    } else if (
-      left.length > 1 &&
-      !left.some((entry) => entry.isDefaultVariant) &&
-      left[0]
-    ) {
-      left[0].isDefaultVariant = true;
-    }
-  }
-}
-
+/** One entry of the price history of a pack size (8). */
 export function logPrice(
   db: Db,
   product: ProductRecord,
+  variant: VariantRecord,
   adminId: string,
   now: number,
 ): void {
-  const history = db.priceChanges.get(product.id) ?? [];
+  const history = db.priceChanges.get(variant.id) ?? [];
   history.unshift({
-    regularPrice: product.regularPrice,
-    salePrice: product.salePrice,
-    price: product.salePrice ?? product.regularPrice,
+    regularPrice: variant.regularPrice,
+    salePrice: variant.salePrice,
+    price: variant.salePrice ?? variant.regularPrice,
     vatRate: product.vatRate,
     changedBy: adminId,
     changedAt: iso(now),
   });
-  db.priceChanges.set(product.id, history.slice(0, 200));
+  db.priceChanges.set(variant.id, history.slice(0, 200));
+}
+
+/**
+ * A new pack size of a product (8): its article number, its first price
+ * and, with an opening stock, the first line of its stock history.
+ */
+export function createVariant(
+  db: Db,
+  product: ProductRecord,
+  input: VariantInput,
+  adminId: string,
+  now: number,
+): VariantRecord {
+  const salePrice = resolveSale(input.regularPrice, input, null);
+  const sku = normalSku(db, input.sku);
+  const variant: VariantRecord = {
+    id: newId(now + product.variants.length),
+    sku,
+    gtin: input.gtin ?? null,
+    packSize: {
+      ...input.packSize,
+      label: packLabel(input.packSize.value, input.packSize.unit),
+    },
+    regularPrice: input.regularPrice,
+    salePrice,
+    isEnabled: input.isEnabled ?? true,
+    stock: { quantity: 0, lowStockThreshold: input.lowStockThreshold ?? null },
+    createdAt: iso(now),
+  };
+  product.variants.push(variant);
+  logPrice(db, product, variant, adminId, now);
+  // The opening stock starts the history with a restock (8).
+  if (input.stockQuantity) {
+    recordMovement(
+      db,
+      product,
+      variant,
+      "restock",
+      input.stockQuantity,
+      { adminId, note: "Opening stock" },
+      now,
+    );
+  }
+  return variant;
+}
+
+/** Changes a pack size; the price history and the URL follow (8). */
+export function applyVariantPatch(
+  db: Db,
+  product: ProductRecord,
+  variant: VariantRecord,
+  input: VariantPatch,
+  adminId: string,
+  now: number,
+): void {
+  const regularPrice = input.regularPrice ?? variant.regularPrice;
+  const salePrice = resolveSale(regularPrice, input, variant.salePrice);
+  const sku =
+    input.sku === undefined
+      ? variant.sku
+      : normalSku(db, input.sku, variant.id);
+  const packSize = input.packSize
+    ? {
+        ...input.packSize,
+        label: packLabel(input.packSize.value, input.packSize.unit),
+      }
+    : variant.packSize;
+  if (input.packSize || input.sku !== undefined) {
+    const others = product.variants.filter((entry) => entry.id !== variant.id);
+    assertPackSizes(
+      [...others.map((entry) => entry.packSize), packSize],
+      [...others.map((entry) => entry.sku), sku],
+    );
+  }
+  if (input.packSize) {
+    assertProductSlugFree(db, product.slug, [packSize], product.id);
+  }
+  const priceChanged =
+    regularPrice !== variant.regularPrice || salePrice !== variant.salePrice;
+  variant.sku = sku;
+  variant.packSize = packSize;
+  variant.regularPrice = regularPrice;
+  variant.salePrice = salePrice;
+  if (input.gtin !== undefined) variant.gtin = input.gtin;
+  if (input.isEnabled !== undefined) variant.isEnabled = input.isEnabled;
+  if (input.lowStockThreshold !== undefined)
+    variant.stock.lowStockThreshold = input.lowStockThreshold;
+  product.updatedAt = iso(now);
+  if (priceChanged) logPrice(db, product, variant, adminId, now);
 }
 
 export function applyProductFields(
   product: ProductRecord,
   input: ProductInput,
 ): void {
-  if (input.gtin !== undefined) product.gtin = input.gtin;
   if (input.name !== undefined) product.name = input.name;
   if (input.subtitle !== undefined) product.subtitle = input.subtitle;
   if (input.shortDescription !== undefined)
@@ -439,8 +601,6 @@ export function applyProductFields(
   if (input.isFeatured !== undefined) product.isFeatured = input.isFeatured;
   if (input.sortOrder !== undefined) product.sortOrder = input.sortOrder;
   if (input.storageType !== undefined) product.storageType = input.storageType;
-  if (input.lowStockThreshold !== undefined)
-    product.stock.lowStockThreshold = input.lowStockThreshold;
   if (input.tags !== undefined) product.tags = input.tags;
   if (input.searchKeywords !== undefined)
     product.searchKeywords = input.searchKeywords;
@@ -459,11 +619,12 @@ export function applyProductFields(
 
 function matchesSearch(product: ProductRecord, q: string): boolean {
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const skus = product.variants.map((variant) => variant.sku);
   const haystack = [
     product.name.en,
     product.name.de ?? "",
     product.subtitle?.en ?? "",
-    product.sku,
+    ...skus,
     product.brand ?? "",
     ...product.searchKeywords,
     ...product.tags,
@@ -472,7 +633,7 @@ function matchesSearch(product: ProductRecord, q: string): boolean {
     .toLowerCase()
     .split(/[\s-]+/);
   return (
-    product.sku.toLowerCase().startsWith(q.toLowerCase()) ||
+    skus.some((sku) => sku.toLowerCase().startsWith(q.toLowerCase())) ||
     words.every((word) => haystack.some((token) => token.startsWith(word)))
   );
 }
@@ -699,7 +860,6 @@ export function registerCatalog(router: Router): void {
       "archived",
     ] as const);
     const categoryId = idParam(ctx.query, "categoryId");
-    const variantGroupId = idParam(ctx.query, "variantGroupId");
     const isAvailable = boolParam(ctx.query, "isAvailable");
     const onSale = boolParam(ctx.query, "onSale");
     const lowStock = boolParam(ctx.query, "lowStock");
@@ -713,30 +873,32 @@ export function registerCatalog(router: Router): void {
     const inside = categoryId
       ? new Set(descendantIds(ctx.db, categoryId))
       : null;
-    const price = (product: ProductRecord) =>
-      product.salePrice ?? product.regularPrice;
+    const priceFrom = (product: ProductRecord) => {
+      const variant = defaultVariantOf(product);
+      return variant.salePrice ?? variant.regularPrice;
+    };
+    const smallestSku = (product: ProductRecord) =>
+      [...product.variants.map((variant) => variant.sku)].sort()[0] ?? "";
     const rows = ctx.db.products
       .filter(
         (product) =>
           (!status || product.status === status) &&
           (!inside || inside.has(product.categoryId)) &&
-          (!variantGroupId || product.variantGroupId === variantGroupId) &&
           (isAvailable === undefined || product.isAvailable === isAvailable) &&
-          (onSale === undefined || (product.salePrice !== null) === onSale) &&
+          (onSale === undefined ||
+            product.variants.some(
+              (variant) => variant.isEnabled && variant.salePrice !== null,
+            ) === onSale) &&
           (lowStock === undefined ||
-            stockView(product.stock).isLow === lowStock) &&
+            stockOverview(product).isLow === lowStock) &&
           (!q || matchesSearch(product, q)),
       )
       .sort((a, b) => {
         if (sort === "updated") return a.updatedAt < b.updatedAt ? 1 : -1;
-        if (sort === "name")
-          return (
-            a.name.en.localeCompare(b.name.en) ||
-            a.packSize.value - b.packSize.value
-          );
-        if (sort === "sku") return a.sku.localeCompare(b.sku);
-        if (sort === "price_asc") return price(a) - price(b);
-        if (sort === "price_desc") return price(b) - price(a);
+        if (sort === "name") return a.name.en.localeCompare(b.name.en);
+        if (sort === "sku") return smallestSku(a).localeCompare(smallestSku(b));
+        if (sort === "price_asc") return priceFrom(a) - priceFrom(b);
+        if (sort === "price_desc") return priceFrom(b) - priceFrom(a);
         return a.id < b.id ? 1 : -1;
       });
     const result = page(rows, ctx.query);
@@ -751,37 +913,33 @@ export function registerCatalog(router: Router): void {
     if (!ctx.db.categories.some((entry) => entry.id === input.categoryId)) {
       throw fail(404, "CATEGORY_NOT_FOUND", "The category was not found.");
     }
-    const salePrice = resolveSale(input.regularPrice, input, null);
     const min = input.minOrderQuantity ?? 1;
     const max = input.maxOrderQuantity ?? null;
     assertQuantities(min, max);
-    const sku = normalSku(ctx.db, input.sku);
-    const label = packLabel(input.packSize.value, input.packSize.unit);
+    assertPackSizes(
+      input.variants.map((variant) => variant.packSize),
+      input.variants.map((variant) => variant.sku?.toUpperCase()),
+    );
     const slug = {
-      en: input.slug?.en ?? slugify(`${input.name.en} ${label}`),
-      de:
-        input.slug?.de ??
-        (input.name.de ? slugify(`${input.name.de} ${label}`) : null),
+      en: input.slug?.en ?? slugify(input.name.en),
+      de: input.slug?.de ?? (input.name.de ? slugify(input.name.de) : null),
     };
-    assertProductSlugFree(ctx.db, slug);
+    assertProductSlugFree(
+      ctx.db,
+      slug,
+      input.variants.map((variant) => variant.packSize),
+    );
     const status = input.status ?? "draft";
     const product: ProductRecord = {
       id: newId(ctx.now),
-      sku,
-      gtin: null,
       name: input.name,
       slug,
       brand: null,
-      packSize: { ...input.packSize, label },
-      regularPrice: input.regularPrice,
-      salePrice,
       vatRate: input.vatRate,
       status,
       isAvailable: true,
       isFeatured: false,
       sortOrder: 0,
-      variantGroupId: null,
-      isDefaultVariant: true,
       subtitle: null,
       shortDescription: null,
       description: null,
@@ -791,7 +949,7 @@ export function registerCatalog(router: Router): void {
       minOrderQuantity: min,
       maxOrderQuantity: max,
       storageType: "ambient",
-      stock: { quantity: 0, lowStockThreshold: null },
+      variants: [],
       food: null,
       tags: [],
       searchKeywords: [],
@@ -802,20 +960,11 @@ export function registerCatalog(router: Router): void {
       updatedAt: iso(ctx.now),
     };
     applyProductFields(product, input);
-    ctx.db.products.push(product);
-    if (input.variantOf) applyVariantOf(ctx.db, product, input.variantOf);
-    logPrice(ctx.db, product, ctx.admin.id, ctx.now);
-    // The opening stock starts the history with a restock (8).
-    if (input.stockQuantity) {
-      recordMovement(
-        ctx.db,
-        product,
-        "restock",
-        input.stockQuantity,
-        { adminId: ctx.admin.id, note: "Opening stock" },
-        ctx.now,
-      );
+    // The article numbers and the prices are checked before anything is kept.
+    for (const variant of input.variants) {
+      createVariant(ctx.db, product, variant, ctx.admin.id, ctx.now);
     }
+    ctx.db.products.push(product);
     return json({ product: productDetail(ctx.db, product) }, 201);
   });
 
@@ -837,54 +986,43 @@ export function registerCatalog(router: Router): void {
       ) {
         throw fail(404, "CATEGORY_NOT_FOUND", "The category was not found.");
       }
-      const regularPrice = input.regularPrice ?? product.regularPrice;
-      const salePrice = resolveSale(regularPrice, input, product.salePrice);
       const min = input.minOrderQuantity ?? product.minOrderQuantity;
       const max =
         input.maxOrderQuantity === undefined
           ? product.maxOrderQuantity
           : input.maxOrderQuantity;
       assertQuantities(min, max);
-      const sku =
-        input.sku === undefined
-          ? product.sku
-          : normalSku(ctx.db, input.sku, product.id);
       if (input.slug !== undefined) {
+        // A new base slug renames the URL of every pack size (8).
         const slug = {
           en: input.slug.en ?? product.slug.en,
           de: input.slug.de ?? product.slug.de ?? null,
         };
-        assertProductSlugFree(ctx.db, slug, product.id);
+        assertProductSlugFree(
+          ctx.db,
+          slug,
+          product.variants.map((variant) => variant.packSize),
+          product.id,
+        );
         product.slug = slug;
       }
-      if (input.variantOf !== undefined)
-        applyVariantOf(ctx.db, product, input.variantOf);
-
       const vatRate = input.vatRate ?? product.vatRate;
-      const priceChanged =
-        regularPrice !== product.regularPrice ||
-        salePrice !== product.salePrice ||
-        vatRate !== product.vatRate;
-      product.sku = sku;
-      product.regularPrice = regularPrice;
-      product.salePrice = salePrice;
+      const vatChanged = vatRate !== product.vatRate;
       product.vatRate = vatRate;
       product.minOrderQuantity = min;
       product.maxOrderQuantity = max;
       if (input.categoryId !== undefined) product.categoryId = input.categoryId;
-      if (input.packSize !== undefined) {
-        product.packSize = {
-          ...input.packSize,
-          label: packLabel(input.packSize.value, input.packSize.unit),
-        };
-      }
       if (input.status !== undefined) {
         product.status = input.status;
         if (input.status === "active") product.publishedAt ??= iso(ctx.now);
       }
       applyProductFields(product, input);
       product.updatedAt = iso(ctx.now);
-      if (priceChanged) logPrice(ctx.db, product, ctx.admin.id, ctx.now);
+      // A new VAT rate is an entry in the price history of every pack size (8).
+      if (vatChanged) {
+        for (const variant of product.variants)
+          logPrice(ctx.db, product, variant, ctx.admin.id, ctx.now);
+      }
       return json({ product: productDetail(ctx.db, product) });
     },
   );
@@ -906,88 +1044,91 @@ export function registerCatalog(router: Router): void {
         `The product cannot be deleted. It is part of ${orders} order(s). Archive it instead.`,
       );
     }
-    if (product.variantGroupId) applyVariantOf(ctx.db, product, null);
     ctx.db.products = ctx.db.products.filter(
       (entry) => entry.id !== product.id,
     );
     return noContent();
   });
 
-  router.post(
-    `${products}/:id/duplicate`,
-    { permission: "catalog.manage" },
-    async (ctx) => {
-      const input = await ctx.body(duplicateProduct);
-      const source = productById(ctx.db, ctx.params.id ?? "");
-      const salePrice = resolveSale(input.regularPrice, input, null);
-      const sku = normalSku(ctx.db, input.sku);
-      const label = packLabel(input.packSize.value, input.packSize.unit);
-      const slug = {
-        en: slugify(`${source.name.en} ${label}`),
-        de: source.name.de ? slugify(`${source.name.de} ${label}`) : null,
-      };
-      assertProductSlugFree(ctx.db, slug);
-      const copy: ProductRecord = {
-        ...structuredClone(source),
-        id: newId(ctx.now),
-        sku,
-        slug,
-        packSize: { ...input.packSize, label },
-        regularPrice: input.regularPrice,
-        salePrice,
-        status: "draft",
-        variantGroupId: null,
-        isDefaultVariant: true,
-        // The copy starts with a stock of 0 and an empty history (8).
-        stock: {
-          quantity: 0,
-          lowStockThreshold: source.stock.lowStockThreshold,
-        },
-        images:
-          input.copyImages === false
-            ? []
-            : source.images.map((image) => ({
-                ...structuredClone(image),
-                id: newId(ctx.now),
-              })),
-        publishedAt: null,
-        createdAt: iso(ctx.now),
-        updatedAt: iso(ctx.now),
-      };
-      ctx.db.products.push(copy);
-      if (input.asVariant !== false) applyVariantOf(ctx.db, copy, source.id);
-      logPrice(ctx.db, copy, ctx.admin.id, ctx.now);
-      return json({ product: productDetail(ctx.db, copy) }, 201);
-    },
-  );
+  // --- The pack sizes of a product --------------------------------------------
 
   router.post(
-    `${products}/:id/make-default`,
+    `${products}/:id/variants`,
     { permission: "catalog.manage" },
-    (ctx) => {
+    async (ctx) => {
+      const input = await ctx.body(zCreateVariant);
       const product = productById(ctx.db, ctx.params.id ?? "");
-      if (!product.variantGroupId) {
+      if (product.variants.length >= 20) {
         throw fail(
           400,
           "PRODUCT_VARIANT_INVALID",
-          "The product has no other pack sizes.",
+          "The product has 20 pack sizes already.",
         );
       }
-      for (const entry of ctx.db.products) {
-        if (entry.variantGroupId === product.variantGroupId) {
-          entry.isDefaultVariant = entry.id === product.id;
-        }
+      assertPackSizes(
+        [...product.variants.map((entry) => entry.packSize), input.packSize],
+        [
+          ...product.variants.map((entry) => entry.sku),
+          input.sku?.toUpperCase(),
+        ],
+      );
+      assertProductSlugFree(ctx.db, product.slug, [input.packSize], product.id);
+      createVariant(ctx.db, product, input, ctx.admin.id, ctx.now);
+      product.updatedAt = iso(ctx.now);
+      return json({ product: productDetail(ctx.db, product) }, 201);
+    },
+  );
+
+  router.patch(
+    `${products}/:id/variants/:variantId`,
+    { permission: "catalog.manage" },
+    async (ctx) => {
+      const input = await ctx.body(zUpdateVariant);
+      const product = productById(ctx.db, ctx.params.id ?? "");
+      const variant = variantById(product, ctx.params.variantId ?? "");
+      applyVariantPatch(ctx.db, product, variant, input, ctx.admin.id, ctx.now);
+      return json({ product: productDetail(ctx.db, product) });
+    },
+  );
+
+  router.delete(
+    `${products}/:id/variants/:variantId`,
+    { permission: "catalog.manage" },
+    (ctx) => {
+      const product = productById(ctx.db, ctx.params.id ?? "");
+      const variant = variantById(product, ctx.params.variantId ?? "");
+      if (product.variants.length === 1) {
+        throw fail(
+          409,
+          "PRODUCT_VARIANT_LAST",
+          "A product needs at least one pack size. Disable it, or delete the product.",
+        );
       }
+      const orders = variantInUse(ctx.db, variant.id);
+      if (orders > 0) {
+        throw fail(
+          409,
+          "PRODUCT_VARIANT_IN_USE",
+          `The pack size cannot be removed. It is part of ${orders} order(s). Disable it instead.`,
+        );
+      }
+      // The price history goes with it; the stock history is kept (8).
+      product.variants = product.variants.filter(
+        (entry) => entry.id !== variant.id,
+      );
+      ctx.db.priceChanges.delete(variant.id);
+      product.updatedAt = iso(ctx.now);
       return json({ product: productDetail(ctx.db, product) });
     },
   );
 
   router.get(
-    `${products}/:id/price-history`,
+    `${products}/:id/variants/:variantId/price-history`,
     { permission: "catalog.read" },
     (ctx) => {
       const product = productById(ctx.db, ctx.params.id ?? "");
-      return json({ items: ctx.db.priceChanges.get(product.id) ?? [] });
+      const variant = variantById(product, ctx.params.variantId ?? "");
+      return json({ items: ctx.db.priceChanges.get(variant.id) ?? [] });
     },
   );
 

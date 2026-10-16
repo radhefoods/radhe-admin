@@ -2,16 +2,18 @@ import { z } from "zod";
 import { hasErrorCode } from "@/lib/api/errors";
 import type {
   Cents,
-  DuplicateProductInput,
   PackUnit,
   ProductDetail,
   ProductFoodInput,
   ProductInput,
   ProductPatch,
   ProductStatus,
+  ProductVariant,
   StorageType,
   Translated,
   TranslatedOptional,
+  VariantInput,
+  VariantPatch,
 } from "@/lib/api/types";
 import {
   centsToInput,
@@ -27,10 +29,13 @@ import {
   zOptionalInt,
   zVatRate,
 } from "@/lib/validation";
+import { VARIANTS_MAX, packLabelOf, rowProblems } from "./variants";
 
-// The rules of the API for a product (documentation, 8), mirrored one to
-// one. The form holds what the admin typed; `toProductInput` and
-// `toProductPatch` make of it what the API gets.
+// The rules of the API for a product and its pack sizes (documentation,
+// 8), mirrored one to one. The form holds what the admin typed; the
+// functions at the end make of it what the API gets: `POST /products` with
+// `variants[]` for a new product, and for an existing one a plan of the
+// product patch and the pack sizes to add, change and remove.
 
 export const PACK_UNITS = [
   "g",
@@ -75,6 +80,7 @@ export const LIMITS = {
   sortOrderMax: 1_000_000,
   quantityMax: 10_000,
   stockMax: 1_000_000,
+  variants: VARIANTS_MAX,
 } as const;
 
 const SKU = /^[A-Z0-9][A-Z0-9._-]{1,39}$/;
@@ -164,7 +170,7 @@ const slug = z
   .max(LIMITS.slug, `At most ${LIMITS.slug} characters.`)
   .refine(
     (value) => value === "" || SLUG.test(value),
-    "Lower-case letters, digits and single hyphens. Example: basmati-rice-5-kg",
+    "Lower-case letters, digits and single hyphens. Example: basmati-rice",
   );
 
 const lines = z.string().superRefine((value, context) => {
@@ -198,13 +204,17 @@ type SaleValues = {
 };
 
 /** The sale price lies below the regular price; a percentage is 1 to 99. */
-function checkSale(value: SaleValues, context: z.RefinementCtx): void {
+function checkSale(
+  value: SaleValues,
+  context: z.RefinementCtx,
+  path: (string | number)[] = [],
+): void {
   if (value.saleMode === "price") {
     const result = price().safeParse(value.salePrice);
     if (!result.success) {
       context.addIssue({
         code: "custom",
-        path: ["salePrice"],
+        path: [...path, "salePrice"],
         message:
           value.salePrice.trim() === ""
             ? "Enter the sale price, or choose “No sale”."
@@ -216,7 +226,7 @@ function checkSale(value: SaleValues, context: z.RefinementCtx): void {
     if (regular !== null && result.data >= regular) {
       context.addIssue({
         code: "custom",
-        path: ["salePrice"],
+        path: [...path, "salePrice"],
         message: `The sale price must be below the regular price (${formatMoney(regular)}).`,
       });
     }
@@ -226,7 +236,7 @@ function checkSale(value: SaleValues, context: z.RefinementCtx): void {
     if (!result.success) {
       context.addIssue({
         code: "custom",
-        path: ["discountPercent"],
+        path: [...path, "discountPercent"],
         message:
           value.discountPercent.trim() === ""
             ? "Enter the discount, or choose “No sale”."
@@ -236,14 +246,10 @@ function checkSale(value: SaleValues, context: z.RefinementCtx): void {
   }
 }
 
-const productFields = z.object({
-  name: z.object({
-    en: text(LIMITS.name).min(1, "The English name is required."),
-    de: text(LIMITS.name),
-  }),
-  subtitle: translated(LIMITS.short),
-  brand: text(LIMITS.brand),
-  categoryId: z.string().regex(/^[0-9a-f]{24}$/, "Choose a category."),
+/** One row of the pack-size table: a pack size of the product (8). */
+const variantRowFields = z.object({
+  /** The id of the pack size; empty for one that is not saved yet. */
+  variantId: z.string(),
   sku: z
     .string()
     .trim()
@@ -260,6 +266,26 @@ const productFields = z.object({
     ),
   packSize: packSizeFields,
   ...saleFields,
+  isEnabled: z.boolean(),
+  /** Empty: no threshold, never warned. */
+  lowStockThreshold: following(zOptionalInt({ min: 0, max: LIMITS.stockMax })),
+  /** The opening stock of a new pack size; a saved one changes it in the stock dialog. */
+  stockQuantity: following(zOptionalInt({ min: 0, max: LIMITS.stockMax })),
+  /** Marked for removal: deleted when the product is saved. */
+  removed: z.boolean(),
+});
+
+export type VariantRowValues = z.input<typeof variantRowFields>;
+
+const productFields = z.object({
+  name: z.object({
+    en: text(LIMITS.name).min(1, "The English name is required."),
+    de: text(LIMITS.name),
+  }),
+  subtitle: translated(LIMITS.short),
+  brand: text(LIMITS.brand),
+  categoryId: z.string().regex(/^[0-9a-f]{24}$/, "Choose a category."),
+  variants: z.array(variantRowFields),
   vatRate: following(zVatRate),
   status: z.enum(PRODUCT_STATUSES),
   isAvailable: z.boolean(),
@@ -269,10 +295,6 @@ const productFields = z.object({
   maxOrderQuantity: following(
     zOptionalInt({ min: 1, max: LIMITS.quantityMax }),
   ),
-  /** The opening stock of a new product; an existing one changes it in the stock panel. */
-  stockQuantity: following(zInt({ min: 0, max: LIMITS.stockMax })),
-  /** Empty: no threshold, never warned. */
-  lowStockThreshold: following(zOptionalInt({ min: 0, max: LIMITS.stockMax })),
   storageType: z.enum(STORAGE_TYPES).or(z.literal("")),
   shortDescription: translated(LIMITS.short),
   description: translated(LIMITS.long),
@@ -320,12 +342,12 @@ export type ProductFormValues = z.input<typeof productFields>;
 
 /**
  * The schema of the product form. A new product may leave the article
- * number and the addresses empty (the API generates them); an existing one
- * keeps both.
+ * numbers and the address empty (the API generates them); an existing one
+ * keeps its address, and a saved pack size keeps its article number. The
+ * rules of the pack sizes among themselves are checked here as well.
  */
 export function productSchema(options: { creating: boolean }) {
   return productFields.superRefine((value, context) => {
-    checkSale(value, context);
     const min = Number(value.minOrderQuantity.trim());
     const max = value.maxOrderQuantity.trim();
     if (
@@ -340,13 +362,6 @@ export function productSchema(options: { creating: boolean }) {
         message: `Must not be below the smallest quantity (${min}).`,
       });
     }
-    if (!options.creating && value.sku.trim() === "") {
-      context.addIssue({
-        code: "custom",
-        path: ["sku"],
-        message: "A product keeps its article number. Type one.",
-      });
-    }
     if (!options.creating && value.slug.en.trim() === "") {
       context.addIssue({
         code: "custom",
@@ -354,30 +369,84 @@ export function productSchema(options: { creating: boolean }) {
         message: "A product keeps its address. Type one.",
       });
     }
+    value.variants.forEach((row, index) => {
+      if (row.removed) return;
+      checkSale(row, context, ["variants", index]);
+      if (row.variantId !== "" && row.sku.trim() === "") {
+        context.addIssue({
+          code: "custom",
+          path: ["variants", index, "sku"],
+          message: "A pack size keeps its article number. Type one.",
+        });
+      }
+    });
+    for (const problem of rowProblems(value.variants)) {
+      context.addIssue({
+        code: "custom",
+        path:
+          problem.index < 0
+            ? ["variants"]
+            : ["variants", problem.index, ...problem.field.split(".")],
+        message: problem.message,
+      });
+    }
   });
 }
 
 // --- What the form starts with ------------------------------------------------
 
+/** A row of the table for a pack size the product has. */
+export function variantRow(variant: ProductVariant): VariantRowValues {
+  const sale = variant.pricing.salePrice;
+  return {
+    variantId: variant.id,
+    sku: variant.sku,
+    gtin: variant.gtin ?? "",
+    packSize: {
+      value: String(variant.packSize.value),
+      unit: variant.packSize.unit,
+    },
+    regularPrice: centsToInput(variant.pricing.regularPrice),
+    // The API stores a sale as a price; a percentage is a way to type it.
+    saleMode: sale === null ? "none" : "price",
+    salePrice: centsToInput(sale),
+    discountPercent: "",
+    isEnabled: variant.isEnabled,
+    lowStockThreshold:
+      variant.stock.lowStockThreshold === null
+        ? ""
+        : String(variant.stock.lowStockThreshold),
+    stockQuantity: "",
+    removed: false,
+  };
+}
+
+/** An empty row for a pack size that is typed now; the unit follows the others. */
+export function emptyVariantRow(unit: PackUnit = "g"): VariantRowValues {
+  return {
+    variantId: "",
+    sku: "",
+    gtin: "",
+    packSize: { value: "", unit },
+    regularPrice: "",
+    saleMode: "none",
+    salePrice: "",
+    discountPercent: "",
+    isEnabled: true,
+    lowStockThreshold: "",
+    stockQuantity: "0",
+    removed: false,
+  };
+}
+
 export function productDefaults(product?: ProductDetail): ProductFormValues {
-  const sale = product?.pricing.salePrice ?? null;
   return {
     name: translatedDefaults(product?.name),
     subtitle: translatedDefaults(product?.subtitle),
     brand: product?.brand ?? "",
     categoryId: product?.categoryId ?? "",
-    sku: product?.sku ?? "",
-    gtin: product?.gtin ?? "",
-    packSize: {
-      value: product ? String(product.packSize.value) : "",
-      unit: product?.packSize.unit ?? "g",
-    },
-    regularPrice: centsToInput(product?.pricing.regularPrice),
-    // The API stores a sale as a price; a percentage is a way to type it.
-    saleMode: sale === null ? "none" : "price",
-    salePrice: centsToInput(sale),
-    discountPercent: "",
-    vatRate: rateToInput(product?.pricing.vatRate),
+    variants: product ? product.variants.map(variantRow) : [emptyVariantRow()],
+    vatRate: rateToInput(product?.vatRate),
     status: product?.status ?? "draft",
     isAvailable: product?.isAvailable ?? true,
     isFeatured: product?.isFeatured ?? false,
@@ -388,12 +457,6 @@ export function productDefaults(product?: ProductDetail): ProductFormValues {
       product?.maxOrderQuantity === undefined
         ? ""
         : String(product.maxOrderQuantity),
-    stockQuantity: product ? String(product.stock.quantity) : "0",
-    lowStockThreshold:
-      product?.stock.lowStockThreshold === null ||
-      product?.stock.lowStockThreshold === undefined
-        ? ""
-        : String(product.stock.lowStockThreshold),
     storageType: product ? (product.storageType ?? "") : "ambient",
     shortDescription: translatedDefaults(product?.shortDescription),
     description: translatedDefaults(product?.description),
@@ -425,6 +488,13 @@ function listDefaults(
   return { en: (list?.en ?? []).join("\n"), de: (list?.de ?? []).join("\n") };
 }
 
+/** The words for a row: its pack as typed, or "a new pack size". */
+export function rowLabel(row: Pick<VariantRowValues, "packSize">): string {
+  return (
+    packLabelOf(row.packSize.value, row.packSize.unit) || "a new pack size"
+  );
+}
+
 // --- What the API gets ---------------------------------------------------------
 
 type Both = { en: string; de: string };
@@ -447,13 +517,11 @@ function filled(value: Both): TranslatedOptional {
 }
 
 /**
- * Every field of the form as the API takes it on `PATCH`, where a
+ * Every product field of the form as the API takes it on `PATCH`, where a
  * translated field, a list and `food` replace what was there: nothing is
  * left out, an empty value is sent as what clears it.
  */
 interface Complete {
-  sku: string;
-  gtin: string | null;
   name: Translated;
   slug: TranslatedOptional;
   subtitle: TranslatedOptional;
@@ -463,8 +531,6 @@ interface Complete {
   uses: { en: string[]; de: string[] };
   brand: string | null;
   categoryId: string;
-  packSize: { value: number; unit: PackUnit };
-  regularPrice: Cents;
   vatRate: number;
   status: ProductStatus;
   isAvailable: boolean;
@@ -472,7 +538,6 @@ interface Complete {
   sortOrder: number;
   minOrderQuantity: number;
   maxOrderQuantity: number | null;
-  lowStockThreshold: number | null;
   storageType: StorageType | "";
   food: ProductFoodInput;
   tags: string[];
@@ -498,8 +563,6 @@ function complete(values: ProductFormValues): Complete {
     food.manufacturer = values.food.manufacturer.trim();
   }
   return {
-    sku: values.sku.trim().toUpperCase(),
-    gtin: values.gtin.trim() || null,
     name: { en: values.name.en.trim(), de: values.name.de.trim() || null },
     slug: filled(values.slug),
     subtitle: optional(values.subtitle),
@@ -512,11 +575,6 @@ function complete(values: ProductFormValues): Complete {
     uses: { en: linesOf(values.uses.en), de: linesOf(values.uses.de) },
     brand: values.brand.trim() || null,
     categoryId: values.categoryId,
-    packSize: {
-      value: parsePackValue(values.packSize.value) ?? Number.NaN,
-      unit: values.packSize.unit,
-    },
-    regularPrice: parseEuros(values.regularPrice) ?? Number.NaN,
     vatRate: parseVatRate(values.vatRate) ?? Number.NaN,
     status: values.status,
     isAvailable: values.isAvailable,
@@ -527,10 +585,6 @@ function complete(values: ProductFormValues): Complete {
       values.maxOrderQuantity.trim() === ""
         ? null
         : integer(values.maxOrderQuantity),
-    lowStockThreshold:
-      values.lowStockThreshold.trim() === ""
-        ? null
-        : integer(values.lowStockThreshold),
     storageType: values.storageType,
     food,
     tags: values.tags.map((tag) => tag.trim()).filter(Boolean),
@@ -546,13 +600,13 @@ function complete(values: ProductFormValues): Complete {
 
 /**
  * The sale of a request: a price OR a percentage, never both. `current` is
- * the sale price the product has now (`undefined` for a new product).
+ * the sale price the pack size has now (`undefined` for a new one).
  * Sending neither keeps the sale; `salePrice: null` ends it.
  */
 export function saleOf(
   values: SaleValues,
   current?: Cents | null,
-): Pick<ProductPatch, "salePrice" | "discountPercent"> {
+): Pick<VariantPatch, "salePrice" | "discountPercent"> {
   if (values.saleMode === "percent") {
     return { discountPercent: integer(values.discountPercent) };
   }
@@ -560,28 +614,78 @@ export function saleOf(
     const salePrice = parseEuros(values.salePrice) ?? Number.NaN;
     return current !== undefined && current === salePrice ? {} : { salePrice };
   }
-  // No sale: nothing to say for a new product, an end for one that is on sale.
+  // No sale: nothing to say for a new pack size, an end for one that is on sale.
   return current === null || current === undefined ? {} : { salePrice: null };
 }
 
-/** What `POST /products` gets: what is empty is left out. */
+/** A row as `POST /products` and `POST …/variants` take it: what is empty is left out. */
+export function toVariantInput(row: VariantRowValues): VariantInput {
+  const input: VariantInput = {
+    packSize: {
+      value: parsePackValue(row.packSize.value) ?? Number.NaN,
+      unit: row.packSize.unit,
+    },
+    regularPrice: parseEuros(row.regularPrice) ?? Number.NaN,
+    ...saleOf(row),
+  };
+  const sku = row.sku.trim().toUpperCase();
+  if (sku) input.sku = sku;
+  const gtin = row.gtin.trim();
+  if (gtin) input.gtin = gtin;
+  if (!row.isEnabled) input.isEnabled = false;
+  // The opening stock (default 0) and the threshold, where the API takes them.
+  const stock = row.stockQuantity.trim();
+  if (stock !== "" && integer(stock) > 0) input.stockQuantity = integer(stock);
+  const threshold = row.lowStockThreshold.trim();
+  if (threshold !== "") input.lowStockThreshold = integer(threshold);
+  return input;
+}
+
+/** What `PATCH …/variants/{variantId}` gets: only what changed against the pack size. */
+export function toVariantPatch(
+  row: VariantRowValues,
+  variant: ProductVariant,
+): VariantPatch {
+  const patch: VariantPatch = {};
+  const sku = row.sku.trim().toUpperCase();
+  if (sku && sku !== variant.sku) patch.sku = sku;
+  const gtin = row.gtin.trim() || null;
+  if (gtin !== variant.gtin) patch.gtin = gtin;
+  const value = parsePackValue(row.packSize.value) ?? Number.NaN;
+  if (
+    value !== variant.packSize.value ||
+    row.packSize.unit !== variant.packSize.unit
+  ) {
+    patch.packSize = { value, unit: row.packSize.unit };
+  }
+  const regularPrice = parseEuros(row.regularPrice) ?? Number.NaN;
+  if (regularPrice !== variant.pricing.regularPrice) {
+    patch.regularPrice = regularPrice;
+  }
+  if (row.isEnabled !== variant.isEnabled) patch.isEnabled = row.isEnabled;
+  // `null` removes the threshold; the count itself is not part of a patch.
+  const threshold =
+    row.lowStockThreshold.trim() === "" ? null : integer(row.lowStockThreshold);
+  if (threshold !== variant.stock.lowStockThreshold) {
+    patch.lowStockThreshold = threshold;
+  }
+  return { ...patch, ...saleOf(row, variant.pricing.salePrice) };
+}
+
+/** What `POST /products` gets: the product with its pack sizes; what is empty is left out. */
 export function toProductInput(values: ProductFormValues): ProductInput {
   const all = complete(values);
   const input: ProductInput = {
     name: all.name,
     categoryId: all.categoryId,
-    packSize: all.packSize,
-    regularPrice: all.regularPrice,
+    variants: values.variants.filter((row) => !row.removed).map(toVariantInput),
     vatRate: all.vatRate,
     status: all.status,
     isAvailable: all.isAvailable,
     isFeatured: all.isFeatured,
     sortOrder: all.sortOrder,
     minOrderQuantity: all.minOrderQuantity,
-    ...saleOf(values),
   };
-  if (all.sku) input.sku = all.sku;
-  if (all.gtin) input.gtin = all.gtin;
   if (Object.keys(all.slug).length > 0) input.slug = all.slug;
   for (const key of ["subtitle", "shortDescription", "description"] as const) {
     if (!isEmpty(all[key])) input[key] = all[key];
@@ -592,11 +696,6 @@ export function toProductInput(values: ProductFormValues): ProductInput {
   if (all.brand) input.brand = all.brand;
   if (all.maxOrderQuantity !== null)
     input.maxOrderQuantity = all.maxOrderQuantity;
-  // The opening stock (default 0) and the threshold, where the API takes them.
-  const stockQuantity = integer(values.stockQuantity);
-  if (stockQuantity > 0) input.stockQuantity = stockQuantity;
-  if (all.lowStockThreshold !== null)
-    input.lowStockThreshold = all.lowStockThreshold;
   if (all.storageType) input.storageType = all.storageType;
   const food = presentFood(all.food);
   if (Object.keys(food).length > 0) input.food = food;
@@ -629,10 +728,11 @@ const same = (a: unknown, b: unknown) =>
   JSON.stringify(a) === JSON.stringify(b);
 
 /**
- * What `PATCH /products/{id}` gets: only what changed against the product
- * the form was opened with. A translated field, a list and `food` are sent
- * whole, because the API replaces them as a whole; a field that was emptied
- * is sent as the value that clears it.
+ * What `PATCH /products/{id}` gets: only the product fields that changed
+ * against the product the form was opened with. A translated field, a list
+ * and `food` are sent whole, because the API replaces them as a whole; a
+ * field that was emptied is sent as the value that clears it. The pack
+ * sizes are not part of it: they have endpoints of their own.
  */
 export function toProductPatch(
   values: ProductFormValues,
@@ -644,8 +744,6 @@ export function toProductPatch(
   const changed = <K extends keyof Complete>(key: K) =>
     !same(next[key], before[key]);
 
-  if (changed("sku") && next.sku) patch.sku = next.sku;
-  if (changed("gtin")) patch.gtin = next.gtin;
   if (changed("name")) patch.name = next.name;
   if (changed("slug") && Object.keys(next.slug).length > 0)
     patch.slug = next.slug;
@@ -657,8 +755,6 @@ export function toProductPatch(
   if (changed("uses")) patch.uses = next.uses;
   if (changed("brand")) patch.brand = next.brand;
   if (changed("categoryId")) patch.categoryId = next.categoryId;
-  if (changed("packSize")) patch.packSize = next.packSize;
-  if (changed("regularPrice")) patch.regularPrice = next.regularPrice;
   if (changed("vatRate")) patch.vatRate = next.vatRate;
   if (changed("status")) patch.status = next.status;
   if (changed("isAvailable")) patch.isAvailable = next.isAvailable;
@@ -668,61 +764,67 @@ export function toProductPatch(
     patch.minOrderQuantity = next.minOrderQuantity;
   if (changed("maxOrderQuantity"))
     patch.maxOrderQuantity = next.maxOrderQuantity;
-  // `null` removes the threshold; the count itself is not part of a patch.
-  if (changed("lowStockThreshold"))
-    patch.lowStockThreshold = next.lowStockThreshold;
   if (changed("storageType") && next.storageType)
     patch.storageType = next.storageType;
   if (changed("food")) patch.food = next.food;
   if (changed("tags")) patch.tags = next.tags;
   if (changed("searchKeywords")) patch.searchKeywords = next.searchKeywords;
   if (changed("seo")) patch.seo = next.seo;
-
-  return { ...patch, ...saleOf(values, product.pricing.salePrice) };
+  return patch;
 }
 
-// --- A further pack size (`POST /products/{id}/duplicate`) ----------------------
-
-const packFields = z.object({
-  packSize: packSizeFields,
-  ...saleFields,
-  sku: productFields.shape.sku,
-  asVariant: z.boolean(),
-  copyImages: z.boolean(),
-});
-
-export const packSchema = packFields.superRefine(checkSale);
-export type PackFormValues = z.input<typeof packFields>;
-
-export function packDefaults(source: ProductDetail): PackFormValues {
-  return {
-    packSize: { value: "", unit: source.packSize.unit },
-    regularPrice: "",
-    saleMode: "none",
-    salePrice: "",
-    discountPercent: "",
-    sku: "",
-    asVariant: true,
-    copyImages: true,
-  };
+/**
+ * What saving an existing product sends (8): the product patch, then the
+ * pack sizes to remove, to change (each with only what changed) and to add.
+ */
+export interface ProductPlan {
+  patch: ProductPatch;
+  remove: ProductVariant[];
+  change: { variant: ProductVariant; patch: VariantPatch }[];
+  /** `row` is the index of the row in the form. */
+  add: { row: number; label: string; input: VariantInput }[];
 }
 
-export function toDuplicateInput(
-  values: PackFormValues,
-): DuplicateProductInput {
-  const input: DuplicateProductInput = {
-    packSize: {
-      value: parsePackValue(values.packSize.value) ?? Number.NaN,
-      unit: values.packSize.unit,
-    },
-    regularPrice: parseEuros(values.regularPrice) ?? Number.NaN,
-    asVariant: values.asVariant,
-    copyImages: values.copyImages,
-    ...saleOf(values),
+export function planOf(
+  values: ProductFormValues,
+  product: ProductDetail,
+): ProductPlan {
+  const byId = new Map(product.variants.map((entry) => [entry.id, entry]));
+  const plan: ProductPlan = {
+    patch: toProductPatch(values, product),
+    remove: [],
+    change: [],
+    add: [],
   };
-  const sku = values.sku.trim().toUpperCase();
-  if (sku) input.sku = sku;
-  return input;
+  values.variants.forEach((row, index) => {
+    const variant = byId.get(row.variantId);
+    if (!variant) {
+      if (row.variantId === "" && !row.removed) {
+        plan.add.push({
+          row: index,
+          label: rowLabel(row),
+          input: toVariantInput(row),
+        });
+      }
+      return;
+    }
+    if (row.removed) {
+      plan.remove.push(variant);
+      return;
+    }
+    const patch = toVariantPatch(row, variant);
+    if (Object.keys(patch).length > 0) plan.change.push({ variant, patch });
+  });
+  return plan;
+}
+
+export function planIsEmpty(plan: ProductPlan): boolean {
+  return (
+    Object.keys(plan.patch).length === 0 &&
+    plan.remove.length === 0 &&
+    plan.change.length === 0 &&
+    plan.add.length === 0
+  );
 }
 
 // --- Before saving: what the sale will look like -------------------------------
@@ -759,22 +861,22 @@ export function salePreview(values: SaleValues): SalePreview | null {
 
 // --- Errors of the API that belong to a field -----------------------------------
 
+/** The fields of the product a documented refusal belongs to. */
+export type ProductLevelField = "maxOrderQuantity" | "slug.en" | "categoryId";
+/** The fields of a row of the pack-size table a documented refusal belongs to. */
+export type VariantLevelField =
+  "regularPrice" | "salePrice" | "discountPercent" | "sku" | "packSize.value";
+export type ProductErrorField = ProductLevelField | VariantLevelField;
+
 /**
  * The field a documented refusal of the API belongs to, or `null` when it
- * belongs to none of the form (shown above the buttons then).
+ * belongs to none of the form (shown above the buttons then). The fields of
+ * a pack size are named as in a row; the caller knows which row.
  */
 export function productErrorField(
   error: unknown,
   saleMode: SaleMode,
-):
-  | "regularPrice"
-  | "salePrice"
-  | "discountPercent"
-  | "maxOrderQuantity"
-  | "sku"
-  | "slug.en"
-  | "categoryId"
-  | null {
+): ProductErrorField | null {
   if (hasErrorCode(error, "PRODUCT_PRICE_INVALID")) {
     if (saleMode === "percent") return "discountPercent";
     return saleMode === "price" ? "salePrice" : "regularPrice";
@@ -782,8 +884,67 @@ export function productErrorField(
   if (hasErrorCode(error, "PRODUCT_QUANTITY_INVALID"))
     return "maxOrderQuantity";
   if (hasErrorCode(error, "PRODUCT_SKU_TAKEN")) return "sku";
+  if (hasErrorCode(error, "PRODUCT_VARIANT_INVALID")) return "packSize.value";
   if (hasErrorCode(error, "PRODUCT_SLUG_TAKEN")) return "slug.en";
   if (hasErrorCode(error, "CATEGORY_NOT_FOUND")) return "categoryId";
+  return null;
+}
+
+/** Whether a refusal is about a pack size rather than the product. */
+export function isVariantError(
+  field: ProductErrorField | null,
+): field is VariantLevelField {
+  return (
+    field === "regularPrice" ||
+    field === "salePrice" ||
+    field === "discountPercent" ||
+    field === "sku" ||
+    field === "packSize.value"
+  );
+}
+
+/**
+ * The row a refusal of `POST /products` is about, when it can be told:
+ * the API names the article number or the pack of a refused pack size in
+ * `details`; a price refusal names the prices.
+ */
+export function variantErrorRow(
+  error: unknown,
+  rows: readonly VariantRowValues[],
+): number | null {
+  const live = rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => !row.removed);
+  if (live.length === 1) return live[0]!.index;
+  if (hasErrorCode(error, "PRODUCT_VARIANT_INVALID")) {
+    const d = error.details;
+    if (d?.sku) {
+      const hit = live.find(
+        ({ row }) => row.sku.trim().toUpperCase() === d.sku,
+      );
+      if (hit) return hit.index;
+    }
+    if (typeof d?.baseQuantity === "number") {
+      const hits = live.filter(({ row }) => {
+        const value = parsePackValue(row.packSize.value);
+        if (value === null) return false;
+        const factor =
+          row.packSize.unit === "kg" || row.packSize.unit === "l" ? 1000 : 1;
+        return Math.round(value * factor * 1000) / 1000 === d.baseQuantity;
+      });
+      // The second of the same pack is the one to change.
+      return hits.at(-1)?.index ?? null;
+    }
+  }
+  if (hasErrorCode(error, "PRODUCT_PRICE_INVALID")) {
+    const d = error.details;
+    if (typeof d?.regularPrice === "number") {
+      const hit = live.find(
+        ({ row }) => parseEuros(row.regularPrice) === d.regularPrice,
+      );
+      if (hit) return hit.index;
+    }
+  }
   return null;
 }
 
@@ -808,3 +969,25 @@ export const PRODUCT_FIELD_ALIASES: Record<string, string> = (() => {
   }
   return aliases;
 })();
+
+/** The fields of a pack size as the API names them, mapped to one row of the form. */
+export function variantFieldAliases(row: number): Record<string, string> {
+  const aliases: Record<string, string> = {};
+  for (const field of [
+    "sku",
+    "gtin",
+    "packSize.value",
+    "packSize.unit",
+    "regularPrice",
+    "salePrice",
+    "discountPercent",
+    "isEnabled",
+    "stockQuantity",
+    "lowStockThreshold",
+  ]) {
+    aliases[field] = `variants.${row}.${field}`;
+    // On `POST /products` the API names them inside `variants[]`.
+    aliases[`variants.${row}.${field}`] = `variants.${row}.${field}`;
+  }
+  return aliases;
+}

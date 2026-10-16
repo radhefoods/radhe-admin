@@ -56,9 +56,12 @@ export const queryKeys = {
     all: ["products"] as const,
     list: (query: ProductQuery) => ["products", "list", query] as const,
     detail: (id: Id) => ["products", "detail", id] as const,
-    priceHistory: (id: Id) => ["products", "price-history", id] as const,
-    /** The stock history of one product, newest first. */
-    stockMovements: (id: Id) => ["products", "stock-movements", id] as const,
+    /** The prices one pack size had, newest first. */
+    priceHistory: (id: Id, variantId: Id) =>
+      ["products", "price-history", id, variantId] as const,
+    /** The stock history of one pack size, newest first. */
+    stockMovements: (id: Id, variantId: Id) =>
+      ["products", "stock-movements", id, variantId] as const,
   },
   orders: {
     all: ["orders"] as const,

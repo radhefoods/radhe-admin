@@ -14,6 +14,7 @@ import { errorMessage } from "@/lib/api/error-text";
 import type { PriceChange, ProductDetail } from "@/lib/api/types";
 import { formatMoney, formatVatRate } from "@/lib/format/money";
 import { usePriceHistory } from "./queries";
+import { usePackSizeChoice } from "./stock-panel";
 
 const SHOWN_AT_FIRST = 6;
 /** The API returns the newest 200 changes (documentation, 8). */
@@ -45,7 +46,7 @@ export function describePriceChange(
   return parts.length > 0 ? parts.join(" · ") : "Saved again";
 }
 
-/** The prices a product had, newest first, with who changed them. */
+/** The prices a pack size had, newest first, with who changed them. */
 export function PriceHistoryPanel({
   product,
   paused = false,
@@ -54,7 +55,8 @@ export function PriceHistoryPanel({
   /** The product is being deleted: its history is not asked for again. */
   paused?: boolean;
 }) {
-  const history = usePriceHistory(product.id, !paused);
+  const { variant, chooser } = usePackSizeChoice(product);
+  const history = usePriceHistory(product.id, variant.id, !paused);
   const [all, setAll] = useState(false);
   const entries = history.data ?? [];
   const shown = all ? entries : entries.slice(0, SHOWN_AT_FIRST);
@@ -67,9 +69,14 @@ export function PriceHistoryPanel({
     >
       <CardHeader
         title="Price history"
-        description="Every change of the price or the VAT rate, newest first."
+        description={
+          product.variants.length > 1
+            ? "Every change of the price of a pack size or of the VAT rate, newest first."
+            : "Every change of the price or the VAT rate, newest first."
+        }
       />
       <CardBody className="flex flex-col gap-3">
+        {chooser}
         {history.isPending ? (
           <div
             className="flex flex-col gap-3"
@@ -94,8 +101,8 @@ export function PriceHistoryPanel({
           </Alert>
         ) : entries.length === 0 ? (
           <p className="text-13 text-ink-muted">
-            No price change is recorded for this product yet. Each change of the
-            price or the VAT rate adds an entry.
+            No price change is recorded for this pack size yet. Each change of
+            the price or the VAT rate adds an entry.
           </p>
         ) : (
           <>

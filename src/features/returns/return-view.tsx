@@ -42,7 +42,7 @@ import { RETURN_STATUS, humanize } from "@/lib/status";
 import { RETURN_TRANSITIONS } from "@/lib/status/transitions";
 
 /**
- * What approving sends: the units per product when the admin changed any,
+ * What approving sends: the units per pack size when the admin changed any,
  * nothing when the requested quantities are accepted as asked.
  */
 export function approvalInput(
@@ -57,8 +57,8 @@ export function approvalInput(
   changed: boolean;
 } {
   const lines = record.items.map((item) => ({
-    productId: item.productId,
-    quantity: quantities[item.productId] ?? item.quantity,
+    variantId: item.variantId,
+    quantity: quantities[item.variantId] ?? item.quantity,
     unitPrice: item.unitPrice,
     requested: item.quantity,
   }));
@@ -67,8 +67,8 @@ export function approvalInput(
     input: {
       ...(changed
         ? {
-            items: lines.map(({ productId, quantity }) => ({
-              productId,
+            items: lines.map(({ variantId, quantity }) => ({
+              variantId,
               quantity,
             })),
           }
@@ -124,11 +124,11 @@ function Decide({
   const parsed: Record<Id, number> = {};
   let valid = true;
   for (const item of record.items) {
-    const text = quantities[item.productId];
+    const text = quantities[item.variantId];
     if (text === undefined) continue;
     const value = /^\d{1,5}$/.test(text.trim()) ? Number(text) : Number.NaN;
     if (Number.isNaN(value) || value > item.quantity) valid = false;
-    else parsed[item.productId] = value;
+    else parsed[item.variantId] = value;
   }
   const approval = approvalInput(record, parsed, note, internalNote);
   const approved = record.items.reduce(
@@ -192,13 +192,13 @@ function Decide({
             Units to accept
           </legend>
           {record.items.map((item) => {
-            const text = quantities[item.productId] ?? String(item.quantity);
+            const text = quantities[item.variantId] ?? String(item.quantity);
             const value = Number(text);
             const wrong =
               !/^\d{1,5}$/.test(text.trim()) || value > item.quantity;
             return (
               <label
-                key={item.productId}
+                key={item.variantId}
                 className="flex items-center gap-3 text-sm"
               >
                 <span className="min-w-0 flex-1 truncate">
@@ -215,7 +215,7 @@ function Decide({
                   onChange={(event) =>
                     setQuantities({
                       ...quantities,
-                      [item.productId]: event.target.value,
+                      [item.variantId]: event.target.value,
                     })
                   }
                   className="w-20 text-right tabular"
@@ -225,7 +225,7 @@ function Decide({
           })}
           {!valid ? (
             <p className="text-13 text-danger-fg">
-              At most what the customer asked for; 0 declines a product.
+              At most what the customer asked for; 0 declines a pack size.
             </p>
           ) : approval.units === 0 ? (
             <p className="text-13 text-danger-fg">
@@ -311,7 +311,7 @@ function Decide({
           </label>
           <p id={`${restockId}-hint`} className="text-13 text-ink-muted">
             Off by default: food that came back is not sold again unless you say
-            so. On: the accepted units are added to the stock of each product.
+            so. On: the accepted units are added to the stock of each pack size.
           </p>
         </div>
       </div>
@@ -502,7 +502,7 @@ export function ReturnView() {
                   <tbody>
                     {record.items.map((item) => (
                       <tr
-                        key={item.productId}
+                        key={item.variantId}
                         className="border-b border-line last:border-b-0"
                       >
                         <th

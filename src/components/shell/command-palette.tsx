@@ -131,11 +131,17 @@ export function CommandPalette({
     key: `product:${product.id}`,
     href: routes.product(product.id),
     icon: Tags,
-    title: `${translated(product.name)} · ${product.packSize.label}`,
-    detail: product.sku,
+    title: translated(product.name),
+    detail:
+      product.variantCount > 1
+        ? product.variants
+            .map((entry) => `${entry.packSize.label} ${entry.sku}`)
+            .join(" · ")
+        : `${product.defaultVariant.packSize.label} · ${product.defaultVariant.sku}`,
     trailing: (
       <span className="text-ink-muted tabular">
-        {formatMoney(product.pricing.price)}
+        {product.variantCount > 1 ? "from " : ""}
+        {formatMoney(product.priceFrom)}
       </span>
     ),
   }));

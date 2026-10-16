@@ -34,12 +34,19 @@ vi.setConfig({ testTimeout: 30_000 });
 const saveButton = () =>
   screen.getByText("Save changes", { selector: "button" });
 
-/** A product of the demo data by name and pack size: "Basmati Rice 5 kg". */
-function product(label: string): ProductSummary {
-  const found = products.find(
-    (entry) => `${entry.name.en} ${entry.packSize.label}` === label,
+/** A product of the demo data by name: "Basmati Rice". */
+function product(name: string): ProductSummary {
+  const found = products.find((entry) => entry.name.en === name);
+  if (!found) throw new Error(`No product "${name}" in the demo data`);
+  return found;
+}
+
+/** A pack size of a product of the demo data: "Basmati Rice", "5 kg". */
+function size(name: string, label: string) {
+  const found = product(name).variants.find(
+    (entry) => entry.packSize.label === label,
   );
-  if (!found) throw new Error(`No product "${label}" in the demo data`);
+  if (!found) throw new Error(`No pack size "${label}" of "${name}"`);
   return found;
 }
 
@@ -58,15 +65,24 @@ const record = (id: string) => {
 /** The requests that change something. */
 const writes = () => api.calls.filter((call) => call.method !== "GET");
 
-/** Makes sure a delivered order of the demo data holds the product. */
-function putInAnOrder(productId: string): void {
+/** Makes sure a delivered order of the demo data holds a pack size of the product. */
+function putInAnOrder(productId: string, variantId?: string): void {
   const db = api.mock.db();
   const order = db.orders.find((entry) => entry.status === "delivered");
   if (!order) throw new Error("No delivered order in the demo data");
-  if (order.items.some((item) => item.productId === productId)) return;
+  const variant =
+    record(productId).variants.find((entry) => entry.id === variantId) ??
+    record(productId).variants[0];
+  if (!variant) throw new Error("The product has no pack size");
+  if (order.items.some((item) => item.variantId === variant.id)) return;
   const first = order.items[0];
   if (!first) throw new Error("The order has no items");
-  order.items.push({ ...first, productId, sku: record(productId).sku });
+  order.items.push({
+    ...first,
+    productId,
+    variantId: variant.id,
+    sku: variant.sku,
+  });
 }
 
 /** A field of a form by the name the form gives it (`name.en`, `regularPrice`). */
@@ -124,13 +140,13 @@ describe("the product list", () => {
   });
 
   it("switches a product unavailable at once and tells the API", async () => {
-    const dal = product("Toor Dal 1 kg");
+    const dal = product("Toor Dal");
     const { user } = renderPanel(<ProductsView />, {
       path: "/catalogue/products?q=toor",
     });
     const table = await screen.findByRole("table");
     const toggle = await within(table).findByRole("switch", {
-      name: "Toor Dal 1 kg is available",
+      name: "Toor Dal is available",
     });
     expect(toggle).toBeChecked();
 
@@ -149,12 +165,12 @@ describe("the product list", () => {
   it("puts the switch back when the API refuses", async () => {
     // The session of the API is a read-only one: the change is refused.
     await api.signIn("viewer");
-    const dal = product("Toor Dal 1 kg");
+    const dal = product("Toor Dal");
     const { user, unhandled } = renderPanel(<ProductsView />, {
       path: "/catalogue/products?q=toor",
     });
     const table = await screen.findByRole("table");
-    const name = "Toor Dal 1 kg is available";
+    const name = "Toor Dal is available";
     await user.click(await within(table).findByRole("switch", { name }));
 
     await waitFor(() => expect(unhandled).toHaveLength(1));
@@ -164,22 +180,29 @@ describe("the product list", () => {
     expect(record(dal.id).isAvailable).toBe(true);
   });
 
-  it("shows a sale with the regular price struck through and the percentage", async () => {
+  it("shows the price of the pack size that stands for the product, a sale struck through, and every pack size", async () => {
+    // Chakki Atta: the 10 kg is on sale, the 5 kg is shown as the default.
     renderPanel(<ProductsView />, {
-      path: "/catalogue/products?q=basmati&sort=sku",
+      path: "/catalogue/products?q=atta&sort=sku",
     });
     const table = await screen.findByRole("table");
-    await within(table).findByText("RF-00002", { exact: false });
-    const sale = within(table)
-      .getAllByRole("row")
-      .find((entry) => entry.textContent?.includes("RF-00002"));
-    const plain = within(table)
-      .getAllByRole("row")
-      .find((entry) => entry.textContent?.includes("RF-00001"));
-    expect(plain?.querySelector("s")).toBeNull();
-    expect(sale).toHaveTextContent("−20 %");
-    expect(sale).toHaveTextContent("€19.99");
-    expect(sale?.querySelector("s")).toHaveTextContent("€24.99");
+    const atta = (
+      await within(table).findByRole("link", { name: "Chakki Atta" })
+    ).closest("tr");
+    expect(atta).toHaveTextContent("2 pack sizes");
+    expect(atta).toHaveTextContent("5 kg, 10 kg");
+    expect(atta).toHaveTextContent("from €12.99");
+    expect(atta?.querySelector("s")).toBeNull();
+    expect(atta).toHaveTextContent("5 kg shown");
+
+    // Basmati Rice: the 1 kg stands for it; its price has no sale.
+    renderPanel(<ProductsView />, {
+      path: "/catalogue/products?q=basmati",
+    });
+    const basmati = (
+      await screen.findByRole("link", { name: "Basmati Rice" })
+    ).closest("tr");
+    expect(basmati).toHaveTextContent("from €4.99");
   });
 
   it("keeps changes away from an admin without catalog.manage", async () => {
@@ -190,7 +213,7 @@ describe("the product list", () => {
     const table = await screen.findByRole("table");
     expect(
       await within(table).findByRole("switch", {
-        name: "Toor Dal 1 kg is available",
+        name: "Toor Dal is available",
       }),
     ).toBeDisabled();
     expect(screen.getByRole("button", { name: "New product" })).toBeDisabled();
@@ -201,10 +224,11 @@ describe("the product list", () => {
 });
 
 describe("saving a product", () => {
-  it("sends only the price that changed", async () => {
-    const dal = product("Toor Dal 1 kg");
+  it("sends a changed price of a pack size to its own endpoint, and nothing else", async () => {
+    const dal = product("Toor Dal");
+    const kilo = size("Toor Dal", "1 kg");
     const { user } = renderProduct(dal.id);
-    const price = await screen.findByLabelText(/^Regular price/);
+    const price = await waitFor(() => field("variants.0.regularPrice"));
     expect(price).toHaveValue("4.49");
     expect(saveButton()).toBeDisabled();
 
@@ -216,49 +240,55 @@ describe("saving a product", () => {
       expect(writes()).toEqual([
         {
           method: "PATCH",
-          path: `/v1/admin/products/${dal.id}`,
+          path: `/v1/admin/products/${dal.id}/variants/${kilo.id}`,
           body: { regularPrice: 479 },
         },
       ]),
     );
-    expect(record(dal.id).regularPrice).toBe(479);
+    expect(record(dal.id).variants[0]?.regularPrice).toBe(479);
     // Saved: the form is clean again.
     await waitFor(() => expect(saveButton()).toBeDisabled());
   });
 
   it("ends a sale with salePrice: null", async () => {
-    const rice = product("Basmati Rice 5 kg");
+    const rice = product("Basmati Rice");
+    const five = size("Basmati Rice", "5 kg");
     const { user } = renderProduct(rice.id);
-    await user.click(await screen.findByRole("radio", { name: "No sale" }));
-    expect(screen.getByText(/Saving ends the sale of/)).toHaveTextContent(
-      "€19.99",
-    );
+    const sale = await waitFor(() => field("variants.1.saleMode"));
+    expect(sale).toHaveValue("price");
+    await user.selectOptions(sale, "none");
     await user.click(saveButton());
 
     await waitFor(() =>
       expect(writes()).toEqual([
         {
           method: "PATCH",
-          path: `/v1/admin/products/${rice.id}`,
+          path: `/v1/admin/products/${rice.id}/variants/${five.id}`,
           body: { salePrice: null },
         },
       ]),
     );
-    expect(record(rice.id).salePrice).toBeNull();
-    // The change shows up in the price history, with who made it.
+    expect(
+      record(rice.id).variants.find((entry) => entry.id === five.id)?.salePrice,
+    ).toBeNull();
+    // The change shows up in the price history of that pack size.
     const history = screen.getByRole("region", { name: "Price history" });
+    await user.selectOptions(
+      within(history).getByRole("combobox", { name: "Pack size" }),
+      five.id,
+    );
     expect(
       await within(history).findByText("Sale of €19.99 ended"),
     ).toBeInTheDocument();
   });
 
   it("sends a discount as a percentage and no sale price with it", async () => {
-    const rice = product("Basmati Rice 5 kg");
+    const rice = product("Basmati Rice");
+    const five = size("Basmati Rice", "5 kg");
     const { user } = renderProduct(rice.id);
-    await user.click(
-      await screen.findByRole("radio", { name: "Discount in percent" }),
-    );
-    await user.type(field("discountPercent"), "25");
+    const sale = await waitFor(() => field("variants.1.saleMode"));
+    await user.selectOptions(sale, "percent");
+    await user.type(field("variants.1.discountPercent"), "25");
     expect(screen.getByText(/Customers will pay about/)).toHaveTextContent(
       "€18.74",
     );
@@ -268,18 +298,20 @@ describe("saving a product", () => {
       expect(writes()).toEqual([
         {
           method: "PATCH",
-          path: `/v1/admin/products/${rice.id}`,
+          path: `/v1/admin/products/${rice.id}/variants/${five.id}`,
           body: { discountPercent: 25 },
         },
       ]),
     );
-    expect(record(rice.id).salePrice).toBe(1874);
+    expect(
+      record(rice.id).variants.find((entry) => entry.id === five.id)?.salePrice,
+    ).toBe(1874);
   });
 
   it("does not ask the API with a sale price that is not below the regular price", async () => {
-    const rice = product("Basmati Rice 5 kg");
+    const rice = product("Basmati Rice");
     const { user } = renderProduct(rice.id);
-    const sale = await waitFor(() => field("salePrice"));
+    const sale = await waitFor(() => field("variants.1.salePrice"));
     await user.clear(sale);
     await user.type(sale, "24.99");
     await user.click(saveButton());
@@ -292,11 +324,11 @@ describe("saving a product", () => {
     expect(writes()).toEqual([]);
   });
 
-  it("shows an article number that is taken at its field and keeps what was typed", async () => {
-    const dal = product("Toor Dal 1 kg");
-    const taken = product("Moong Dal 1 kg");
+  it("shows an article number that is taken at its row and keeps what was typed", async () => {
+    const dal = product("Toor Dal");
+    const taken = size("Moong Dal", "1 kg");
     const { user, unhandled } = renderProduct(dal.id);
-    const sku = await screen.findByLabelText(/^Article number/);
+    const sku = await waitFor(() => field("variants.0.sku"));
     await user.clear(sku);
     await user.type(sku, taken.sku.toLowerCase());
     await user.clear(field("brand"));
@@ -308,25 +340,55 @@ describe("saving a product", () => {
         "Another product already has this article number (SKU).",
       ),
     ).toBeInTheDocument();
-    expect(sku).toHaveAttribute("aria-invalid", "true");
+    expect(field("variants.0.sku")).toHaveAttribute("aria-invalid", "true");
+    // The product fields went through before the pack size was refused:
+    // the form says so, and keeps what is still to be sent.
+    expect(
+      screen.getByText(/Saved: the product details\. Not saved: 1 kg\./),
+    ).toBeInTheDocument();
+    expect(record(dal.id).brand).toBe("Heera");
+    expect(record(dal.id).variants[0]?.sku).toBe(size("Toor Dal", "1 kg").sku);
     expect(field("brand")).toHaveValue("Heera");
-    expect(record(dal.id).sku).toBe(dal.sku);
-    // The field shows the error: no second report as a toast.
+    expect(field("variants.0.sku")).toHaveValue(taken.sku.toLowerCase());
     expect(unhandled).toHaveLength(0);
+
+    // Saving again sends only what is left: nothing twice.
+    api.calls.length = 0;
+    await user.clear(field("variants.0.sku"));
+    await user.type(field("variants.0.sku"), "RF-DAL-1");
+    await user.click(saveButton());
+    await waitFor(() =>
+      expect(writes()).toEqual([
+        {
+          method: "PATCH",
+          path: `/v1/admin/products/${dal.id}/variants/${size("Toor Dal", "1 kg").id}`,
+          body: { sku: "RF-DAL-1" },
+        },
+      ]),
+    );
   });
 
   it("keeps what was typed when the product changes underneath, and sends only that", async () => {
-    const rice = product("Basmati Rice 5 kg");
+    const rice = product("Basmati Rice");
     const { user } = renderProduct(rice.id);
     const name = await waitFor(() => field("name.en"));
     await user.clear(name);
     await user.type(name, "Basmati Rice Extra Long");
 
     // Meanwhile the product changes: someone renames the brand, and this
-    // admin makes another pack size the default (which loads it again).
+    // admin counts the shelf (which loads the product again).
     record(rice.id).brand = "Daawat";
+    const panel = screen.getByRole("region", { name: "Stock" });
     await user.click(
-      screen.getByRole("button", { name: "Make 1 kg the default pack size" }),
+      within(panel).getByRole("button", { name: "Change the stock" }),
+    );
+    const dialog = await screen.findByRole("alertdialog");
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "Counted number" }),
+      "90",
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "Set the stock to 90" }),
     );
     await waitFor(() => expect(field("brand")).toHaveValue("Daawat"));
     expect(field("name.en")).toHaveValue("Basmati Rice Extra Long");
@@ -347,7 +409,7 @@ describe("saving a product", () => {
   });
 
   it("replaces the highlights of a language as a whole list", async () => {
-    const dal = product("Toor Dal 1 kg");
+    const dal = product("Toor Dal");
     const { user } = renderProduct(dal.id);
     const german = await waitFor(() => field("highlights.de"));
     await user.type(german, "{Enter}Reich an Eiweiß");
@@ -370,9 +432,9 @@ describe("saving a product", () => {
   });
 
   it("shows the form to an admin who may only read, without a way to save", async () => {
-    const dal = product("Toor Dal 1 kg");
+    const dal = product("Toor Dal");
     renderProduct(dal.id, READ_ONLY);
-    const price = await screen.findByLabelText(/^Regular price/);
+    const price = await waitFor(() => field("variants.0.regularPrice"));
     expect(price).toBeDisabled();
     expect(saveButton()).toBeDisabled();
     expect(
@@ -396,7 +458,7 @@ describe("deleting and archiving a product", () => {
   }
 
   it("does not try to delete an active product: it explains and archives instead", async () => {
-    const dal = product("Toor Dal 1 kg");
+    const dal = product("Toor Dal");
     const { user } = renderProduct(dal.id);
     const dialog = await chooseDelete(user);
     expect(
@@ -423,13 +485,13 @@ describe("deleting and archiving a product", () => {
   });
 
   it("deletes a draft that is not part of an order, after a confirmation", async () => {
-    const paneer = product("Paneer 400 g");
+    const paneer = product("Paneer");
     expect(paneer.status).toBe("draft");
     const { user } = renderProduct(paneer.id);
     const dialog = await chooseDelete(user);
     expect(
       within(dialog).getByRole("heading", {
-        name: "Delete Paneer 400 g for good?",
+        name: "Delete Paneer for good?",
       }),
     ).toBeInTheDocument();
     expect(writes()).toEqual([]);
@@ -455,7 +517,7 @@ describe("deleting and archiving a product", () => {
   });
 
   it("explains a product that is part of an order and offers to archive it, without asking the API", async () => {
-    const dal = product("Toor Dal 1 kg");
+    const dal = product("Toor Dal");
     // A draft again, but an order still refers to it: the product says so.
     record(dal.id).status = "draft";
     putInAnOrder(dal.id);
@@ -463,10 +525,10 @@ describe("deleting and archiving a product", () => {
     await chooseDelete(user);
 
     const refusal = await screen.findByRole("heading", {
-      name: "Toor Dal 1 kg cannot be deleted",
+      name: "Toor Dal cannot be deleted",
     });
     expect(refusal).toBeInTheDocument();
-    expect(screen.getByText(/It is part of an order/)).toBeInTheDocument();
+    expect(screen.getByText(/is part of an order/)).toBeInTheDocument();
     expect(writes().some((call) => call.method === "DELETE")).toBe(false);
     expect(api.mock.db().products.some((entry) => entry.id === dal.id)).toBe(
       true,
@@ -481,7 +543,7 @@ describe("deleting and archiving a product", () => {
   });
 
   it("says that an archived product of an order stays as it is", async () => {
-    const dal = product("Toor Dal 1 kg");
+    const dal = product("Toor Dal");
     record(dal.id).status = "archived";
     putInAnOrder(dal.id);
     const { user } = renderProduct(dal.id);
@@ -502,124 +564,257 @@ describe("deleting and archiving a product", () => {
   });
 });
 
-describe("the pack sizes of an article", () => {
-  it("lists the group smallest first and marks the default", async () => {
-    const rice = product("Basmati Rice 5 kg");
+describe("the pack sizes of a product", () => {
+  it("lists them smallest first in the form, marks the default, and names the URL of each", async () => {
+    const rice = product("Basmati Rice");
     renderProduct(rice.id);
-    const panel = await screen.findByRole("region", { name: "Pack sizes" });
-    const rows = await within(panel).findAllByRole("listitem");
-    expect(rows.map((row) => row.textContent)).toEqual([
-      expect.stringContaining("1 kg"),
-      expect.stringContaining("5 kg"),
-      expect.stringContaining("10 kg"),
+    const table = await screen.findByRole("list", { name: "Pack sizes" });
+    const rows = within(table).getAllByRole("listitem");
+    expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+      "1 kg",
+      "5 kg",
+      "10 kg",
     ]);
-    expect(rows[1]).toHaveTextContent("Default");
-    expect(rows[1]).toHaveAttribute("aria-current", "true");
+    expect(rows[0]).toHaveTextContent("Default");
+    expect(rows[0]).toHaveTextContent("/basmati-rice-1kg");
+    expect(rows[1]).not.toHaveTextContent("Default");
+    // The pack size that is not offered says so.
+    expect(rows[2]).toHaveTextContent("Not offered");
     expect(
-      within(rows[0] as HTMLElement).getByRole("link", { name: "1 kg" }),
-    ).toHaveAttribute(
-      "href",
-      `/catalogue/products/${product("Basmati Rice 1 kg").id}`,
-    );
-  });
-
-  it("makes another pack size the default", async () => {
-    const rice = product("Basmati Rice 5 kg");
-    const small = product("Basmati Rice 1 kg");
-    const { user } = renderProduct(rice.id);
-    await user.click(
-      await screen.findByRole("button", {
-        name: "Make 1 kg the default pack size",
-      }),
-    );
-    await waitFor(() =>
-      expect(writes()).toEqual([
-        {
-          method: "POST",
-          path: `/v1/admin/products/${small.id}/make-default`,
-          body: undefined,
-        },
-      ]),
-    );
-    expect(record(small.id).isDefaultVariant).toBe(true);
-    expect(record(rice.id).isDefaultVariant).toBe(false);
-  });
-
-  it("adds a pack size as a copy with its own size and price", async () => {
-    const rice = product("Basmati Rice 5 kg");
-    const { user } = renderProduct(rice.id);
-    await user.click(
-      await screen.findByRole("button", { name: "Add a pack size" }),
-    );
-    const dialog = await screen.findByRole("dialog");
-
-    // A size the article has already is refused before the API is asked.
-    await user.type(within(dialog).getByLabelText(/^Pack size/), "10");
-    await user.type(within(dialog).getByLabelText(/^Regular price/), "9.49");
-    await user.click(
-      within(dialog).getByRole("button", { name: "Create the draft" }),
-    );
-    expect(
-      await within(dialog).findByText(
-        "Basmati Rice has this pack size already.",
-      ),
+      screen.getByRole("heading", { level: 1, name: "Basmati Rice" }),
     ).toBeInTheDocument();
-    expect(writes()).toEqual([]);
-
-    await user.clear(within(dialog).getByLabelText(/^Pack size/));
-    await user.type(within(dialog).getByLabelText(/^Pack size/), "2");
-    await user.click(
-      within(dialog).getByRole("button", { name: "Create the draft" }),
-    );
-    await waitFor(() =>
-      expect(writes()).toEqual([
-        {
-          method: "POST",
-          path: `/v1/admin/products/${rice.id}/duplicate`,
-          body: {
-            packSize: { value: 2, unit: "kg" },
-            regularPrice: 949,
-            asVariant: true,
-            copyImages: true,
-          },
-        },
-      ]),
-    );
-    const copy = api.mock
-      .db()
-      .products.find(
-        (entry) =>
-          entry.name.en === "Basmati Rice" && entry.packSize.value === 2,
-      );
-    expect(copy).toMatchObject({
-      status: "draft",
-      variantGroupId: record(rice.id).variantGroupId,
-    });
   });
 
-  it("separates a pack size only after a confirmation", async () => {
-    const rice = product("Basmati Rice 5 kg");
-    const { user } = renderProduct(rice.id);
-    await user.click(await screen.findByRole("button", { name: "Separate" }));
-    const dialog = await screen.findByRole("alertdialog");
-    expect(
-      within(dialog).getByText("Stay linked").nextSibling,
-    ).toHaveTextContent("1 kg, 10 kg");
-    expect(writes()).toEqual([]);
+  it("adds a pack size with its opening stock through its own request, after the product", async () => {
+    const dal = product("Moong Dal");
+    const { user } = renderProduct(dal.id);
+    await waitFor(() => field("variants.0.regularPrice"));
+    await user.click(screen.getByRole("button", { name: "Add a pack size" }));
+    const rows = within(
+      screen.getByRole("list", { name: "Pack sizes" }),
+    ).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toHaveTextContent("Not saved yet");
+    // The unit follows the pack sizes the product has.
+    expect(field("variants.1.packSize.unit")).toHaveValue("kg");
 
-    await user.click(
-      within(dialog).getByRole("button", { name: "Separate 5 kg" }),
-    );
+    await user.type(field("variants.1.packSize.value"), "2");
+    await user.type(field("variants.1.regularPrice"), "8.49");
+    await user.clear(field("variants.1.stockQuantity"));
+    await user.type(field("variants.1.stockQuantity"), "30");
+    await user.clear(field("brand"));
+    await user.type(field("brand"), "Heera");
+    await user.click(saveButton());
+
     await waitFor(() =>
       expect(writes()).toEqual([
         {
           method: "PATCH",
-          path: `/v1/admin/products/${rice.id}`,
-          body: { variantOf: null },
+          path: `/v1/admin/products/${dal.id}`,
+          body: { brand: "Heera" },
+        },
+        {
+          method: "POST",
+          path: `/v1/admin/products/${dal.id}/variants`,
+          body: {
+            packSize: { value: 2, unit: "kg" },
+            regularPrice: 849,
+            stockQuantity: 30,
+          },
         },
       ]),
     );
-    expect(record(rice.id).variantGroupId).toBeNull();
+    const added = record(dal.id).variants.find(
+      (entry) => entry.packSize.value === 2,
+    );
+    expect(added).toMatchObject({ regularPrice: 849, isEnabled: true });
+    expect(added?.stock.quantity).toBe(30);
+    // The opening stock is the first line of its history, with the admin.
+    const opening = api.mock
+      .db()
+      .stockMovements.find((entry) => entry.variantId === added?.id);
+    expect(opening).toMatchObject({ reason: "restock", delta: 30 });
+    expect(opening?.adminId).not.toBeNull();
+    // The new row is a saved one now: it shows its article number.
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("list", { name: "Pack sizes" })).getAllByRole(
+          "listitem",
+        )[1],
+      ).toHaveTextContent(added?.sku ?? "-"),
+    );
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("refuses a second pack of the same size and a mixed unit family before asking the API", async () => {
+    const dal = product("Moong Dal");
+    const { user } = renderProduct(dal.id);
+    await waitFor(() => field("variants.0.regularPrice"));
+    await user.click(screen.getByRole("button", { name: "Add a pack size" }));
+    await user.type(field("variants.1.packSize.value"), "1000");
+    await user.selectOptions(field("variants.1.packSize.unit"), "g");
+    await user.type(field("variants.1.regularPrice"), "4.49");
+    await user.click(saveButton());
+    expect(
+      await screen.findByText("The same pack as row 1. Each pack only once."),
+    ).toBeInTheDocument();
+    expect(writes()).toEqual([]);
+
+    await user.selectOptions(field("variants.1.packSize.unit"), "ml");
+    await user.click(saveButton());
+    expect(
+      await screen.findByText(
+        /All pack sizes of a product are of one unit family/,
+      ),
+    ).toBeInTheDocument();
+    expect(writes()).toEqual([]);
+  });
+
+  it("removes a pack size only after a confirmation, and never the last one", async () => {
+    const rice = product("Basmati Rice");
+    const ten = size("Basmati Rice", "10 kg");
+    const view = renderProduct(rice.id);
+    const { user } = view;
+    await waitFor(() => field("variants.0.regularPrice"));
+    await user.click(
+      screen.getByRole("button", { name: "Remove the pack size 10 kg" }),
+    );
+    expect(
+      screen.getByText(/Removed for good when you save/),
+    ).toBeInTheDocument();
+    await user.click(saveButton());
+    const dialog = await screen.findByRole("alertdialog");
+    expect(
+      within(dialog).getByRole("heading", {
+        name: "Remove the pack size 10 kg?",
+      }),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("Stay").nextSibling).toHaveTextContent(
+      "1 kg, 5 kg",
+    );
+    expect(writes()).toEqual([]);
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "Save and remove 10 kg" }),
+    );
+    await waitFor(() =>
+      expect(writes()).toEqual([
+        {
+          method: "DELETE",
+          path: `/v1/admin/products/${rice.id}/variants/${ten.id}`,
+          body: undefined,
+        },
+      ]),
+    );
+    expect(
+      record(rice.id).variants.map((entry) => entry.packSize.label),
+    ).toEqual(["1 kg", "5 kg"]);
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("list", { name: "Pack sizes" })).getAllByRole(
+          "listitem",
+        ),
+      ).toHaveLength(2),
+    );
+
+    // A product with one pack size offers no removal: disable it instead.
+    view.unmount();
+    const dal = product("Moong Dal");
+    renderProduct(dal.id);
+    await waitFor(() => field("variants.0.regularPrice"));
+    expect(
+      screen.queryByRole("button", { name: /^Remove the pack size/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers to disable a pack size an order holds when the API refuses to remove it", async () => {
+    const rice = product("Basmati Rice");
+    const five = size("Basmati Rice", "5 kg");
+    putInAnOrder(rice.id, five.id);
+    const { user, unhandled } = renderProduct(rice.id);
+    await waitFor(() => field("variants.0.regularPrice"));
+    await user.click(
+      screen.getByRole("button", { name: "Remove the pack size 5 kg" }),
+    );
+    await user.click(saveButton());
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: "Save and remove 5 kg",
+      }),
+    );
+    expect(
+      await screen.findByText(
+        "The pack size is part of an order and cannot be removed. Disable it instead.",
+      ),
+    ).toBeInTheDocument();
+    expect(record(rice.id).variants).toHaveLength(3);
+    expect(unhandled).toHaveLength(0);
+
+    api.calls.length = 0;
+    await user.click(
+      screen.getByRole("button", { name: "Disable it instead" }),
+    );
+    await user.click(saveButton());
+    await waitFor(() =>
+      expect(writes()).toEqual([
+        {
+          method: "PATCH",
+          path: `/v1/admin/products/${rice.id}/variants/${five.id}`,
+          body: { isEnabled: false },
+        },
+      ]),
+    );
+    expect(
+      record(rice.id).variants.find((entry) => entry.id === five.id)?.isEnabled,
+    ).toBe(false);
+  });
+
+  it("changes two pack sizes in two requests and stops at the first refusal, keeping the rest", async () => {
+    const rice = product("Basmati Rice");
+    const one = size("Basmati Rice", "1 kg");
+    const five = size("Basmati Rice", "5 kg");
+    const taken = size("Moong Dal", "1 kg");
+    const { user } = renderProduct(rice.id);
+    const first = await waitFor(() => field("variants.0.regularPrice"));
+    await user.clear(first);
+    await user.type(first, "5.49");
+    await user.clear(field("variants.1.sku"));
+    await user.type(field("variants.1.sku"), taken.sku);
+    const third = field("variants.2.regularPrice");
+    await user.clear(third);
+    await user.type(third, "44.99");
+    await user.click(saveButton());
+
+    await waitFor(() =>
+      expect(writes()).toEqual([
+        {
+          method: "PATCH",
+          path: `/v1/admin/products/${rice.id}/variants/${one.id}`,
+          body: { regularPrice: 549 },
+        },
+        {
+          method: "PATCH",
+          path: `/v1/admin/products/${rice.id}/variants/${five.id}`,
+          body: { sku: taken.sku },
+        },
+      ]),
+    );
+    // The first went through, the second was refused, the third was not sent.
+    expect(
+      await screen.findByText(/Saved: the pack size 1 kg\. Not saved: 5 kg\./),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/1 further change was not sent/),
+    ).toBeInTheDocument();
+    expect(field("variants.0.regularPrice")).toHaveValue("5.49");
+    expect(field("variants.2.regularPrice")).toHaveValue("44.99");
+    expect(
+      record(rice.id).variants.find((entry) => entry.id === one.id)
+        ?.regularPrice,
+    ).toBe(549);
+    expect(
+      record(rice.id).variants.find((entry) => entry.id === five.id)?.sku,
+    ).toBe(five.sku);
   });
 });
 
@@ -649,9 +844,9 @@ describe("the pictures of a product", () => {
   }
 
   it("checks the files before anything is sent and names each one it refuses", async () => {
-    const rice = product("Basmati Rice 5 kg");
+    const rice = product("Basmati Rice");
     renderPanel(<Pictures id={rice.id} />);
-    await screen.findByRole("list", { name: "Pictures of Basmati Rice 5 kg" });
+    await screen.findByRole("list", { name: "Pictures of Basmati Rice" });
 
     drop([
       picture("ok.jpg"),
@@ -676,7 +871,7 @@ describe("the pictures of a product", () => {
   });
 
   it("says how many pictures still fit", async () => {
-    const rice = product("Basmati Rice 5 kg");
+    const rice = product("Basmati Rice");
     const stored = record(rice.id);
     const first = stored.images[0];
     if (!first) throw new Error("The demo product has no picture");
@@ -686,7 +881,7 @@ describe("the pictures of a product", () => {
       isPrimary: index === 0,
     }));
     renderPanel(<Pictures id={rice.id} />);
-    await screen.findByRole("list", { name: "Pictures of Basmati Rice 5 kg" });
+    await screen.findByRole("list", { name: "Pictures of Basmati Rice" });
 
     drop([picture("a.jpg"), picture("b.jpg"), picture("c.jpg")]);
     const alert = await screen.findByRole("alert");
@@ -697,7 +892,7 @@ describe("the pictures of a product", () => {
   });
 
   it("says that an upload is stored as a whole or not at all", async () => {
-    const rice = product("Basmati Rice 5 kg");
+    const rice = product("Basmati Rice");
     renderPanel(<Pictures id={rice.id} />);
     expect(
       await screen.findByText(
@@ -707,7 +902,7 @@ describe("the pictures of a product", () => {
   });
 
   it("moves a picture with the menu and sends every id in the new order", async () => {
-    const rice = product("Basmati Rice 1 kg");
+    const rice = product("Basmati Rice");
     const before = record(rice.id).images.map((image) => image.id);
     expect(before).toHaveLength(2);
     const { user } = renderPanel(<Pictures id={rice.id} />);
@@ -738,7 +933,7 @@ describe("the pictures of a product", () => {
   });
 
   it("loads the product again when the pictures changed in the meantime", async () => {
-    const rice = product("Basmati Rice 1 kg");
+    const rice = product("Basmati Rice");
     const { user, unhandled } = renderPanel(<Pictures id={rice.id} />);
     await screen.findByRole("button", { name: "Actions for picture 2" });
     // Someone else deletes a picture: the order this page knows is stale.
@@ -766,7 +961,7 @@ describe("the pictures of a product", () => {
   });
 
   it("deletes a picture only after a confirmation", async () => {
-    const rice = product("Basmati Rice 1 kg");
+    const rice = product("Basmati Rice");
     const [main, second] = record(rice.id).images;
     const { user } = renderPanel(<Pictures id={rice.id} />);
     await user.click(
@@ -797,7 +992,7 @@ describe("the pictures of a product", () => {
   });
 
   it("makes another picture the main one", async () => {
-    const rice = product("Basmati Rice 1 kg");
+    const rice = product("Basmati Rice");
     const second = record(rice.id).images[1];
     const { user } = renderPanel(<Pictures id={rice.id} />);
     await user.click(
@@ -818,7 +1013,7 @@ describe("the pictures of a product", () => {
   });
 
   it("marks a missing description and saves both languages, clearing an emptied one", async () => {
-    const rice = product("Basmati Rice 1 kg");
+    const rice = product("Basmati Rice");
     const [first, second] = record(rice.id).images;
     const { user } = renderPanel(<Pictures id={rice.id} />);
     // The second picture of the demo data has no German description.
@@ -1216,7 +1411,7 @@ describe("the product a page is opened for", () => {
   });
 
   it("offers the shop only for an active product", async () => {
-    const dal = product("Toor Dal 1 kg");
+    const dal = product("Toor Dal");
     const detail = (
       await api.request<{ product: ProductDetail }>(
         "GET",
@@ -1232,8 +1427,8 @@ describe("the product a page is opened for", () => {
     );
     view.unmount();
 
-    renderProduct(product("Paneer 400 g").id);
-    await screen.findByLabelText(/^Regular price/);
+    renderProduct(product("Paneer").id);
+    await waitFor(() => field("variants.0.regularPrice"));
     expect(
       screen.queryByRole("link", { name: /Open in the shop/ }),
     ).not.toBeInTheDocument();
@@ -1338,15 +1533,15 @@ describe("creating a product with pictures", () => {
 
   async function fillNewProduct(user: ReturnType<typeof renderPanel>["user"]) {
     await screen.findByText("Create product", { selector: "button" });
-    await user.type(field("name.en"), "Moong Dal");
+    await user.type(field("name.en"), "Horse Gram");
     const select = document.querySelector<HTMLSelectElement>(
       '[name="categoryId"]',
     );
     const option = select?.options[1];
     if (!select || !option) throw new Error("No category to choose");
     await user.selectOptions(select, option.value);
-    await user.type(field("packSize.value"), "500");
-    await user.type(field("regularPrice"), "3.49");
+    await user.type(field("variants.0.packSize.value"), "500");
+    await user.type(field("variants.0.regularPrice"), "3.49");
     await user.type(field("vatRate"), "7");
   }
 
@@ -1388,7 +1583,7 @@ describe("creating a product with pictures", () => {
     expect(record(id).images[0]?.isPrimary).toBe(true);
     expect(
       await screen.findByText(
-        "2 pictures stored. It is a draft: set it active when it is ready.",
+        "2 pictures stored. 1 pack size. It is a draft: set it active when it is ready.",
       ),
     ).toBeInTheDocument();
   });

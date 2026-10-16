@@ -90,10 +90,10 @@ export function useOrderActions(id: Id) {
     }),
     adjustItem: useMutation({
       mutationFn: ({
-        productId,
+        variantId,
         ...input
-      }: OrderItemAdjustmentInput & { productId: Id }) =>
-        api.orders.adjustItem(id, productId, input),
+      }: OrderItemAdjustmentInput & { variantId: Id }) =>
+        api.orders.adjustItem(id, variantId, input),
       // A correction issues a credit note and gives units back to the stock.
       meta: payment,
     }),

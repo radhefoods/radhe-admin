@@ -15,6 +15,7 @@ import { useProductChoices } from "./queries";
 export interface PickedProduct {
   id: Id;
   name: string;
+  /** The article number of the pack size shown in the shop, or the count of them. */
   sku: string;
 }
 
@@ -106,7 +107,10 @@ export function ProductPicker({
                     onChange({
                       id: product.id,
                       name: translated(product.name),
-                      sku: product.sku,
+                      sku:
+                        product.variantCount > 1
+                          ? `${product.variantCount} pack sizes`
+                          : product.defaultVariant.sku,
                     });
                     setOpen(false);
                     setText("");
@@ -118,7 +122,11 @@ export function ProductPicker({
                       {translated(product.name)}
                     </span>
                     <span className="truncate text-13 text-ink-muted tabular">
-                      {product.sku} · {product.packSize.label}
+                      {product.variants
+                        .map(
+                          (entry) => `${entry.sku} · ${entry.packSize.label}`,
+                        )
+                        .join(", ")}
                     </span>
                   </span>
                 </Command.Item>

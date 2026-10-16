@@ -357,10 +357,11 @@ describe("correcting what was delivered", () => {
     if (!item) throw new Error("no item");
     const before = order.finalTotals.total;
     const invoices = api.mock.db().invoices.length;
-    const product = api.mock
+    const variant = api.mock
       .db()
-      .products.find((entry) => entry.id === item.productId);
-    const stockBefore = product?.stock.quantity ?? 0;
+      .products.find((entry) => entry.id === item.productId)
+      ?.variants.find((entry) => entry.id === item.variantId);
+    const stockBefore = variant?.stock.quantity ?? 0;
     const { user } = await open(order);
 
     await user.click(
@@ -393,7 +394,7 @@ describe("correcting what was delivered", () => {
       expect(changes()).toEqual([
         {
           method: "PATCH",
-          path: `/v1/admin/orders/${order.id}/items/${item.productId}`,
+          path: `/v1/admin/orders/${order.id}/items/${item.variantId}`,
           body: { deliveredQuantity: item.quantity - 1, reason: "damaged" },
         },
       ]),
@@ -403,7 +404,7 @@ describe("correcting what was delivered", () => {
     expect(after.totals.total).toBe(order.totals.total);
     expect(api.mock.db().invoices).toHaveLength(invoices + 1);
     expect(after.payment.creditedAmount).toBe(item.unitPrice);
-    expect(product?.stock.quantity).toBe(stockBefore + 1);
+    expect(variant?.stock.quantity).toBe(stockBefore + 1);
     // The credited money waits for a refund.
     expect(
       await screen.findByText(
@@ -444,8 +445,10 @@ describe("correcting what was delivered", () => {
       returned = 0,
     ) => ({
       productId,
+      variantId: `${productId}-1kg`,
       sku: productId,
       name: { en: productId },
+      displayName: `${productId} (1 kg)`,
       packSize: { value: 1, unit: "kg" as const, label: "1 kg" },
       imageUrl: null,
       quantity,

@@ -31,8 +31,10 @@ export type ReturnReason =
   | "changed_mind"
   | "other";
 
+/** Per pack size of the order: `variantId` is the key of the approve body. */
 export interface ReturnItem {
   productId: Id;
+  variantId: Id;
   sku: string;
   name: Translated;
   packSize: PackSize;
@@ -96,8 +98,8 @@ export interface ReturnQuery extends CursorQuery {
 }
 
 export interface ReturnApproveInput {
-  /** Leave out to accept the requested quantities; `0` declines a product. */
-  items?: { productId: Id; quantity: number }[];
+  /** Leave out to accept the requested quantities; `0` declines a pack size. */
+  items?: { variantId: Id; quantity: number }[];
   /** To the customer. */
   note?: string;
   internalNote?: string;

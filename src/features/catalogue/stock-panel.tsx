@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { RadioGroup, RadioItem } from "@/components/ui/controls";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import {
   Alert,
   Card,
@@ -21,7 +21,11 @@ import {
 import { notify } from "@/components/ui/toast";
 import { Labelled, NoteField } from "@/features/orders/order-dialogs";
 import { errorMessage } from "@/lib/api/error-text";
-import type { ProductDetail, StockMovement } from "@/lib/api/types";
+import type {
+  ProductDetail,
+  ProductVariant,
+  StockMovement,
+} from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
 import { cn } from "@/lib/cn";
 import { plural, translated } from "@/lib/format/names";
@@ -38,26 +42,28 @@ import {
 } from "./stock";
 
 /**
- * One dialog, two modes (8): the counted number after a stock-take, or
- * units that came in or went out. The numbers before and after are
- * restated before anything is sent.
+ * One dialog, two modes (8): the counted number of a pack size after a
+ * stock-take, or units that came in or went out. The numbers before and
+ * after are restated before anything is sent.
  */
-function StockDialog({
+export function StockDialog({
   product,
+  variant,
   open,
   onOpenChange,
 }: {
   product: ProductDetail;
+  variant: ProductVariant;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   const [mode, setMode] = useState<StockMode>("set");
   const [value, setValue] = useState("");
   const [note, setNote] = useState("");
-  const change = useChangeStock(product.id);
+  const change = useChangeStock(product.id, variant.id);
   const groupId = useId();
-  const reading = readStockChange({ mode, value, note }, product.stock);
-  const name = `${translated(product.name)} ${product.packSize.label}`;
+  const reading = readStockChange({ mode, value, note }, variant.stock);
+  const name = `${translated(product.name)} ${variant.packSize.label}`;
 
   return (
     <ConfirmDialog
@@ -71,11 +77,11 @@ function StockDialog({
         onOpenChange(next);
       }}
       title={`Change the stock of ${name}`}
-      description="The count is what the shop sells: a product at 0 is sold out. Every change is kept in the stock history with your name."
+      description="The count is what the shop sells of this pack size: at 0 it is sold out, the other pack sizes stay on sale. Every change is kept in its stock history with your name."
       facts={[
         {
           label: "In stock now",
-          value: plural(product.stock.quantity, "unit"),
+          value: plural(variant.stock.quantity, "unit"),
         },
         {
           label: "Change",
@@ -107,8 +113,11 @@ function StockDialog({
       onConfirm={async () => {
         if (!reading.body) return;
         const result = await change.mutateAsync(reading.body);
+        const after =
+          result.product.variants.find((entry) => entry.id === variant.id)
+            ?.stock.quantity ?? reading.after;
         notify.success(
-          `Stock of ${product.sku} is now ${result.product.stock.quantity}`,
+          `Stock of ${variant.sku} is now ${after}`,
           result.movement
             ? `${formatDelta(result.movement.delta)} units, recorded in the history.`
             : "Nothing changed: the count was the same already.",
@@ -229,9 +238,47 @@ function MovementRow({ movement }: { movement: StockMovement }) {
 }
 
 /**
- * The stock of a product (8): the count, the threshold, the state, one
- * dialog to change the count, and the ledger of every change, newest first.
- * The count itself never changes through the form; the threshold does.
+ * The pack size a panel of the aside shows: a select when the product has
+ * several, pre-set to the one that stands for the product.
+ */
+export function usePackSizeChoice(product: ProductDetail): {
+  variant: ProductVariant;
+  chooser: React.ReactNode;
+} {
+  const [variantId, setVariantId] = useState(product.defaultVariant.id);
+  const id = useId();
+  // A pack size that was removed meanwhile falls back to the default one.
+  const variant =
+    product.variants.find((entry) => entry.id === variantId) ??
+    product.defaultVariant;
+  const chooser =
+    product.variants.length > 1 ? (
+      <div className="flex items-center gap-2">
+        <label htmlFor={id} className="text-13 font-medium text-ink">
+          Pack size
+        </label>
+        <Select
+          id={id}
+          value={variant.id}
+          onChange={(event) => setVariantId(event.target.value)}
+          className="w-auto min-w-36"
+        >
+          {product.variants.map((entry) => (
+            <option key={entry.id} value={entry.id}>
+              {entry.packSize.label} · {entry.sku}
+            </option>
+          ))}
+        </Select>
+      </div>
+    ) : null;
+  return { variant, chooser };
+}
+
+/**
+ * The stock of a product (8): one pack size at a time, with its count, its
+ * threshold, its state, one dialog to change the count, and the ledger of
+ * every change, newest first. The count itself never changes through the
+ * form; the threshold does.
  */
 export function StockPanel({
   product,
@@ -243,16 +290,22 @@ export function StockPanel({
 }) {
   const can = useCan();
   const [changing, setChanging] = useState(false);
-  const movements = useStockMovements(product.id, !paused);
+  const { variant, chooser } = usePackSizeChoice(product);
+  const movements = useStockMovements(product.id, variant.id, !paused);
   const rows = movements.data?.pages.flatMap((page) => page.items);
-  const state = stockState(product.stock);
-  const { stock } = product;
+  const state = stockState(variant.stock);
+  const { stock } = variant;
+  const several = product.variants.length > 1;
 
   return (
     <Card id="stock" aria-label="Stock" className="scroll-mt-20">
       <CardHeader
         title="Stock"
-        description="What is on the shelf is what the shop sells. Nothing is reserved before a payment."
+        description={
+          several
+            ? `What is on the shelf of each pack size is what the shop sells of it. ${product.stock.quantity} units over ${product.variants.length} pack sizes; nothing is reserved before a payment.`
+            : "What is on the shelf is what the shop sells. Nothing is reserved before a payment."
+        }
         actions={
           <ActionButton
             permission="catalog.manage"
@@ -265,8 +318,11 @@ export function StockPanel({
         }
       />
       <CardBody className="flex flex-col gap-4">
+        {chooser}
         <dl className="grid grid-cols-2 gap-4">
-          <Fact label="In stock">
+          <Fact
+            label={several ? `In stock, ${variant.packSize.label}` : "In stock"}
+          >
             <span className="flex flex-wrap items-center gap-2">
               <span
                 className={cn(
@@ -286,7 +342,7 @@ export function StockPanel({
               <>
                 <span className="tabular">{stock.lowStockThreshold}</span>
                 <span className="block text-13 text-ink-subtle">
-                  Warned at or below it. Set in the form.
+                  Warned at or below it. Set in the pack-size table.
                 </span>
               </>
             )}
@@ -294,13 +350,15 @@ export function StockPanel({
         </dl>
         {stock.quantity === 0 ? (
           <Alert tone="info" title="Sold out in the shop">
-            Customers see the product but cannot order it until units are added.
+            {several
+              ? "Customers cannot order this pack size until units are added. The other pack sizes stay on sale."
+              : "Customers see the product but cannot order it until units are added."}
           </Alert>
         ) : null}
 
         <div className="flex flex-col gap-3 border-t border-line pt-4">
           <h3 className="text-xs font-semibold text-ink-muted">
-            Stock history
+            Stock history{several ? ` of ${variant.packSize.label}` : ""}
           </h3>
           {movements.isPending ? (
             <div
@@ -352,6 +410,7 @@ export function StockPanel({
       {can("catalog.manage") ? (
         <StockDialog
           product={product}
+          variant={variant}
           open={changing}
           onOpenChange={setChanging}
         />

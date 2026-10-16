@@ -386,7 +386,7 @@ export function billAfterCorrection(
   const goods = order.items.reduce(
     (sum, entry) =>
       sum +
-      (entry.productId === item.productId ? lineTotal : entry.finalLineTotal),
+      (entry.variantId === item.variantId ? lineTotal : entry.finalLineTotal),
     0,
   );
   // The agreed delivery fee stays, and is 0 only when nothing was kept.
@@ -394,7 +394,7 @@ export function billAfterCorrection(
   return { lineTotal, total, difference: total - order.finalTotals.total };
 }
 
-/** Corrects how many units of a product were really delivered. */
+/** Corrects how many units of a pack size were really delivered. */
 export function OrderItemDialog({
   order,
   item,
@@ -417,7 +417,7 @@ export function OrderItemDialog({
     delivered >= item.returnedQuantity && delivered <= item.quantity;
   const changes = inRange && delivered !== item.deliveredQuantity;
   const after = inRange ? billAfterCorrection(order, item, delivered) : null;
-  const name = `${translated(item.name)} ${item.packSize.label}`;
+  const name = item.displayName;
 
   return (
     <ConfirmDialog
@@ -459,7 +459,7 @@ export function OrderItemDialog({
       onConfirm={async () => {
         if (reason === "") return;
         await actions.adjustItem.mutateAsync({
-          productId: item.productId,
+          variantId: item.variantId,
           deliveredQuantity: delivered,
           reason,
           note: note.trim() || undefined,

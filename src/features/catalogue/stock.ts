@@ -1,12 +1,13 @@
 import type {
   ProductStock,
+  ProductStockOverview,
   StockChangeInput,
   StockMovementReason,
 } from "@/lib/api/types";
 
-// The stock of a product (documentation, 8): what the dialog sends to
-// `POST /products/{id}/stock`, the numbers it restates before the admin
-// confirms, and the words of the ledger.
+// The stock of a pack size (documentation, 8): what the dialog sends to
+// `POST …/variants/{variantId}/stock`, the numbers it restates before the
+// admin confirms, and the words of the ledger.
 
 export const STOCK_MAX = 1_000_000;
 export const STOCK_NOTE_MAX = 500;
@@ -103,11 +104,31 @@ export function formatDelta(delta: number): string {
   return delta > 0 ? `+${delta}` : delta < 0 ? `−${-delta}` : "0";
 }
 
-/** The state of a stock in a word, or nothing while all is well. */
+/** The state of the stock of one pack size in a word, or nothing while all is well. */
 export function stockState(
   stock: ProductStock,
 ): { label: string; tone: "attention" | "danger" } | null {
   if (stock.quantity === 0) return { label: "Sold out", tone: "danger" };
   if (stock.isLow) return { label: "Low stock", tone: "attention" };
+  return null;
+}
+
+/**
+ * The state of a product over its pack sizes (8.1): sold out when nothing
+ * is on the shelf at all, else how many pack sizes run low.
+ */
+export function overviewState(
+  stock: ProductStockOverview,
+): { label: string; tone: "attention" | "danger" } | null {
+  if (stock.quantity === 0) return { label: "Sold out", tone: "danger" };
+  if (stock.isLow) {
+    return {
+      label:
+        stock.lowVariants === 1
+          ? "Low stock"
+          : `${stock.lowVariants} sizes low`,
+      tone: "attention",
+    };
+  }
   return null;
 }

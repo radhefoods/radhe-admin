@@ -7,7 +7,6 @@ import type {
   CategoryInput,
   CategoryOrderInput,
   CursorResult,
-  DuplicateProductInput,
   ExportResult,
   Id,
   ImportBody,
@@ -27,6 +26,8 @@ import type {
   StockMovement,
   StockMovementQuery,
   TranslatedOptional,
+  VariantInput,
+  VariantPatch,
 } from "../types";
 
 type Progress = (fraction: number) => void;
@@ -100,35 +101,47 @@ export function productsApi({ request, upload }: SessionTransport) {
         body: input,
       }),
     remove: (id: Id) => request<void>(`${base}/${id}`, { method: "DELETE" }),
-    duplicate: (id: Id, input: DuplicateProductInput) =>
-      request<{ product: ProductDetail }>(`${base}/${id}/duplicate`, {
+    /** Adds a pack size (8); the answer is the whole product. */
+    addVariant: (id: Id, input: VariantInput) =>
+      request<{ product: ProductDetail }>(`${base}/${id}/variants`, {
         method: "POST",
         body: input,
       }),
-    makeDefault: (id: Id) =>
-      request<{ product: ProductDetail }>(`${base}/${id}/make-default`, {
-        method: "POST",
-      }),
-    priceHistory: (id: Id, signal?: AbortSignal) =>
-      request<ListResult<PriceChange>>(`${base}/${id}/price-history`, {
-        signal,
-      }),
-    /** Sets the counted number, or adds or removes units (8). */
-    changeStock: (id: Id, input: StockChangeInput) =>
-      request<StockChangeResult>(`${base}/${id}/stock`, {
+    /** Changes a pack size; send only what changes (8). */
+    updateVariant: (id: Id, variantId: Id, input: VariantPatch) =>
+      request<{ product: ProductDetail }>(
+        `${base}/${id}/variants/${variantId}`,
+        { method: "PATCH", body: input },
+      ),
+    /** Removes a pack size for good: not the last one, not one an order holds (8). */
+    removeVariant: (id: Id, variantId: Id) =>
+      request<{ product: ProductDetail }>(
+        `${base}/${id}/variants/${variantId}`,
+        { method: "DELETE" },
+      ),
+    /** The prices one pack size had, newest first (8). */
+    priceHistory: (id: Id, variantId: Id, signal?: AbortSignal) =>
+      request<ListResult<PriceChange>>(
+        `${base}/${id}/variants/${variantId}/price-history`,
+        { signal },
+      ),
+    /** Sets the counted number of a pack size, or adds or removes units (8). */
+    changeStock: (id: Id, variantId: Id, input: StockChangeInput) =>
+      request<StockChangeResult>(`${base}/${id}/variants/${variantId}/stock`, {
         method: "POST",
         body: input,
       }),
-    /** The stock history, newest first, cursor paged (8). */
+    /** The stock history of a pack size, newest first, cursor paged (8). */
     stockMovements: (
       id: Id,
+      variantId: Id,
       query: StockMovementQuery = {},
       signal?: AbortSignal,
     ) =>
-      request<CursorResult<StockMovement>>(`${base}/${id}/stock/movements`, {
-        query: query as Query,
-        signal,
-      }),
+      request<CursorResult<StockMovement>>(
+        `${base}/${id}/variants/${variantId}/stock/movements`,
+        { query: query as Query, signal },
+      ),
     /** All-or-nothing: if one file is refused, nothing is stored. */
     uploadImages: (
       id: Id,

@@ -81,9 +81,16 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
     "The sale price must be below the regular price, and a sale is given either as a price or as a percentage.",
   PRODUCT_QUANTITY_INVALID:
     "The largest order quantity must not be below the smallest.",
-  PRODUCT_VARIANT_INVALID: "These pack sizes cannot be linked this way.",
+  PRODUCT_VARIANT_INVALID:
+    "The pack sizes of a product are all of one unit family (weight, volume or pieces), no pack appears twice, and there are 20 at most.",
+  PRODUCT_VARIANT_NOT_FOUND: "This pack size does not exist (any more).",
+  PRODUCT_VARIANT_LAST:
+    "A product needs at least one pack size. Disable it, or delete the product.",
+  PRODUCT_VARIANT_IN_USE:
+    "The pack size is part of an order and cannot be removed. Disable it instead.",
   PRODUCT_SKU_TAKEN: "Another product already has this article number (SKU).",
-  PRODUCT_SLUG_TAKEN: "Another product already uses this address (slug).",
+  PRODUCT_SLUG_TAKEN:
+    "Another product already uses this address (slug), or the address of one of the pack sizes.",
   PRODUCT_IS_ACTIVE: "Archive the product before deleting it.",
   PRODUCT_IN_USE:
     "The product is part of an order and cannot be deleted. Archive it instead.",
@@ -104,7 +111,7 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
     "The picture storage is not available at the moment. Try again shortly.",
   // orders
   ORDER_NOT_FOUND: "This order does not exist.",
-  ORDER_ITEM_NOT_FOUND: "The order does not contain this product.",
+  ORDER_ITEM_NOT_FOUND: "The order has no such pack size.",
   ORDER_QUANTITY_INVALID: "The quantity is outside of what is possible.",
   ORDER_TRANSITION_NOT_ALLOWED:
     "The order cannot take this step from where it is now.",

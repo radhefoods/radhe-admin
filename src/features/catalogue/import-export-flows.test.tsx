@@ -128,29 +128,65 @@ describe("importing a spreadsheet", () => {
     const dialog = await screen.findByRole("alertdialog");
     await user.click(within(dialog).getByRole("button", { name: "Import" }));
     await screen.findByRole("region", { name: "Products: result" });
-    const moong = db.products.find((entry) => entry.sku === "RF-SPROUT-1");
+    const moong = db.products.find((entry) =>
+      entry.variants.some((variant) => variant.sku === "RF-SPROUT-1"),
+    );
     expect(moong?.categoryId).toBe(category.id);
-    expect(moong?.regularPrice).toBe(349);
+    expect(moong?.variants[0]?.regularPrice).toBe(349);
     expect(moong?.vatRate).toBe(700);
     expect(moong?.status).toBe("active");
-    expect(db.products.some((entry) => entry.sku === "RF-SPROUT-BAD")).toBe(
-      false,
+    expect(
+      db.products.some((entry) =>
+        entry.variants.some((variant) => variant.sku === "RF-SPROUT-BAD"),
+      ),
+    ).toBe(false);
+  });
+
+  it("makes one product of the rows that share a slug, each row a pack size", async () => {
+    const db = api.mock.db();
+    const category = db.categories[0]!;
+    const { user } = open("products");
+    await user.upload(
+      fileInput(),
+      csv("products.csv", [
+        "sku,name_en,slug_en,category_slug,pack_value,pack_unit,regular_price,vat_rate,stock_quantity",
+        `RF-JAG-1,Jaggery,jaggery,${category.slug.en},500,g,2.49,7,20`,
+        `RF-JAG-5,,jaggery,,1,kg,4.49,,8`,
+      ]),
     );
+    const preview = await screen.findByRole("region", {
+      name: "Products: preview",
+    });
+    expect(preview).toHaveTextContent("Create 2");
+    expect(preview).toHaveTextContent("adds a pack size to the product");
+    await user.click(screen.getByRole("button", { name: /^Import: create 2/ }));
+    const dialog = await screen.findByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: "Import" }));
+    await screen.findByRole("region", { name: "Products: result" });
+    const jaggery = db.products.find((entry) => entry.slug.en === "jaggery");
+    expect(jaggery?.variants.map((variant) => variant.sku)).toEqual([
+      "RF-JAG-1",
+      "RF-JAG-5",
+    ]);
+    expect(jaggery?.variants.map((variant) => variant.stock.quantity)).toEqual([
+      20, 8,
+    ]);
   });
 
   it("says where an import stopped, that the rows before are written, and that importing again is safe", async () => {
     const db = api.mock.db();
     const category = db.categories[0]!;
     const { user } = open("products");
-    // Two different SKUs would get the same slug: the second fails while
-    // writing, which the preview cannot see.
+    // The base slug of the second product is the URL of the first one's
+    // pack size: it fails while writing, which the preview cannot see for
+    // products that do not exist yet.
     await user.upload(
       fileInput(),
       csv("products.csv", [
-        "sku,name_en,category_slug,pack_value,pack_unit,regular_price,vat_rate",
-        `RF-TWIN-1,Twin Dal,${category.slug.en},1,kg,3.00,7`,
-        `RF-TWIN-2,Twin Dal,${category.slug.en},1,kg,3.50,7`,
-        `RF-AFTER-1,Later Dal,${category.slug.en},1,kg,4.00,7`,
+        "sku,name_en,slug_en,category_slug,pack_value,pack_unit,regular_price,vat_rate",
+        `RF-TWIN-1,Twin Dal,twin-dal,${category.slug.en},1,kg,3.00,7`,
+        `RF-TWIN-2,Twin Dal Kilo,twin-dal-1kg,${category.slug.en},500,g,3.50,7`,
+        `RF-AFTER-1,Later Dal,later-dal,${category.slug.en},1,kg,4.00,7`,
       ]),
     );
     await screen.findByRole("region", { name: "Products: preview" });
@@ -164,11 +200,17 @@ describe("importing a spreadsheet", () => {
     expect(stopped.closest("[role='alert']")).toHaveTextContent(
       /import it again/,
     );
-    expect(db.products.some((entry) => entry.sku === "RF-TWIN-1")).toBe(true);
-    expect(db.products.some((entry) => entry.sku === "RF-TWIN-2")).toBe(false);
-    expect(db.products.some((entry) => entry.sku === "RF-AFTER-1")).toBe(false);
+    const has = (sku: string) =>
+      db.products.some((entry) =>
+        entry.variants.some((variant) => variant.sku === sku),
+      );
+    expect(has("RF-TWIN-1")).toBe(true);
+    expect(has("RF-TWIN-2")).toBe(false);
+    expect(has("RF-AFTER-1")).toBe(false);
     const result = screen.getByRole("region", { name: "Products: result" });
-    expect(result).toHaveTextContent("Another product uses this slug.");
+    expect(result).toHaveTextContent(
+      "Another product uses this slug, or the URL of one of its pack sizes.",
+    );
     expect(result).toHaveTextContent(
       "Not written: the import stopped earlier.",
     );

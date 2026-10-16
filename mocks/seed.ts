@@ -20,6 +20,7 @@ import type {
   MockConfig,
   OrderRecord,
   ProductRecord,
+  VariantRecord,
 } from "./db.ts";
 import { emptyDb } from "./db.ts";
 import {
@@ -756,102 +757,111 @@ export function seed(options: SeedOptions): Db {
   for (const item of PRODUCTS) {
     const category = categoryByName.get(item.category);
     if (!category) continue;
-    const groupId = item.packs.length > 1 ? newId(long) : null;
+    // One product with its pack sizes (8): the texts and pictures are the
+    // product's, each pack size has its own article number, price and stock.
+    db.counters.sku += 1;
+    const at = long + db.counters.sku * 3600_000;
+    const status = item.status ?? "active";
+    const id = newId(at);
+    const images = Array.from({ length: 2 }, (_, imageIndex) => ({
+      ...placeholderImage(
+        options.publicUrl,
+        newId(at + imageIndex + 1),
+        item.name[0],
+        item.hue + imageIndex * 14,
+        iso(at),
+        { en: item.name[0], de: imageIndex === 0 ? item.name[1] : null },
+      ),
+      isPrimary: imageIndex === 0,
+    }));
+    const product: ProductRecord = {
+      id,
+      name: { en: item.name[0], de: item.name[1] },
+      slug: { en: slugify(item.name[0]), de: slugify(item.name[1]) },
+      brand: item.brand,
+      vatRate: 700,
+      status,
+      isAvailable: item.available ?? true,
+      isFeatured: rng.chance(0.15),
+      sortOrder: 0,
+      subtitle: null,
+      shortDescription: {
+        en: `${item.name[0]} in ${item.packs.length > 1 ? "several pack sizes" : "one pack size"}.`,
+        de: `${item.name[1]} in ${item.packs.length > 1 ? "mehreren Packungsgrößen" : "einer Packungsgröße"}.`,
+      },
+      description: {
+        en: `${item.name[0]}${item.brand ? ` by ${item.brand}` : ""}. A staple of the Indian kitchen, in stock and delivered anywhere in Germany.`,
+        de: rng.chance(0.75)
+          ? `${item.name[1]}${item.brand ? ` von ${item.brand}` : ""}. Ein Grundnahrungsmittel der indischen Küche.`
+          : null,
+      },
+      highlights: {
+        en: ["Authentic quality", "Imported from India"],
+        de: ["Authentische Qualität"],
+      },
+      uses: { en: [], de: [] },
+      categoryId: category.id,
+      minOrderQuantity: 1,
+      maxOrderQuantity: item.storage === "chilled" ? 4 : null,
+      storageType: item.storage ?? "ambient",
+      variants: [],
+      food: {
+        ingredients: item.ingredients
+          ? { en: item.ingredients[0], de: item.ingredients[1] }
+          : null,
+        allergens: null,
+        nutrition: null,
+        storageInstructions: {
+          en: "Store cool and dry.",
+          de: "Kühl und trocken lagern.",
+        },
+        origin: item.origin ?? "India",
+        manufacturer: null,
+      },
+      tags: item.packs.some((pack) => pack[3]) ? ["offer"] : [],
+      searchKeywords: [item.name[1]],
+      seo: null,
+      images,
+      publishedAt: status === "draft" ? null : iso(at + HOUR),
+      createdAt: iso(at),
+      updatedAt: iso(at + HOUR),
+    };
+    db.products.push(product);
     item.packs.forEach(([value, unit, regularPrice, salePrice], index) => {
-      db.counters.sku += 1;
-      const at = long + db.counters.sku * 3600_000;
-      const label = packLabel(value, unit);
-      const status = item.status ?? "active";
-      const id = newId(at);
-      const images = Array.from(
-        { length: index === 0 ? 2 : 1 },
-        (_, imageIndex) => ({
-          ...placeholderImage(
-            options.publicUrl,
-            newId(at + imageIndex + 1),
-            item.name[0],
-            item.hue + imageIndex * 14,
-            iso(at),
-            { en: item.name[0], de: imageIndex === 0 ? item.name[1] : null },
-          ),
-          isPrimary: imageIndex === 0,
-        }),
-      );
-      const product: ProductRecord = {
-        id,
-        sku: `RF-${String(db.counters.sku).padStart(5, "0")}`,
+      if (index > 0) db.counters.sku += 1;
+      const sku = `RF-${String(db.counters.sku).padStart(5, "0")}`;
+      const variant: VariantRecord = {
+        id: newId(at + index + 10),
+        sku,
         gtin: rng.chance(0.6)
           ? `890${String(1000000000 + db.counters.sku * 7919).slice(0, 10)}`
           : null,
-        name: { en: item.name[0], de: item.name[1] },
-        slug: {
-          en: slugify(`${item.name[0]} ${label}`),
-          de: slugify(`${item.name[1]} ${label}`),
-        },
-        brand: item.brand,
-        packSize: { value, unit, label },
+        packSize: { value, unit, label: packLabel(value, unit) },
         regularPrice,
         salePrice: salePrice ?? null,
-        vatRate: 700,
-        status,
-        isAvailable: item.available ?? true,
-        isFeatured: rng.chance(0.15),
-        sortOrder: 0,
-        variantGroupId: groupId,
-        isDefaultVariant: groupId
-          ? index === Math.min(1, item.packs.length - 1)
-          : true,
-        subtitle: null,
-        shortDescription: {
-          en: `${item.name[0]} in a ${label} pack.`,
-          de: `${item.name[1]} in der ${label}-Packung.`,
-        },
-        description: {
-          en: `${item.name[0]}${item.brand ? ` by ${item.brand}` : ""}. A staple of the Indian kitchen, in stock and delivered anywhere in Germany.`,
-          de: rng.chance(0.75)
-            ? `${item.name[1]}${item.brand ? ` von ${item.brand}` : ""}. Ein Grundnahrungsmittel der indischen Küche.`
-            : null,
-        },
-        highlights: {
-          en: ["Authentic quality", "Imported from India"],
-          de: ["Authentische Qualität"],
-        },
-        uses: { en: [], de: [] },
-        categoryId: category.id,
-        minOrderQuantity: 1,
-        maxOrderQuantity: item.storage === "chilled" ? 4 : null,
-        storageType: item.storage ?? "ambient",
+        isEnabled: true,
         stock: {
           quantity: 0,
-          lowStockThreshold: index === 0 ? 12 : rng.chance(0.5) ? 8 : null,
+          // The first pack size of a product with several has a threshold;
+          // a product with one pack size every other time.
+          lowStockThreshold:
+            index === 0
+              ? item.packs.length > 1 || db.counters.sku % 2 === 0
+                ? 12
+                : null
+              : rng.chance(0.5)
+                ? 8
+                : null,
         },
-        food: {
-          ingredients: item.ingredients
-            ? { en: item.ingredients[0], de: item.ingredients[1] }
-            : null,
-          allergens: null,
-          nutrition: null,
-          storageInstructions: {
-            en: "Store cool and dry.",
-            de: "Kühl und trocken lagern.",
-          },
-          origin: item.origin ?? "India",
-          manufacturer: null,
-        },
-        tags: salePrice ? ["offer"] : [],
-        searchKeywords: [item.name[1]],
-        seo: null,
-        images,
-        publishedAt: status === "draft" ? null : iso(at + HOUR),
         createdAt: iso(at),
-        updatedAt: iso(at + HOUR),
       };
-      db.products.push(product);
-      // The opening stock, counted when the product was created.
+      product.variants.push(variant);
+      // The opening stock, counted when the pack size was created.
       if (status !== "draft") {
         recordMovement(
           db,
           product,
+          variant,
           "restock",
           rng.int(40, 160),
           { adminId: owner.id, note: "Opening stock" },
@@ -877,9 +887,15 @@ export function seed(options: SeedOptions): Db {
           changedBy: owner.id,
           changedAt: iso(now - 12 * DAY),
         });
-      db.priceChanges.set(id, history);
+      db.priceChanges.set(variant.id, history);
     });
   }
+  // One pack size is not offered at the moment: the product stays on sale.
+  const withSizes = db.products.find(
+    (product) => product.status === "active" && product.variants.length > 2,
+  );
+  const disabled = withSizes?.variants[withSizes.variants.length - 1];
+  if (disabled) disabled.isEnabled = false;
   const orderable = db.products.filter(
     (product) => product.status === "active" && product.isAvailable,
   );
@@ -949,7 +965,13 @@ export function seed(options: SeedOptions): Db {
   const buyers = db.customers.filter(
     (customer) => customer.status === "active",
   );
-  const stockOf = (product: ProductRecord) => product.stock.quantity;
+  /** The pack sizes that can be bought now, with their product. */
+  const sellable = () =>
+    orderable.flatMap((product) =>
+      product.variants
+        .filter((variant) => variant.isEnabled && variant.stock.quantity >= 6)
+        .map((variant) => ({ product, variant })),
+    );
 
   const placeOrder = (
     customer: Customer,
@@ -958,23 +980,28 @@ export function seed(options: SeedOptions): Db {
   ): OrderRecord => {
     db.counters.order += 1;
     const lines = rng.int(1, 4);
-    const chosen = new Set<ProductRecord>();
-    const inStock = orderable.filter((product) => stockOf(product) >= 6);
+    const chosen = new Set<{
+      product: ProductRecord;
+      variant: VariantRecord;
+    }>();
+    const inStock = sellable();
     while (chosen.size < lines) chosen.add(rng.pick(inStock));
-    const items = [...chosen].map((product) => {
+    const items = [...chosen].map(({ product, variant }) => {
       const quantity =
         product.storageType === "chilled" ? rng.int(1, 2) : rng.int(1, 3);
-      const unitPrice = product.salePrice ?? product.regularPrice;
+      const unitPrice = variant.salePrice ?? variant.regularPrice;
       return {
         productId: product.id,
-        sku: product.sku,
+        variantId: variant.id,
+        sku: variant.sku,
         name: product.name,
-        packSize: product.packSize,
+        displayName: `${product.name.en} (${variant.packSize.label})`,
+        packSize: variant.packSize,
         imageUrl: product.images[0]?.sizes.small.url ?? null,
         quantity,
         unitPrice,
         regularUnitPrice:
-          product.salePrice === null ? null : product.regularPrice,
+          variant.salePrice === null ? null : variant.regularPrice,
         lineTotal: quantity * unitPrice,
         vatRate: product.vatRate,
         vatPercent: product.vatRate / 100,
@@ -1291,6 +1318,7 @@ export function seed(options: SeedOptions): Db {
     const at = now - 4 * DAY + 3 * HOUR;
     corrected.adjustments.push({
       productId: item.productId,
+      variantId: item.variantId,
       sku: item.sku,
       from: item.quantity,
       to: item.quantity - 1,
@@ -1301,7 +1329,7 @@ export function seed(options: SeedOptions): Db {
     });
     item.deliveredQuantity -= 1;
     recomputeFinal(corrected);
-    releaseUnits(db, corrected, item.productId, 1, at);
+    releaseUnits(db, corrected, item.variantId, 1, at);
     issueCreditNote(
       db,
       corrected,
@@ -1344,6 +1372,7 @@ export function seed(options: SeedOptions): Db {
       items: [
         {
           productId: item.productId,
+          variantId: item.variantId,
           sku: item.sku,
           name: item.name,
           packSize: item.packSize,
@@ -1445,6 +1474,7 @@ export function seed(options: SeedOptions): Db {
     const completed = requested + 3 * DAY;
     const items = wholeReturn.items.map((item) => ({
       productId: item.productId,
+      variantId: item.variantId,
       sku: item.sku,
       name: item.name,
       packSize: item.packSize,
@@ -1463,7 +1493,7 @@ export function seed(options: SeedOptions): Db {
       db,
       wholeReturn,
       items.map((item) => ({
-        productId: item.productId,
+        variantId: item.variantId,
         quantity: item.quantity,
       })),
       completed,
@@ -1606,6 +1636,7 @@ export function seed(options: SeedOptions): Db {
       items: [
         {
           productId: item.productId,
+          variantId: item.variantId,
           sku: item.sku,
           name: item.name,
           packSize: item.packSize,
@@ -1668,20 +1699,24 @@ export function seed(options: SeedOptions): Db {
     );
   });
 
-  // --- Stock: a count, a few products running low, one sold out -----------
-  const counted = orderable.filter(
-    (product) => product.stock.lowStockThreshold !== null,
+  // --- Stock: a count, a few pack sizes running low, one sold out ----------
+  const sizes = orderable.flatMap((product) =>
+    product.variants.map((variant) => ({ product, variant })),
   );
-  counted.slice(0, 3).forEach((product, index) => {
+  const counted = sizes.filter(
+    ({ variant }) => variant.stock.lowStockThreshold !== null,
+  );
+  counted.slice(0, 3).forEach(({ product, variant }, index) => {
     const target = Math.max(
       0,
-      (product.stock.lowStockThreshold ?? 10) - index * 3,
+      (variant.stock.lowStockThreshold ?? 10) - index * 3,
     );
     recordMovement(
       db,
       product,
+      variant,
       "adjustment",
-      target - product.stock.quantity,
+      target - variant.stock.quantity,
       {
         adminId: owner.id,
         note: index === 0 ? "Counted the shelf." : "Broken bags.",
@@ -1689,16 +1724,21 @@ export function seed(options: SeedOptions): Db {
       now - (index + 1) * 5 * HOUR,
     );
   });
-  const soldOut = orderable.find(
-    (product) =>
-      product.stock.lowStockThreshold === null && product.stock.quantity > 0,
+  // One pack size of a product with several is sold out: the others stay on sale.
+  const soldOut = sizes.find(
+    ({ product, variant }) =>
+      product.variants.length > 1 &&
+      variant.isEnabled &&
+      variant.stock.lowStockThreshold === null &&
+      variant.stock.quantity > 0,
   );
   if (soldOut) {
     recordMovement(
       db,
-      soldOut,
+      soldOut.product,
+      soldOut.variant,
       "adjustment",
-      -soldOut.stock.quantity,
+      -soldOut.variant.stock.quantity,
       {
         adminId: owner.id,
         note: "Last units given to the food bank: past their date.",
@@ -1710,7 +1750,8 @@ export function seed(options: SeedOptions): Db {
   if (restocked) {
     recordMovement(
       db,
-      restocked,
+      restocked.product,
+      restocked.variant,
       "restock",
       60,
       { adminId: owner.id, note: "Delivery from the importer." },

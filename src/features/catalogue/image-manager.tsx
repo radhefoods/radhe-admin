@@ -483,7 +483,7 @@ export function ImageManager({
   const images = product.images;
   const ids = images.map((image) => image.id);
   const room = remainingImages(images.length);
-  const productName = `${translated(product.name)} ${product.packSize.label}`;
+  const productName = translated(product.name);
   const nameOf = (id: string) => `picture ${ids.indexOf(id) + 1}`;
   const busy = sending !== null || replacing !== null || checking;
 

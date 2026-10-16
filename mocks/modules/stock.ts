@@ -1,13 +1,13 @@
-// Section 8: the stock of a product and its history. The orders, returns
+// Section 8: the stock of a pack size and its history. The orders, returns
 // and import modules take and give back units through these helpers, so
-// every change is one line of the ledger.
+// every change is one line of the ledger of the pack size it belongs to.
 
 import { z } from "zod";
 import type {
   StockMovement,
   StockMovementReason,
 } from "../../src/lib/api/types/index.ts";
-import type { Db, OrderRecord, ProductRecord } from "../db.ts";
+import type { Db, OrderRecord, ProductRecord, VariantRecord } from "../db.ts";
 import { productDetail } from "../domain.ts";
 import { fail, json, newId, sortedCursorPage } from "../http.ts";
 import type { Router } from "../router.ts";
@@ -20,22 +20,25 @@ export interface MovementContext {
   note?: string | null;
 }
 
-/** Changes the count by `delta` and writes the line of the ledger. */
+/** Changes the count of a pack size by `delta` and writes the line of the ledger. */
 export function recordMovement(
   db: Db,
   product: ProductRecord,
+  variant: VariantRecord,
   reason: StockMovementReason,
   delta: number,
   context: MovementContext,
   now: number,
 ): StockMovement {
-  product.stock.quantity += delta;
+  variant.stock.quantity += delta;
   product.updatedAt = iso(now);
   const movement: StockMovement = {
     id: newId(now),
+    variantId: variant.id,
+    sku: variant.sku,
     reason,
     delta,
-    quantityAfter: product.stock.quantity,
+    quantityAfter: variant.stock.quantity,
     orderId: context.orderId ?? null,
     orderNumber: context.orderNumber ?? null,
     adminId: context.adminId ?? null,
@@ -46,24 +49,37 @@ export function recordMovement(
   return movement;
 }
 
-function productOf(db: Db, id: string): ProductRecord | undefined {
-  return db.products.find((entry) => entry.id === id);
+/** The product and the pack size an order line points at. */
+export function variantOf(
+  db: Db,
+  variantId: string,
+): { product: ProductRecord; variant: VariantRecord } | undefined {
+  for (const product of db.products) {
+    const variant = product.variants.find((entry) => entry.id === variantId);
+    if (variant) return { product, variant };
+  }
+  return undefined;
 }
 
 /**
  * Takes the units of an order off the shelf (reason `order`), one item
- * after the other. When an item sold out meanwhile, what was taken goes
+ * after the other. When a pack size sold out meanwhile, what was taken goes
  * back (`release`) and the order cannot be settled.
  */
 export function takeStock(db: Db, order: OrderRecord, now: number): boolean {
-  const taken: { product: ProductRecord; quantity: number }[] = [];
+  const taken: {
+    product: ProductRecord;
+    variant: VariantRecord;
+    quantity: number;
+  }[] = [];
   for (const item of order.items) {
-    const product = productOf(db, item.productId);
-    if (!product || product.stock.quantity < item.quantity) {
+    const found = variantOf(db, item.variantId);
+    if (!found || found.variant.stock.quantity < item.quantity) {
       for (const entry of taken) {
         recordMovement(
           db,
           entry.product,
+          entry.variant,
           "release",
           entry.quantity,
           { orderId: order.id, orderNumber: order.orderNumber },
@@ -74,13 +90,14 @@ export function takeStock(db: Db, order: OrderRecord, now: number): boolean {
     }
     recordMovement(
       db,
-      product,
+      found.product,
+      found.variant,
       "order",
       -item.quantity,
       { orderId: order.id, orderNumber: order.orderNumber },
       now,
     );
-    taken.push({ product, quantity: item.quantity });
+    taken.push({ ...found, quantity: item.quantity });
   }
   order.stockTakenAt = iso(now);
   return true;
@@ -90,11 +107,12 @@ export function takeStock(db: Db, order: OrderRecord, now: number): boolean {
 export function giveBackStock(db: Db, order: OrderRecord, now: number): void {
   if (!order.stockTakenAt) return;
   for (const item of order.items) {
-    const product = productOf(db, item.productId);
-    if (!product) continue;
+    const found = variantOf(db, item.variantId);
+    if (!found) continue;
     recordMovement(
       db,
-      product,
+      found.product,
+      found.variant,
       "cancel",
       item.quantity,
       { orderId: order.id, orderNumber: order.orderNumber },
@@ -108,15 +126,16 @@ export function giveBackStock(db: Db, order: OrderRecord, now: number): void {
 export function releaseUnits(
   db: Db,
   order: OrderRecord,
-  productId: string,
+  variantId: string,
   units: number,
   now: number,
 ): void {
-  const product = productOf(db, productId);
-  if (!product || units <= 0) return;
+  const found = variantOf(db, variantId);
+  if (!found || units <= 0) return;
   recordMovement(
     db,
-    product,
+    found.product,
+    found.variant,
     "release",
     units,
     { orderId: order.id, orderNumber: order.orderNumber },
@@ -128,15 +147,16 @@ export function releaseUnits(
 export function restockReturn(
   db: Db,
   order: OrderRecord,
-  items: { productId: string; quantity: number }[],
+  items: { variantId: string; quantity: number }[],
   now: number,
 ): void {
   for (const item of items) {
-    const product = productOf(db, item.productId);
-    if (!product || item.quantity <= 0) continue;
+    const found = variantOf(db, item.variantId);
+    if (!found || item.quantity <= 0) continue;
     recordMovement(
       db,
-      product,
+      found.product,
+      found.variant,
       "return",
       item.quantity,
       { orderId: order.id, orderNumber: order.orderNumber },
@@ -151,17 +171,37 @@ const stockBody = z.strictObject({
   note: z.string().max(500).optional(),
 });
 
+function lookUp(
+  db: Db,
+  productId: string,
+  variantId: string,
+): { product: ProductRecord; variant: VariantRecord } {
+  const product = db.products.find((entry) => entry.id === productId);
+  if (!product)
+    throw fail(404, "PRODUCT_NOT_FOUND", "The product was not found.");
+  const variant = product.variants.find((entry) => entry.id === variantId);
+  if (!variant)
+    throw fail(
+      404,
+      "PRODUCT_VARIANT_NOT_FOUND",
+      "The pack size was not found.",
+    );
+  return { product, variant };
+}
+
 export function registerStock(router: Router): void {
-  const products = "/v1/admin/products";
+  const variants = "/v1/admin/products/:id/variants/:variantId";
 
   router.post(
-    `${products}/:id/stock`,
+    `${variants}/stock`,
     { permission: "catalog.manage" },
     async (ctx) => {
       const input = await ctx.body(stockBody);
-      const product = productOf(ctx.db, ctx.params.id ?? "");
-      if (!product)
-        throw fail(404, "PRODUCT_NOT_FOUND", "The product was not found.");
+      const { product, variant } = lookUp(
+        ctx.db,
+        ctx.params.id ?? "",
+        ctx.params.variantId ?? "",
+      );
       const hasQuantity = input.quantity !== undefined;
       const hasDelta = input.delta !== undefined;
       if (hasQuantity === hasDelta) {
@@ -172,17 +212,18 @@ export function registerStock(router: Router): void {
         );
       }
       const delta = hasQuantity
-        ? (input.quantity as number) - product.stock.quantity
+        ? (input.quantity as number) - variant.stock.quantity
         : (input.delta as number);
-      if (product.stock.quantity + delta < 0) {
+      if (variant.stock.quantity + delta < 0) {
         throw fail(
           409,
           "STOCK_INSUFFICIENT",
           "More units would be removed than are in stock.",
           {
             productId: product.id,
-            sku: product.sku,
-            available: product.stock.quantity,
+            variantId: variant.id,
+            sku: variant.sku,
+            available: variant.stock.quantity,
             wanted: -delta,
           },
         );
@@ -193,6 +234,7 @@ export function registerStock(router: Router): void {
           : recordMovement(
               ctx.db,
               product,
+              variant,
               delta > 0 && hasDelta ? "restock" : "adjustment",
               delta,
               { adminId: ctx.admin.id, note: input.note ?? null },
@@ -203,14 +245,16 @@ export function registerStock(router: Router): void {
   );
 
   router.get(
-    `${products}/:id/stock/movements`,
+    `${variants}/stock/movements`,
     { permission: "catalog.read" },
     (ctx) => {
-      const product = productOf(ctx.db, ctx.params.id ?? "");
-      if (!product)
-        throw fail(404, "PRODUCT_NOT_FOUND", "The product was not found.");
+      const { variant } = lookUp(
+        ctx.db,
+        ctx.params.id ?? "",
+        ctx.params.variantId ?? "",
+      );
       const rows = ctx.db.stockMovements
-        .filter((entry) => entry.productId === product.id)
+        .filter((entry) => entry.variantId === variant.id)
         .map(({ productId: _productId, ...movement }) => movement);
       return json(
         sortedCursorPage(rows, ctx.query, {

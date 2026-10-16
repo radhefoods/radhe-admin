@@ -272,7 +272,7 @@ describe("writing an announcement", () => {
       screen.getByRole("link", { name: "https://www.radhefoods.de/mango" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(`Kesar Mango Box (${product.sku})`),
+      screen.getByText(`Kesar Mango Box (${product.variants[0]?.sku})`),
     ).toBeInTheDocument();
   });
 });

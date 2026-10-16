@@ -410,7 +410,7 @@ export function registerOrders(router: Router): void {
   );
 
   router.patch(
-    `${base}/:id/items/:productId`,
+    `${base}/:id/items/:variantId`,
     { permission: "orders.manage" },
     async (ctx) => {
       const input = await ctx.body(
@@ -428,13 +428,13 @@ export function registerOrders(router: Router): void {
       );
       const order = orderById(ctx.db, ctx.params.id ?? "");
       const item = order.items.find(
-        (entry) => entry.productId === ctx.params.productId,
+        (entry) => entry.variantId === ctx.params.variantId,
       );
       if (!item)
         throw fail(
           404,
           "ORDER_ITEM_NOT_FOUND",
-          "The order does not contain this product.",
+          "The order has no such pack size.",
         );
       assertChangeable(order);
       if (
@@ -456,6 +456,7 @@ export function registerOrders(router: Router): void {
         const from = item.deliveredQuantity;
         order.adjustments.push({
           productId: item.productId,
+          variantId: item.variantId,
           sku: item.sku,
           from,
           to: input.deliveredQuantity,
@@ -471,7 +472,7 @@ export function registerOrders(router: Router): void {
         releaseUnits(
           ctx.db,
           order,
-          item.productId,
+          item.variantId,
           from - input.deliveredQuantity,
           ctx.now,
         );
@@ -576,7 +577,7 @@ export function registerOrders(router: Router): void {
           items: z
             .array(
               z.strictObject({
-                productId: zId,
+                variantId: zId,
                 quantity: z.number().int().min(0).max(10000),
               }),
             )
@@ -599,35 +600,35 @@ export function registerOrders(router: Router): void {
         );
       }
       const quantities = new Map(
-        record.items.map((item) => [item.productId, item.quantity]),
+        record.items.map((item) => [item.variantId, item.quantity]),
       );
       if (input.items) {
         const unknown = input.items
-          .map((item) => item.productId)
+          .map((item) => item.variantId)
           .filter((id) => !quantities.has(id));
         if (unknown.length > 0) {
           throw fail(
             400,
             "ORDER_ITEM_NOT_FOUND",
-            "The return does not contain these products.",
+            "The return has no such pack size.",
             {
-              productIds: unknown,
+              variantIds: unknown,
             },
           );
         }
         for (const item of input.items) {
-          if (item.quantity > (quantities.get(item.productId) ?? 0)) {
+          if (item.quantity > (quantities.get(item.variantId) ?? 0)) {
             throw fail(
               400,
               "RETURN_QUANTITY_INVALID",
               "More than the customer asked to return.",
               {
-                productId: item.productId,
-                max: quantities.get(item.productId),
+                variantId: item.variantId,
+                max: quantities.get(item.variantId),
               },
             );
           }
-          quantities.set(item.productId, item.quantity);
+          quantities.set(item.variantId, item.quantity);
         }
         if ([...quantities.values()].every((quantity) => quantity === 0)) {
           throw fail(
@@ -646,7 +647,7 @@ export function registerOrders(router: Router): void {
         ctx.now,
       );
       for (const item of record.items)
-        item.approvedQuantity = quantities.get(item.productId) ?? 0;
+        item.approvedQuantity = quantities.get(item.variantId) ?? 0;
       record.decidedAt = iso(ctx.now);
       record.decisionNote = input.note ?? null;
       if (input.internalNote !== undefined)
@@ -718,7 +719,7 @@ export function registerOrders(router: Router): void {
       const order = orderById(ctx.db, record.orderId);
       for (const item of record.items) {
         const line = order.items.find(
-          (entry) => entry.productId === item.productId,
+          (entry) => entry.variantId === item.variantId,
         );
         const approved = item.approvedQuantity ?? 0;
         if (
@@ -731,6 +732,7 @@ export function registerOrders(router: Router): void {
             "More than was delivered.",
             {
               productId: item.productId,
+              variantId: item.variantId,
               sku: item.sku,
             },
           );
@@ -739,7 +741,7 @@ export function registerOrders(router: Router): void {
       const before = order.finalTotals.total;
       for (const item of record.items) {
         const line = order.items.find(
-          (entry) => entry.productId === item.productId,
+          (entry) => entry.variantId === item.variantId,
         );
         if (line) line.returnedQuantity += item.approvedQuantity ?? 0;
       }
@@ -763,7 +765,7 @@ export function registerOrders(router: Router): void {
           ctx.db,
           order,
           record.items.map((item) => ({
-            productId: item.productId,
+            variantId: item.variantId,
             quantity: item.approvedQuantity ?? 0,
           })),
           ctx.now,

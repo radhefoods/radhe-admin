@@ -112,10 +112,14 @@ export interface OrderSummary {
   delivery: OrderDelivery;
 }
 
+/** One line per pack size that was bought: `variantId` is the key of corrections and return decisions. */
 export interface OrderItem {
   productId: Id;
+  variantId: Id;
   sku: string;
   name: Translated;
+  /** "Chakki Atta (5 kg)", English, as the order has it. */
+  displayName: string;
   packSize: PackSize;
   imageUrl: string | null;
   quantity: number;
@@ -150,6 +154,7 @@ export interface Totals {
 
 export interface OrderAdjustment {
   productId: Id;
+  variantId: Id;
   sku: string;
   from: number;
   to: number;

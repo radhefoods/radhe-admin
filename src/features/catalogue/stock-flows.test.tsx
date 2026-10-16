@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ProductRecord } from "../../../mocks/db.ts";
+import type { ProductRecord, VariantRecord } from "../../../mocks/db.ts";
 import { installTestApi, type TestApi } from "@/test/api";
 import { renderPanel } from "@/test/render";
 import { ProductView } from "./product-view";
@@ -11,20 +11,29 @@ let api: TestApi;
 
 vi.setConfig({ testTimeout: 30_000 });
 
-function find(
-  predicate: (product: ProductRecord) => boolean,
-  what: string,
-): ProductRecord {
-  const product = api.mock.db().products.find(predicate);
-  if (!product) throw new Error(`The demo data has no ${what}`);
-  return product;
+type Size = { product: ProductRecord; variant: VariantRecord };
+
+/** Every pack size of the demo data with its product. */
+const sizes = (): Size[] =>
+  api.mock
+    .db()
+    .products.flatMap((product) =>
+      product.variants.map((variant) => ({ product, variant })),
+    );
+
+function find(predicate: (size: Size) => boolean, what: string): Size {
+  const found = sizes().find(predicate);
+  if (!found) throw new Error(`The demo data has no ${what}`);
+  return found;
 }
-const fresh = (id: string) => find((product) => product.id === id, "product");
-/** An active product with a comfortable count and no threshold. */
-const plenty = (product: ProductRecord) =>
+const fresh = (variantId: string) =>
+  find(({ variant }) => variant.id === variantId, "pack size").variant;
+/** An active product with one pack size, a comfortable count and no threshold. */
+const plenty = ({ product, variant }: Size) =>
   product.status === "active" &&
-  product.stock.quantity >= 20 &&
-  product.stock.lowStockThreshold === null;
+  product.variants.length === 1 &&
+  variant.stock.quantity >= 20 &&
+  variant.stock.lowStockThreshold === null;
 
 const writes = () => api.calls.filter((call) => call.method !== "GET");
 
@@ -46,16 +55,19 @@ async function open(product: ProductRecord, permissions?: string[]) {
   return view;
 }
 
+const stockPath = (size: Size) =>
+  `/v1/admin/products/${size.product.id}/variants/${size.variant.id}/stock`;
+
 beforeEach(async () => {
   api = installTestApi();
   await api.signIn();
 });
 
 describe("the stock panel (documentation, 8)", () => {
-  it("shows the count and the history, and sets the counted number", async () => {
-    const product = find(plenty, "product with plenty of stock");
-    const before = product.stock.quantity;
-    const { user } = await open(product);
+  it("shows the count and the history of the pack size, and sets the counted number", async () => {
+    const size = find(plenty, "product with plenty of stock");
+    const before = size.variant.stock.quantity;
+    const { user } = await open(size.product);
     const panel = screen.getByRole("region", { name: "Stock" });
     expect(within(panel).getByText(String(before))).toBeInTheDocument();
     expect(within(panel).getByText("None: never warned")).toBeInTheDocument();
@@ -86,14 +98,10 @@ describe("the stock panel (documentation, 8)", () => {
     );
     await waitFor(() =>
       expect(writes()).toEqual([
-        {
-          method: "POST",
-          path: `/v1/admin/products/${product.id}/stock`,
-          body: { quantity: 30 },
-        },
+        { method: "POST", path: stockPath(size), body: { quantity: 30 } },
       ]),
     );
-    expect(fresh(product.id).stock.quantity).toBe(30);
+    expect(fresh(size.variant.id).stock.quantity).toBe(30);
     await waitFor(() =>
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
     );
@@ -108,9 +116,9 @@ describe("the stock panel (documentation, 8)", () => {
   });
 
   it("adds units with a note, as `delta`", async () => {
-    const product = find(plenty, "product with plenty of stock");
-    const before = product.stock.quantity;
-    const { user } = await open(product);
+    const size = find(plenty, "product with plenty of stock");
+    const before = size.variant.stock.quantity;
+    const { user } = await open(size.product);
     await user.click(screen.getByRole("button", { name: "Change the stock" }));
     const dialog = await screen.findByRole("alertdialog");
     await user.click(
@@ -131,23 +139,24 @@ describe("the stock panel (documentation, 8)", () => {
       expect(writes()).toEqual([
         {
           method: "POST",
-          path: `/v1/admin/products/${product.id}/stock`,
+          path: stockPath(size),
           body: { delta: 12, note: "Delivery from the importer" },
         },
       ]),
     );
-    expect(fresh(product.id).stock.quantity).toBe(before + 12);
+    expect(fresh(size.variant.id).stock.quantity).toBe(before + 12);
     const movement = api.mock
       .db()
-      .stockMovements.filter((entry) => entry.productId === product.id)
+      .stockMovements.filter((entry) => entry.variantId === size.variant.id)
       .at(-1);
     expect(movement?.reason).toBe("restock");
     expect(movement?.note).toBe("Delivery from the importer");
+    expect(movement?.sku).toBe(size.variant.sku);
   });
 
   it("refuses to remove more than there is before asking the API", async () => {
-    const product = find(plenty, "product with plenty of stock");
-    const { user } = await open(product);
+    const size = find(plenty, "product with plenty of stock");
+    const { user } = await open(size.product);
     await user.click(screen.getByRole("button", { name: "Change the stock" }));
     const dialog = await screen.findByRole("alertdialog");
     await user.click(
@@ -159,7 +168,7 @@ describe("the stock panel (documentation, 8)", () => {
     );
     expect(
       within(dialog).getByText(
-        `Only ${product.stock.quantity} units are in stock; 9999 cannot be removed.`,
+        `Only ${size.variant.stock.quantity} units are in stock; 9999 cannot be removed.`,
       ),
     ).toBeInTheDocument();
     expect(
@@ -168,9 +177,88 @@ describe("the stock panel (documentation, 8)", () => {
     expect(writes()).toHaveLength(0);
   });
 
+  it("shows one pack size at a time of a product with several, and changes the one chosen", async () => {
+    const size = find(
+      ({ product }) =>
+        product.status === "active" && product.variants.length > 1,
+      "product with several pack sizes",
+    );
+    const { product } = size;
+    const { user } = await open(product);
+    const panel = screen.getByRole("region", { name: "Stock" });
+    const chooser = within(panel).getByRole("combobox", { name: "Pack size" });
+    // The pack size that stands for the product is shown first.
+    const shown = product.variants.find(
+      (entry) => entry.id === (chooser as HTMLSelectElement).value,
+    );
+    expect(shown).toBeDefined();
+    const other = product.variants.find((entry) => entry.id !== shown?.id)!;
+    await user.selectOptions(chooser, other.id);
+    expect(
+      within(panel).getByText(`In stock, ${other.packSize.label}`),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.calls.map((call) => call.path)).toContainEqual(
+        expect.stringContaining(`/variants/${other.id}/stock/movements`),
+      ),
+    );
+
+    await user.click(
+      within(panel).getByRole("button", { name: "Change the stock" }),
+    );
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent(
+      `Change the stock of ${product.name.en} ${other.packSize.label}`,
+    );
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "Counted number" }),
+      "77",
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "Set the stock to 77" }),
+    );
+    await waitFor(() =>
+      expect(writes()).toEqual([
+        {
+          method: "POST",
+          path: `/v1/admin/products/${product.id}/variants/${other.id}/stock`,
+          body: { quantity: 77 },
+        },
+      ]),
+    );
+    expect(fresh(other.id).stock.quantity).toBe(77);
+    // The other pack sizes are not touched.
+    expect(fresh(shown!.id).stock.quantity).toBe(shown!.stock.quantity);
+  });
+
+  it("opens the same dialog from the row of the pack-size table", async () => {
+    const size = find(plenty, "product with plenty of stock");
+    const { user } = await open(size.product);
+    const table = screen.getByRole("list", { name: "Pack sizes" });
+    await user.click(
+      within(table).getByRole("button", {
+        name: `Change the stock of ${size.variant.packSize.label}`,
+      }),
+    );
+    const dialog = await screen.findByRole("alertdialog");
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "Counted number" }),
+      "41",
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "Set the stock to 41" }),
+    );
+    await waitFor(() =>
+      expect(writes()).toEqual([
+        { method: "POST", path: stockPath(size), body: { quantity: 41 } },
+      ]),
+    );
+    await waitFor(() => expect(table).toHaveTextContent("41"));
+  });
+
   it("keeps the change visible but disabled for a read-only role", async () => {
-    const product = find(plenty, "product with plenty of stock");
-    await open(product, ["catalog.read"]);
+    const size = find(plenty, "product with plenty of stock");
+    await open(size.product, ["catalog.read"]);
     const panel = screen.getByRole("region", { name: "Stock" });
     expect(
       within(panel).getByRole("button", { name: "Change the stock" }),
@@ -183,16 +271,18 @@ describe("the stock panel (documentation, 8)", () => {
   });
 });
 
-describe("the threshold in the form", () => {
-  it("saves the threshold, and sends null when it is emptied", async () => {
-    const product = find(
-      (entry) =>
-        entry.status === "active" && entry.stock.lowStockThreshold !== null,
+describe("the threshold in the pack-size table", () => {
+  it("saves the threshold of the pack size, and sends null when it is emptied", async () => {
+    const size = find(
+      ({ product, variant }) =>
+        product.status === "active" &&
+        product.variants.length === 1 &&
+        variant.stock.lowStockThreshold !== null,
       "product with a threshold",
     );
-    const { user } = await open(product);
-    const threshold = field("lowStockThreshold");
-    expect(threshold).toHaveValue(String(product.stock.lowStockThreshold));
+    const { user } = await open(size.product);
+    const threshold = field("variants.0.lowStockThreshold");
+    expect(threshold).toHaveValue(String(size.variant.stock.lowStockThreshold));
     await user.clear(threshold);
     await user.type(threshold, "25");
     await user.click(screen.getByText("Save changes", { selector: "button" }));
@@ -200,37 +290,39 @@ describe("the threshold in the form", () => {
       expect(writes()).toEqual([
         {
           method: "PATCH",
-          path: `/v1/admin/products/${product.id}`,
+          path: `/v1/admin/products/${size.product.id}/variants/${size.variant.id}`,
           body: { lowStockThreshold: 25 },
         },
       ]),
     );
-    expect(fresh(product.id).stock.lowStockThreshold).toBe(25);
+    expect(fresh(size.variant.id).stock.lowStockThreshold).toBe(25);
 
     api.calls.length = 0;
-    await user.clear(field("lowStockThreshold"));
+    await user.clear(field("variants.0.lowStockThreshold"));
     await user.click(screen.getByText("Save changes", { selector: "button" }));
     await waitFor(() =>
       expect(writes()).toEqual([
         {
           method: "PATCH",
-          path: `/v1/admin/products/${product.id}`,
+          path: `/v1/admin/products/${size.product.id}/variants/${size.variant.id}`,
           body: { lowStockThreshold: null },
         },
       ]),
     );
-    expect(fresh(product.id).stock.lowStockThreshold).toBeNull();
+    expect(fresh(size.variant.id).stock.lowStockThreshold).toBeNull();
   });
 });
 
 describe("the product list", () => {
-  it("shows the count with the low state and filters the products running low", async () => {
+  it("shows the count over the pack sizes with the low state and filters the products running low", async () => {
     const low = api.mock
       .db()
-      .products.filter(
-        (entry) =>
-          entry.stock.lowStockThreshold !== null &&
-          entry.stock.quantity <= entry.stock.lowStockThreshold,
+      .products.filter((product) =>
+        product.variants.some(
+          (variant) =>
+            variant.stock.lowStockThreshold !== null &&
+            variant.stock.quantity <= variant.stock.lowStockThreshold,
+        ),
       );
     expect(low.length).toBeGreaterThan(0);
     renderPanel(<ProductsView />, {
@@ -243,11 +335,25 @@ describe("the product list", () => {
       ),
     );
     for (const product of low) {
-      // The article number names the row: two pack sizes share a name.
-      const row = (await within(table).findByText(product.sku)).closest("tr");
-      expect(row).toHaveTextContent(String(product.stock.quantity));
+      const row = (
+        await within(table).findByRole("link", { name: product.name.en })
+      ).closest("tr");
+      const total = product.variants.reduce(
+        (sum, variant) => sum + variant.stock.quantity,
+        0,
+      );
+      const lowSizes = product.variants.filter(
+        (variant) =>
+          variant.stock.lowStockThreshold !== null &&
+          variant.stock.quantity <= variant.stock.lowStockThreshold,
+      ).length;
+      expect(row).toHaveTextContent(String(total));
       expect(row).toHaveTextContent(
-        product.stock.quantity === 0 ? "Sold out" : "Low stock",
+        total === 0
+          ? "Sold out"
+          : lowSizes === 1
+            ? "Low stock"
+            : `${lowSizes} sizes low`,
       );
     }
     // The filter shows as chosen, so it can be taken off again.

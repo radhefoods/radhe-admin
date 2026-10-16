@@ -15,7 +15,7 @@ import {
   orderSummary,
   productSummary,
   queueMessage,
-  stockView,
+  stockOverview,
 } from "../domain.ts";
 import {
   cursorPage,
@@ -486,7 +486,8 @@ export function registerCommunication(router: Router): void {
     const requested = db.returns.filter(
       (entry) => entry.status === "requested",
     );
-    const low = db.products.filter((product) => stockView(product.stock).isLow);
+    // Products with a pack size at or below its threshold (15).
+    const low = db.products.filter((product) => stockOverview(product).isLow);
     const failedMessages = db.notifications.filter(
       (entry) => entry.status === "failed",
     );

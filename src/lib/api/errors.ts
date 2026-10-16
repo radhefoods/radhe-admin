@@ -65,6 +65,9 @@ export const API_ERROR_CODES = [
   "PRODUCT_PRICE_INVALID",
   "PRODUCT_QUANTITY_INVALID",
   "PRODUCT_VARIANT_INVALID",
+  "PRODUCT_VARIANT_NOT_FOUND",
+  "PRODUCT_VARIANT_LAST",
+  "PRODUCT_VARIANT_IN_USE",
   "PRODUCT_SKU_TAKEN",
   "PRODUCT_SLUG_TAKEN",
   "PRODUCT_IS_ACTIVE",
@@ -141,8 +144,11 @@ export interface ErrorDetails {
   ROLE_PERMISSION_UNKNOWN: { unknown: string[] };
   CATEGORY_ORDER_INVALID: { expected: Id[] };
   PRODUCT_PRICE_INVALID: { regularPrice?: Cents; salePrice?: Cents | null };
+  PRODUCT_VARIANT_INVALID:
+    { families?: string[]; baseQuantity?: number; sku?: string } | undefined;
   STOCK_INSUFFICIENT: {
     productId: Id;
+    variantId: Id;
     sku: string;
     available: number;
     wanted: number;
@@ -159,9 +165,10 @@ export interface ErrorDetails {
   ORDER_CANNOT_BE_CHANGED: { status: OrderStatus; allowedIn: OrderStatus[] };
   ORDER_CANNOT_BE_CANCELLED: { status: OrderStatus };
   ORDER_QUANTITY_INVALID: { min: number; max: number };
-  ORDER_ITEM_NOT_FOUND: { productIds?: Id[] } | undefined;
+  ORDER_ITEM_NOT_FOUND: { variantIds?: Id[] } | undefined;
   RETURN_TRANSITION_NOT_ALLOWED: { from: string; to: string };
-  RETURN_QUANTITY_INVALID: { productId?: Id; sku?: string } | undefined;
+  RETURN_QUANTITY_INVALID:
+    { productId?: Id; variantId?: Id; sku?: string; max?: number } | undefined;
   COMPANY_DETAILS_MISSING: { missing: CompanyMissingField[] };
   REFUND_AMOUNT_INVALID: Refundable | undefined;
   REFUND_TRANSITION_NOT_ALLOWED: {

@@ -4,8 +4,13 @@
 // record back as flat rows.
 
 import { z } from "zod";
-import type { CategoryRecord, Db, ProductRecord } from "../db.ts";
-import { orderedCategories, packLabel } from "../domain.ts";
+import type {
+  CategoryRecord,
+  Db,
+  ProductRecord,
+  VariantRecord,
+} from "../db.ts";
+import { baseQuantity, orderedCategories, sortedVariants } from "../domain.ts";
 import { HttpError, fail, json, newId } from "../http.ts";
 import type { Router } from "../router.ts";
 import { iso } from "../time.ts";
@@ -13,16 +18,17 @@ import { recordMovement } from "./stock.ts";
 import {
   PACK_UNITS,
   applyProductFields,
-  applyVariantOf,
+  applyVariantPatch,
   assertCategorySlugFree,
+  assertPackSizes,
   assertParent,
   assertProductSlugFree,
   assertQuantities,
+  createVariant,
   lastPosition,
   logPrice,
-  normalSku,
-  resolveSale,
   slugify,
+  variantBySku,
 } from "./catalog.ts";
 
 const MAX_ROWS = 2000;
@@ -66,7 +72,7 @@ export const PRODUCT_COLUMNS = [
   "category_slug",
   "pack_value",
   "pack_unit",
-  "variant_of_sku",
+  "variant_enabled",
   "regular_price",
   "sale_price",
   "discount_percent",
@@ -108,6 +114,8 @@ interface RowResult {
   name: string;
   action: Action;
   id: string | null;
+  /** Product rows: the pack size the row matched or created. */
+  variantId?: string | null;
   changes: string[];
   problems: string[];
 }
@@ -591,12 +599,26 @@ function writeCategory(
 
 // --- Products ------------------------------------------------------------------
 
+type Pack = { value: number; unit: (typeof PACK_UNITS)[number] };
+
+/**
+ * One row of the product sheet is one pack size (8.2). The rows of a
+ * product are tied by `slug_en` (or the slug of `name_en`); the product
+ * columns come from the first of them.
+ */
 interface ProductPlan {
   result: RowResult;
-  existing: ProductRecord | null;
+  /** The product the row belongs to, when it exists. */
+  product: ProductRecord | null;
+  /** The pack size the row matched, when it exists. */
+  variant: VariantRecord | null;
+  /** The key of the product in the file: `slug_en`, or the slug the name would get. */
+  productKey: string;
+  /** The first row of this product in the file carries the product columns. */
+  first: boolean;
   sku: string | undefined;
+  pack: Pack | undefined;
   category: undefined | { existingId: string } | { rowKey: string };
-  variantOf: undefined | null | { existingId: string } | { rowKey: string };
   input: {
     name?: { en?: string; de?: string };
     slugEn?: string;
@@ -608,8 +630,7 @@ interface ProductPlan {
     highlights?: { en?: string[]; de?: string[] };
     uses?: { en?: string[]; de?: string[] };
     brand?: string;
-    packValue?: number;
-    packUnit?: (typeof PACK_UNITS)[number];
+    isEnabled?: boolean;
     regularPrice?: number;
     salePrice?: number | null;
     discountPercent?: number | null;
@@ -631,6 +652,16 @@ interface ProductPlan {
   };
 }
 
+/** The pack size of a product with this pack, if any. */
+function variantByPack(
+  product: ProductRecord,
+  pack: Pack,
+): VariantRecord | undefined {
+  return product.variants.find(
+    (entry) => baseQuantity(entry.packSize) === baseQuantity(pack),
+  );
+}
+
 function planProducts(
   db: Db,
   rows: Row[],
@@ -638,11 +669,12 @@ function planProducts(
   existing: Existing,
 ): ProductPlan[] {
   const plans: ProductPlan[] = [];
-  const keys = new Map<string, number>();
   const categoryKeys = categoryRows.map(
     (row) => text(row, "slug_en") || slugify(text(row, "name_en")),
   );
-  const fileSkus = rows.map((row) => text(row, "sku").toUpperCase());
+  /** The first row of each product key in the file. */
+  const firstRows = new Map<string, number>();
+  const skuRows = new Map<string, number>();
 
   rows.forEach((row, index) => {
     const cells = new Cells(row);
@@ -659,42 +691,69 @@ function planProducts(
     const slugEn = cells.slug("slug_en");
     const packValue = cells.decimal("pack_value", 3);
     const packUnit = cells.oneOf("pack_unit", PACK_UNITS);
-    const label =
-      packValue !== undefined && packUnit ? packLabel(packValue, packUnit) : "";
-    const key =
-      sku ??
-      slugEn ??
-      (name?.en && label ? slugify(`${name.en} ${label}`) : "");
-    const record = sku
-      ? (db.products.find((entry) => entry.sku === sku) ?? null)
-      : key
-        ? (db.products.find((entry) => entry.slug.en === key) ?? null)
-        : null;
+    const pack: Pack | undefined =
+      packValue !== undefined && packUnit
+        ? { value: packValue, unit: packUnit }
+        : undefined;
+
+    // The pack size by its article number, and through it the product.
+    const bySku = sku ? variantBySku(db, sku) : undefined;
+    let productKey = slugEn ?? (name?.en ? slugify(name.en) : "");
+    let product: ProductRecord | null = bySku?.product ?? null;
+    if (!product && productKey) {
+      product =
+        db.products.find((entry) => entry.slug.en === productKey) ?? null;
+    }
+    if (bySku && productKey && bySku.product.slug.en !== productKey) {
+      // A slug that names another product than the one the SKU belongs to.
+      const other = db.products.find((entry) => entry.slug.en === productKey);
+      if (other || !slugEn)
+        cells.problems.push(
+          `sku: "${sku}" belongs to product ${bySku.product.slug.en}, not to ${productKey}`,
+        );
+    }
+    if (!productKey && product) productKey = product.slug.en;
+    let variant: VariantRecord | null = bySku?.variant ?? null;
+    if (!variant && product && !sku) {
+      // Without an article number, the pack names the pack size, or the
+      // only pack size there is.
+      variant = pack
+        ? (variantByPack(product, pack) ?? null)
+        : product.variants.length === 1
+          ? (product.variants[0] ?? null)
+          : null;
+    }
+    const first = productKey ? !firstRows.has(productKey) : true;
+    if (productKey && first) firstRows.set(productKey, index + 1);
+
     const plan: ProductPlan = {
       result: {
         row: index + 1,
-        key,
-        name: name?.en ?? record?.name.en ?? "",
+        key: sku ?? variant?.sku ?? productKey,
+        name: name?.en ?? product?.name.en ?? "",
         action: "create",
-        id: record?.id ?? null,
+        id: product?.id ?? null,
+        variantId: variant?.id ?? null,
         changes: [],
         problems: cells.problems,
       },
-      existing: record,
+      product,
+      variant,
+      productKey,
+      first,
       sku,
+      pack,
       category: undefined,
-      variantOf: undefined,
       input: {},
     };
     plans.push(plan);
-    if (!key)
-      cells.problems.push(
-        "sku, slug_en, or name_en with pack_value and pack_unit is required",
-      );
-    else if (keys.has(key))
-      cells.problems.push(`sku or slug: the same as row ${keys.get(key)}`);
-    else keys.set(key, index + 1);
-
+    if (!productKey && !sku)
+      cells.problems.push("sku, slug_en or name_en is required");
+    if (sku) {
+      if (skuRows.has(sku))
+        cells.problems.push(`sku: the same as row ${skuRows.get(sku)}`);
+      else skuRows.set(sku, index + 1);
+    }
     if (packValue !== undefined && (packValue < 0.001 || packValue > 1_000_000))
       cells.problems.push("pack_value: from 0.001 to 1,000,000");
 
@@ -740,8 +799,7 @@ function planProducts(
       highlights: listPair(cells, "highlights"),
       uses: listPair(cells, "uses"),
       brand: cells.text("brand", 80),
-      packValue,
-      packUnit,
+      isEnabled: cells.bool("variant_enabled"),
       regularPrice: cells.cents("regular_price"),
       salePrice:
         salePrice === undefined
@@ -804,58 +862,92 @@ function planProducts(
           `category_slug: "${categorySlug}" is neither an existing category nor a row of the categories sheet`,
         );
     }
-    const variantOf = text(row, "variant_of_sku").toUpperCase();
-    if (variantOf === "NONE") plan.variantOf = null;
-    else if (variantOf) {
-      if (variantOf === sku)
-        cells.problems.push(
-          "variant_of_sku: a product cannot be a pack size of itself",
-        );
-      else {
-        const target = db.products.find((entry) => entry.sku === variantOf);
-        if (target) plan.variantOf = { existingId: target.id };
-        else if (fileSkus.includes(variantOf))
-          plan.variantOf = { rowKey: variantOf };
-        else
-          cells.problems.push(
-            `variant_of_sku: "${variantOf}" is neither an existing product nor a row of this file`,
-          );
-      }
-    }
 
-    if (!record) {
-      // The slug a new product would get must be free (8): the preview
-      // says so; only a slug taken a moment ago stops the import itself.
-      const wouldBe =
-        slugEn ?? (name?.en && label ? slugify(`${name.en} ${label}`) : "");
-      const taken = wouldBe
-        ? db.products.find((entry) => entry.slug.en === wouldBe)
-        : undefined;
-      if (taken)
-        cells.problems.push(
-          `slug_en: "${wouldBe}" is used by product ${taken.sku} already`,
-        );
+    if (!variant) {
+      // A pack size that is added: to a product that exists, or to one
+      // that the first row of its key creates.
       for (const [column, present] of [
-        ["name_en", Boolean(name?.en)],
-        ["category_slug", plan.category !== undefined],
         ["pack_value", packValue !== undefined],
         ["pack_unit", packUnit !== undefined],
         ["regular_price", plan.input.regularPrice !== undefined],
-        ["vat_rate", plan.input.vatRate !== undefined],
       ] as const) {
         if (!present)
-          cells.problems.push(`${column} is required for a new product`);
+          cells.problems.push(`${column} is required for a new pack size`);
+      }
+      if (!product && first) {
+        // The slug a new product would get must be free (8): the preview
+        // says so; only a slug taken a moment ago stops the import itself.
+        const taken = productKey
+          ? db.products.find((entry) => entry.slug.en === productKey)
+          : undefined;
+        if (taken)
+          cells.problems.push(
+            `slug_en: "${productKey}" is used by product ${taken.slug.en} already`,
+          );
+        for (const [column, present] of [
+          ["name_en", Boolean(name?.en)],
+          ["category_slug", plan.category !== undefined],
+          ["vat_rate", plan.input.vatRate !== undefined],
+        ] as const) {
+          if (!present)
+            cells.problems.push(`${column} is required for a new product`);
+        }
+      } else if (!product && !sku) {
+        cells.problems.push(
+          "sku is required for a further pack size of a new product",
+        );
+      } else if (product && pack && !sku) {
+        // A pack that is not on the product yet needs an article number.
+        cells.problems.push(
+          `sku is required for a new pack size of ${product.slug.en}`,
+        );
       }
     }
   });
 
+  // The packs of one product in the file must be of one family and unique,
+  // together with the pack sizes the product has already.
+  const byKey = new Map<string, ProductPlan[]>();
   for (const plan of plans) {
-    const record = plan.existing;
+    if (!plan.productKey) continue;
+    byKey.set(plan.productKey, [...(byKey.get(plan.productKey) ?? []), plan]);
+  }
+  for (const group of byKey.values()) {
+    const product = group.find((plan) => plan.product)?.product ?? null;
+    const packs = [
+      ...(product?.variants ?? [])
+        .filter((entry) => !group.some((plan) => plan.variant === entry))
+        .map((entry) => entry.packSize),
+      ...group.flatMap((plan) => (plan.pack ? [plan.pack] : [])),
+    ];
+    const skus = [
+      ...(product?.variants ?? [])
+        .filter((entry) => !group.some((plan) => plan.variant === entry))
+        .map((entry) => entry.sku),
+      ...group.map((plan) => plan.sku ?? plan.variant?.sku),
+    ];
+    try {
+      assertPackSizes(packs, skus);
+    } catch (error) {
+      if (!(error instanceof HttpError)) throw error;
+      for (const plan of group)
+        if (!plan.variant || plan.pack)
+          plan.result.problems.push(error.message);
+    }
+  }
+
+  for (const plan of plans) {
     if (plan.result.problems.length > 0) {
       plan.result.action = "error";
       continue;
     }
-    if (!record) continue;
+    if (!plan.variant) {
+      // A product with its first pack size, or a further pack size.
+      if (plan.product || !plan.first) plan.result.changes = ["variant"];
+      continue;
+    }
+    const product = plan.product!;
+    const variant = plan.variant;
     const input = plan.input;
     const changes: string[] = [];
     const translatedDiffers = (
@@ -865,151 +957,136 @@ function planProducts(
       Boolean(value) &&
       ((value!.en !== undefined && value!.en !== (current?.en ?? undefined)) ||
         (value!.de !== undefined && value!.de !== (current?.de ?? undefined)));
-    if (translatedDiffers(input.name, record.name)) changes.push("name");
-    if (input.slugEn !== undefined && input.slugEn !== record.slug.en)
-      changes.push("slug_en");
-    if (input.slugDe !== undefined && input.slugDe !== record.slug.de)
-      changes.push("slug_de");
-    if (input.gtin !== undefined && input.gtin !== record.gtin)
+    // The pack size's own columns, read from every row.
+    if (input.gtin !== undefined && input.gtin !== variant.gtin)
       changes.push("gtin");
-    if (translatedDiffers(input.subtitle, record.subtitle))
-      changes.push("subtitle");
-    if (translatedDiffers(input.shortDescription, record.shortDescription))
-      changes.push("short_description");
-    if (translatedDiffers(input.description, record.description))
-      changes.push("description");
-    if (
-      input.highlights &&
-      !same(input.highlights, {
-        en: record.highlights?.en,
-        de: record.highlights?.de,
-      })
-    )
-      changes.push("highlights");
-    if (
-      input.uses &&
-      !same(input.uses, { en: record.uses?.en, de: record.uses?.de })
-    )
-      changes.push("uses");
-    if (input.brand !== undefined && input.brand !== record.brand)
-      changes.push("brand");
-    if (
-      plan.category &&
-      "existingId" in plan.category &&
-      plan.category.existingId !== record.categoryId
-    )
-      changes.push("category_slug");
-    if (plan.category && "rowKey" in plan.category)
-      changes.push("category_slug");
-    if (
-      input.packValue !== undefined &&
-      input.packValue !== record.packSize.value
-    )
-      changes.push("pack_value");
-    if (input.packUnit !== undefined && input.packUnit !== record.packSize.unit)
-      changes.push("pack_unit");
-    if (plan.variantOf !== undefined) {
-      // The main pack size the product follows now, if any.
-      const currentMain =
-        record.variantGroupId && !record.isDefaultVariant
-          ? db.products.find(
-              (entry) =>
-                entry.variantGroupId === record.variantGroupId &&
-                entry.isDefaultVariant,
-            )
-          : undefined;
-      const wanted =
-        plan.variantOf === null
-          ? null
-          : "existingId" in plan.variantOf
-            ? plan.variantOf.existingId
-            : "(a row of this file)";
-      if ((currentMain?.id ?? null) !== wanted) changes.push("variant_of_sku");
-    }
+    if (plan.pack && baseQuantity(plan.pack) !== baseQuantity(variant.packSize))
+      changes.push("packSize");
+    if (input.isEnabled !== undefined && input.isEnabled !== variant.isEnabled)
+      changes.push("isEnabled");
     if (
       input.regularPrice !== undefined &&
-      input.regularPrice !== record.regularPrice
+      input.regularPrice !== variant.regularPrice
     )
-      changes.push("regular_price");
-    if (input.salePrice !== undefined && input.salePrice !== record.salePrice)
-      changes.push("sale_price");
+      changes.push("regularPrice");
+    if (input.salePrice !== undefined && input.salePrice !== variant.salePrice)
+      changes.push("salePrice");
     if (input.discountPercent !== undefined) {
-      const regular = input.regularPrice ?? record.regularPrice;
+      const regular = input.regularPrice ?? variant.regularPrice;
       const sale =
         input.discountPercent === null
           ? null
           : Math.round((regular * (100 - input.discountPercent)) / 100);
-      if (sale !== record.salePrice) changes.push("discount_percent");
+      if (sale !== variant.salePrice) changes.push("discountPercent");
     }
-    if (input.vatRate !== undefined && input.vatRate !== record.vatRate)
-      changes.push("vat_rate");
-    if (input.status !== undefined && input.status !== record.status)
-      changes.push("status");
-    if (
-      input.isAvailable !== undefined &&
-      input.isAvailable !== record.isAvailable
-    )
-      changes.push("is_available");
-    if (
-      input.isFeatured !== undefined &&
-      input.isFeatured !== record.isFeatured
-    )
-      changes.push("is_featured");
-    if (input.sortOrder !== undefined && input.sortOrder !== record.sortOrder)
-      changes.push("sort_order");
-    if (
-      input.minOrderQuantity !== undefined &&
-      input.minOrderQuantity !== record.minOrderQuantity
-    )
-      changes.push("min_order_quantity");
-    if (
-      input.maxOrderQuantity !== undefined &&
-      input.maxOrderQuantity !== record.maxOrderQuantity
-    )
-      changes.push("max_order_quantity");
     if (
       input.stockQuantity !== undefined &&
-      input.stockQuantity !== record.stock.quantity
+      input.stockQuantity !== variant.stock.quantity
     )
       changes.push("stock");
     if (
       input.lowStockThreshold !== undefined &&
-      input.lowStockThreshold !== record.stock.lowStockThreshold
+      input.lowStockThreshold !== variant.stock.lowStockThreshold
     )
       changes.push("lowStockThreshold");
-    if (
-      input.storageType !== undefined &&
-      input.storageType !== record.storageType
-    )
-      changes.push("storage_type");
-    if (input.food) {
-      for (const [stem, value] of Object.entries(input.food)) {
-        const current =
-          record.food?.[
-            toCamel(stem) as keyof NonNullable<ProductRecord["food"]>
-          ];
-        if (
-          typeof value === "string"
-            ? value !== current
-            : translatedDiffers(
-                value,
-                current as { en?: string | null; de?: string | null } | null,
-              )
-        )
-          changes.push(stem);
+    // The product's columns, from its first row in the file only.
+    if (plan.first) {
+      if (translatedDiffers(input.name, product.name)) changes.push("name");
+      if (input.slugEn !== undefined && input.slugEn !== product.slug.en)
+        changes.push("slug");
+      if (input.slugDe !== undefined && input.slugDe !== product.slug.de)
+        changes.push("slug");
+      if (translatedDiffers(input.subtitle, product.subtitle))
+        changes.push("subtitle");
+      if (translatedDiffers(input.shortDescription, product.shortDescription))
+        changes.push("shortDescription");
+      if (translatedDiffers(input.description, product.description))
+        changes.push("description");
+      if (
+        input.highlights &&
+        !same(input.highlights, {
+          en: product.highlights?.en,
+          de: product.highlights?.de,
+        })
+      )
+        changes.push("highlights");
+      if (
+        input.uses &&
+        !same(input.uses, { en: product.uses?.en, de: product.uses?.de })
+      )
+        changes.push("uses");
+      if (input.brand !== undefined && input.brand !== product.brand)
+        changes.push("brand");
+      if (
+        plan.category &&
+        "existingId" in plan.category &&
+        plan.category.existingId !== product.categoryId
+      )
+        changes.push("category");
+      if (plan.category && "rowKey" in plan.category) changes.push("category");
+      if (input.vatRate !== undefined && input.vatRate !== product.vatRate)
+        changes.push("vatRate");
+      if (input.status !== undefined && input.status !== product.status)
+        changes.push("status");
+      if (
+        input.isAvailable !== undefined &&
+        input.isAvailable !== product.isAvailable
+      )
+        changes.push("isAvailable");
+      if (
+        input.isFeatured !== undefined &&
+        input.isFeatured !== product.isFeatured
+      )
+        changes.push("isFeatured");
+      if (
+        input.sortOrder !== undefined &&
+        input.sortOrder !== product.sortOrder
+      )
+        changes.push("sortOrder");
+      if (
+        input.minOrderQuantity !== undefined &&
+        input.minOrderQuantity !== product.minOrderQuantity
+      )
+        changes.push("minOrderQuantity");
+      if (
+        input.maxOrderQuantity !== undefined &&
+        input.maxOrderQuantity !== product.maxOrderQuantity
+      )
+        changes.push("maxOrderQuantity");
+      if (
+        input.storageType !== undefined &&
+        input.storageType !== product.storageType
+      )
+        changes.push("storageType");
+      if (input.food) {
+        for (const [stem, value] of Object.entries(input.food)) {
+          const current =
+            product.food?.[
+              toCamel(stem) as keyof NonNullable<ProductRecord["food"]>
+            ];
+          if (
+            typeof value === "string"
+              ? value !== current
+              : translatedDiffers(
+                  value,
+                  current as { en?: string | null; de?: string | null } | null,
+                )
+          )
+            changes.push(toCamel(stem));
+        }
       }
+      if (input.tags && !same(input.tags, product.tags)) changes.push("tags");
+      if (
+        input.searchKeywords &&
+        !same(input.searchKeywords, product.searchKeywords)
+      )
+        changes.push("searchKeywords");
+      if (translatedDiffers(input.seoTitle, product.seo?.title))
+        changes.push("seo");
+      if (translatedDiffers(input.seoDescription, product.seo?.description))
+        changes.push("seo");
     }
-    if (input.tags && !same(input.tags, record.tags)) changes.push("tags");
-    if (
-      input.searchKeywords &&
-      !same(input.searchKeywords, record.searchKeywords)
-    )
-      changes.push("search_keywords");
-    if (translatedDiffers(input.seoTitle, record.seo?.title))
-      changes.push("seo_title");
-    if (translatedDiffers(input.seoDescription, record.seo?.description))
-      changes.push("seo_description");
-    plan.result.changes = existing === "update" ? changes : [];
+    plan.result.changes = existing === "update" ? [...new Set(changes)] : [];
     plan.result.action =
       existing === "skip"
         ? "skip"
@@ -1030,54 +1107,18 @@ function listPair(cells: Cells, stem: string) {
 const toCamel = (stem: string) =>
   stem.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
 
-/** Main pack sizes before the sizes that join them, whatever the order of the file. */
+/** The row that creates a product before the rows that add its pack sizes, whatever the order of the file. */
 function orderProductPlans(plans: ProductPlan[]): ProductPlan[] {
-  const done = new Set<string>();
-  const ordered: ProductPlan[] = [];
-  let pending = plans.filter((plan) => plan.result.action !== "error");
-  while (pending.length > 0) {
-    const ready = pending.filter(
-      (plan) =>
-        !(plan.variantOf && "rowKey" in plan.variantOf) ||
-        done.has(plan.variantOf.rowKey),
-    );
-    if (ready.length === 0) break;
-    for (const plan of ready) {
-      ordered.push(plan);
-      if (plan.sku) done.add(plan.sku);
-    }
-    pending = pending.filter((plan) => !ready.includes(plan));
-  }
-  return ordered;
+  const writable = plans.filter((plan) => plan.result.action !== "error");
+  return [
+    ...writable.filter((plan) => plan.product || plan.first),
+    ...writable.filter((plan) => !plan.product && !plan.first),
+  ];
 }
 
-function writeProduct(
-  db: Db,
-  plan: ProductPlan,
-  categoryIds: Map<string, string>,
-  createdBySku: Map<string, string>,
-  adminId: string,
-  now: number,
-): void {
+/** The product fields of a row, as the catalogue module applies them. */
+function productFieldsOf(plan: ProductPlan) {
   const input = plan.input;
-  const categoryId = plan.category
-    ? "existingId" in plan.category
-      ? plan.category.existingId
-      : (categoryIds.get(plan.category.rowKey) ?? "")
-    : undefined;
-  if (
-    categoryId !== undefined &&
-    !db.categories.some((entry) => entry.id === categoryId)
-  )
-    throw fail(404, "CATEGORY_NOT_FOUND", "The category was not found.");
-  const variantOf =
-    plan.variantOf === undefined
-      ? undefined
-      : plan.variantOf === null
-        ? null
-        : "existingId" in plan.variantOf
-          ? plan.variantOf.existingId
-          : (createdBySku.get(plan.variantOf.rowKey) ?? null);
   const food = input.food
     ? {
         ingredients: input.food.ingredients as
@@ -1092,8 +1133,7 @@ function writeProduct(
         manufacturer: input.food.manufacturer as string | undefined,
       }
     : undefined;
-  const fields = {
-    gtin: input.gtin,
+  return {
     subtitle: input.subtitle,
     shortDescription: input.shortDescription,
     description: input.description,
@@ -1103,7 +1143,6 @@ function writeProduct(
     isAvailable: input.isAvailable,
     isFeatured: input.isFeatured,
     sortOrder: input.sortOrder,
-    lowStockThreshold: input.lowStockThreshold,
     storageType: input.storageType,
     tags: input.tags,
     searchKeywords: input.searchKeywords,
@@ -1113,39 +1152,68 @@ function writeProduct(
         : undefined,
     food,
   };
+}
 
-  if (!plan.existing) {
-    const regularPrice = input.regularPrice!;
-    const salePrice = resolveSale(regularPrice, input, null);
+/** The pack size of a row as `POST …/variants` takes it. */
+function variantInputOf(plan: ProductPlan) {
+  const input = plan.input;
+  return {
+    sku: plan.sku,
+    gtin: input.gtin,
+    packSize: plan.pack!,
+    regularPrice: input.regularPrice!,
+    salePrice: input.salePrice,
+    discountPercent: input.discountPercent,
+    isEnabled: input.isEnabled,
+    stockQuantity: input.stockQuantity,
+    lowStockThreshold: input.lowStockThreshold,
+  };
+}
+
+function writeProduct(
+  db: Db,
+  plan: ProductPlan,
+  categoryIds: Map<string, string>,
+  createdByKey: Map<string, ProductRecord>,
+  adminId: string,
+  now: number,
+): void {
+  const input = plan.input;
+  const categoryId = plan.category
+    ? "existingId" in plan.category
+      ? plan.category.existingId
+      : (categoryIds.get(plan.category.rowKey) ?? "")
+    : undefined;
+  if (
+    categoryId !== undefined &&
+    !db.categories.some((entry) => entry.id === categoryId)
+  )
+    throw fail(404, "CATEGORY_NOT_FOUND", "The category was not found.");
+
+  const product = plan.product ?? createdByKey.get(plan.productKey) ?? null;
+
+  if (!product) {
+    // The first row of a new product creates it with its first pack size.
     const min = input.minOrderQuantity ?? 1;
     const max = input.maxOrderQuantity ?? null;
     assertQuantities(min, max);
-    const sku = normalSku(db, plan.sku);
-    const label = packLabel(input.packValue!, input.packUnit!);
     const name = { en: input.name!.en!, de: input.name?.de ?? null };
     const slug = {
-      en: input.slugEn ?? slugify(`${name.en} ${label}`),
-      de: input.slugDe ?? (name.de ? slugify(`${name.de} ${label}`) : null),
+      en: input.slugEn ?? slugify(name.en),
+      de: input.slugDe ?? (name.de ? slugify(name.de) : null),
     };
-    assertProductSlugFree(db, slug);
+    assertProductSlugFree(db, slug, [plan.pack!]);
     const status = input.status ?? "draft";
-    const product: ProductRecord = {
+    const created: ProductRecord = {
       id: newId(now),
-      sku,
-      gtin: null,
       name,
       slug,
       brand: null,
-      packSize: { value: input.packValue!, unit: input.packUnit!, label },
-      regularPrice,
-      salePrice,
       vatRate: input.vatRate!,
       status,
       isAvailable: true,
       isFeatured: false,
       sortOrder: 0,
-      variantGroupId: null,
-      isDefaultVariant: true,
       subtitle: null,
       shortDescription: null,
       description: null,
@@ -1155,7 +1223,7 @@ function writeProduct(
       minOrderQuantity: min,
       maxOrderQuantity: max,
       storageType: "ambient",
-      stock: { quantity: 0, lowStockThreshold: null },
+      variants: [],
       food: null,
       tags: [],
       searchKeywords: [],
@@ -1165,87 +1233,142 @@ function writeProduct(
       createdAt: iso(now),
       updatedAt: iso(now),
     };
-    applyProductFields(product, fields);
-    db.products.push(product);
-    if (variantOf) applyVariantOf(db, product, variantOf);
-    logPrice(db, product, adminId, now);
-    // A new product with a count starts its history with a restock (8.2).
+    applyProductFields(created, productFieldsOf(plan));
+    const variant = createVariant(
+      db,
+      created,
+      { ...variantInputOf(plan), stockQuantity: undefined },
+      adminId,
+      now,
+    );
+    // The opening stock of an imported pack size is recorded as a restock (8.2).
     if (input.stockQuantity) {
       recordMovement(
         db,
-        product,
+        created,
+        variant,
         "restock",
         input.stockQuantity,
         { adminId, note: "CSV import" },
         now,
       );
     }
-    plan.result.id = product.id;
-    createdBySku.set(product.sku, product.id);
+    db.products.push(created);
+    plan.result.id = created.id;
+    plan.result.variantId = variant.id;
+    createdByKey.set(plan.productKey, created);
     return;
   }
 
-  const product = plan.existing;
-  const regularPrice = input.regularPrice ?? product.regularPrice;
-  const salePrice = resolveSale(regularPrice, input, product.salePrice);
-  const min = input.minOrderQuantity ?? product.minOrderQuantity;
-  const max =
-    input.maxOrderQuantity === undefined
-      ? product.maxOrderQuantity
-      : input.maxOrderQuantity;
-  assertQuantities(min, max);
-  if (input.slugEn !== undefined || input.slugDe !== undefined) {
-    const slug = {
-      en: input.slugEn ?? product.slug.en,
-      de: input.slugDe ?? product.slug.de ?? null,
-    };
-    assertProductSlugFree(db, slug, product.id);
-    product.slug = slug;
+  if (!plan.variant) {
+    // A further pack size of a product that exists or was created just now.
+    assertPackSizes(
+      [...product.variants.map((entry) => entry.packSize), plan.pack!],
+      [...product.variants.map((entry) => entry.sku), plan.sku],
+    );
+    assertProductSlugFree(db, product.slug, [plan.pack!], product.id);
+    const variant = createVariant(
+      db,
+      product,
+      { ...variantInputOf(plan), stockQuantity: undefined },
+      adminId,
+      now,
+    );
+    if (input.stockQuantity) {
+      recordMovement(
+        db,
+        product,
+        variant,
+        "restock",
+        input.stockQuantity,
+        { adminId, note: "CSV import" },
+        now,
+      );
+    }
+    product.updatedAt = iso(now);
+    plan.result.id = product.id;
+    plan.result.variantId = variant.id;
+    createdByKey.set(plan.productKey, product);
+    return;
   }
-  if (variantOf !== undefined) applyVariantOf(db, product, variantOf);
-  const vatRate = input.vatRate ?? product.vatRate;
-  const priceChanged =
-    regularPrice !== product.regularPrice ||
-    salePrice !== product.salePrice ||
-    vatRate !== product.vatRate;
-  product.regularPrice = regularPrice;
-  product.salePrice = salePrice;
-  product.vatRate = vatRate;
-  product.minOrderQuantity = min;
-  product.maxOrderQuantity = max;
-  if (input.name)
-    product.name = {
-      en: input.name.en ?? product.name.en,
-      de: input.name.de ?? product.name.de ?? null,
-    };
-  if (categoryId !== undefined) product.categoryId = categoryId;
-  if (input.packValue !== undefined || input.packUnit !== undefined) {
-    const value = input.packValue ?? product.packSize.value;
-    const unit = input.packUnit ?? product.packSize.unit;
-    product.packSize = { value, unit, label: packLabel(value, unit) };
+
+  // An update: the product columns first (from the first row), then the
+  // pack size, then the stock count (8.2).
+  const variant = plan.variant;
+  if (plan.first) {
+    const min = input.minOrderQuantity ?? product.minOrderQuantity;
+    const max =
+      input.maxOrderQuantity === undefined
+        ? product.maxOrderQuantity
+        : input.maxOrderQuantity;
+    assertQuantities(min, max);
+    if (input.slugEn !== undefined || input.slugDe !== undefined) {
+      const slug = {
+        en: input.slugEn ?? product.slug.en,
+        de: input.slugDe ?? product.slug.de ?? null,
+      };
+      assertProductSlugFree(
+        db,
+        slug,
+        product.variants.map((entry) => entry.packSize),
+        product.id,
+      );
+      product.slug = slug;
+    }
+    const vatRate = input.vatRate ?? product.vatRate;
+    const vatChanged = vatRate !== product.vatRate;
+    product.vatRate = vatRate;
+    product.minOrderQuantity = min;
+    product.maxOrderQuantity = max;
+    if (input.name)
+      product.name = {
+        en: input.name.en ?? product.name.en,
+        de: input.name.de ?? product.name.de ?? null,
+      };
+    if (categoryId !== undefined) product.categoryId = categoryId;
+    if (input.status !== undefined) {
+      product.status = input.status;
+      if (input.status === "active") product.publishedAt ??= iso(now);
+    }
+    applyProductFields(product, productFieldsOf(plan));
+    if (vatChanged) {
+      for (const entry of product.variants)
+        logPrice(db, product, entry, adminId, now);
+    }
   }
-  if (input.status !== undefined) {
-    product.status = input.status;
-    if (input.status === "active") product.publishedAt ??= iso(now);
-  }
-  applyProductFields(product, fields);
+  applyVariantPatch(
+    db,
+    product,
+    variant,
+    {
+      gtin: input.gtin,
+      packSize: plan.pack,
+      regularPrice: input.regularPrice,
+      salePrice: input.salePrice,
+      discountPercent: input.discountPercent,
+      isEnabled: input.isEnabled,
+      lowStockThreshold: input.lowStockThreshold,
+    },
+    adminId,
+    now,
+  );
   product.updatedAt = iso(now);
-  if (priceChanged) logPrice(db, product, adminId, now);
   // A changed count is recorded as an import movement (8.2).
   if (
     input.stockQuantity !== undefined &&
-    input.stockQuantity !== product.stock.quantity
+    input.stockQuantity !== variant.stock.quantity
   ) {
     recordMovement(
       db,
       product,
+      variant,
       "import",
-      input.stockQuantity - product.stock.quantity,
+      input.stockQuantity - variant.stock.quantity,
       { adminId, note: "CSV import" },
       now,
     );
   }
-  createdBySku.set(product.sku, product.id);
+  createdByKey.set(plan.productKey, product);
 }
 
 // --- The routes -----------------------------------------------------------------
@@ -1274,7 +1397,7 @@ function run(
     const categoryIds = new Map<string, string>();
     for (const category of db.categories)
       categoryIds.set(category.slug.en, category.id);
-    const createdBySku = new Map<string, string>();
+    const createdByKey = new Map<string, ProductRecord>();
     const writable = (action: Action) =>
       action === "create" || action === "update";
     const stop = (type: "categories" | "products", row: number) => {
@@ -1297,7 +1420,7 @@ function run(
       for (const plan of orderProductPlans(productPlans)) {
         if (stoppedAt || !writable(plan.result.action)) continue;
         try {
-          writeProduct(db, plan, categoryIds, createdBySku, adminId, now);
+          writeProduct(db, plan, categoryIds, createdByKey, adminId, now);
         } catch (error) {
           if (!(error instanceof HttpError)) throw error;
           plan.result.action = "error";
@@ -1379,23 +1502,17 @@ function exportCategories(db: Db) {
 }
 
 function exportProducts(db: Db) {
+  // One row per pack size: products by base slug, their pack sizes smallest
+  // first, the product columns repeated on every row (8.2).
   const rows = [...db.products]
-    .sort((a, b) => a.sku.localeCompare(b.sku))
-    .map((product) => {
+    .sort((a, b) => a.slug.en.localeCompare(b.slug.en))
+    .flatMap((product) => {
       const category = db.categories.find(
         (entry) => entry.id === product.categoryId,
       );
-      const main =
-        product.variantGroupId && !product.isDefaultVariant
-          ? db.products.find(
-              (entry) =>
-                entry.variantGroupId === product.variantGroupId &&
-                entry.isDefaultVariant,
-            )
-          : undefined;
-      return {
-        sku: product.sku,
-        gtin: product.gtin ?? "",
+      return sortedVariants(product).map((variant) => ({
+        sku: variant.sku,
+        gtin: variant.gtin ?? "",
         name_en: product.name.en,
         name_de: product.name.de ?? "",
         slug_en: product.slug.en,
@@ -1412,11 +1529,11 @@ function exportProducts(db: Db) {
         uses_de: joined(product.uses?.de),
         brand: product.brand ?? "",
         category_slug: category?.slug.en ?? "",
-        pack_value: String(product.packSize.value),
-        pack_unit: product.packSize.unit,
-        variant_of_sku: main?.sku ?? "",
-        regular_price: euros(product.regularPrice),
-        sale_price: euros(product.salePrice),
+        pack_value: String(variant.packSize.value),
+        pack_unit: variant.packSize.unit,
+        variant_enabled: yesNo(variant.isEnabled),
+        regular_price: euros(variant.regularPrice),
+        sale_price: euros(variant.salePrice),
         discount_percent: "",
         vat_rate: String(product.vatRate / 100),
         status: product.status,
@@ -1428,11 +1545,11 @@ function exportProducts(db: Db) {
           product.maxOrderQuantity === null
             ? ""
             : String(product.maxOrderQuantity),
-        stock_quantity: String(product.stock.quantity),
+        stock_quantity: String(variant.stock.quantity),
         low_stock_threshold:
-          product.stock.lowStockThreshold === null
+          variant.stock.lowStockThreshold === null
             ? ""
-            : String(product.stock.lowStockThreshold),
+            : String(variant.stock.lowStockThreshold),
         storage_type: product.storageType ?? "ambient",
         ingredients_en: product.food?.ingredients?.en ?? "",
         ingredients_de: product.food?.ingredients?.de ?? "",
@@ -1450,7 +1567,7 @@ function exportProducts(db: Db) {
         seo_title_de: product.seo?.title?.de ?? "",
         seo_description_en: product.seo?.description?.en ?? "",
         seo_description_de: product.seo?.description?.de ?? "",
-      };
+      }));
     });
   return { type: "products", columns: [...PRODUCT_COLUMNS], rows };
 }

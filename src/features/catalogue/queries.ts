@@ -9,12 +9,11 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
-import { hasErrorCode } from "@/lib/api/errors";
+import { hasErrorCode, isSessionError } from "@/lib/api/errors";
 import { invalidation, queryKeys } from "@/lib/api/query-keys";
 import type {
   Category,
   CategoryInput,
-  DuplicateProductInput,
   Id,
   ImagePatch,
   ListResult,
@@ -29,6 +28,7 @@ import type {
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
 import { reorderSiblings } from "./category-tree";
+import type { ProductPlan } from "./product-schema";
 
 // --- Reading ----------------------------------------------------------------
 
@@ -53,24 +53,26 @@ export function useProduct(id: Id, enabled = true) {
   });
 }
 
-export function usePriceHistory(id: Id, enabled = true) {
+/** The prices one pack size had, newest first (8). */
+export function usePriceHistory(id: Id, variantId: Id, enabled = true) {
   return useQuery({
-    queryKey: queryKeys.products.priceHistory(id),
+    queryKey: queryKeys.products.priceHistory(id, variantId),
     queryFn: async ({ signal }) =>
-      (await api.products.priceHistory(id, signal)).items,
+      (await api.products.priceHistory(id, variantId, signal)).items,
     enabled,
   });
 }
 
 const MOVEMENTS_PAGE = 25;
 
-/** The stock history of a product, newest first, page by page (8). */
-export function useStockMovements(id: Id, enabled = true) {
+/** The stock history of one pack size, newest first, page by page (8). */
+export function useStockMovements(id: Id, variantId: Id, enabled = true) {
   return useInfiniteQuery({
-    queryKey: queryKeys.products.stockMovements(id),
+    queryKey: queryKeys.products.stockMovements(id, variantId),
     queryFn: ({ pageParam, signal }) =>
       api.products.stockMovements(
         id,
+        variantId,
         { limit: MOVEMENTS_PAGE, cursor: pageParam },
         signal,
       ),
@@ -161,15 +163,15 @@ export function useUpdateProduct(id: Id) {
 }
 
 /**
- * Sets the counted number or adds and removes units (8). The answer is the
- * product as it is now, plus the line of the ledger; the history and the
- * low-stock group of the start page are loaded again.
+ * Sets the counted number of a pack size or adds and removes units (8).
+ * The answer is the product as it is now, plus the line of the ledger; the
+ * history and the low-stock group of the start page are loaded again.
  */
-export function useChangeStock(id: Id) {
+export function useChangeStock(id: Id, variantId: Id) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: StockChangeInput) =>
-      api.products.changeStock(id, input),
+      api.products.changeStock(id, variantId, input),
     onSuccess: ({ product }) => keepProduct(client, product),
     meta: { invalidates: invalidation.stock, silent: true },
   });
@@ -182,23 +184,107 @@ export function useDeleteProduct() {
   });
 }
 
-export function useDuplicateProduct(id: Id) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: DuplicateProductInput) =>
-      (await api.products.duplicate(id, input)).product,
-    onSuccess: (product) => keepProduct(client, product),
-    meta: { invalidates: invalidation.catalog, silent: true },
-  });
+/** One request of saving a product: the product itself, or one of its pack sizes. */
+export interface SaveStep {
+  kind: "product" | "remove" | "change" | "add";
+  /** "the product details", "5 kg", "a new pack size". */
+  label: string;
+  /** The pack size of a `remove` or `change` step. */
+  variantId?: Id;
+  /** The row of the form of an `add` step. */
+  row?: number;
 }
 
-/** Makes one pack size the one shown in listings. */
-export function useMakeDefault() {
+/**
+ * What came of saving: the product as the API has it now, the steps that
+ * went through, the one that failed and the ones that were not sent.
+ */
+export interface SaveReport {
+  product: ProductDetail;
+  done: SaveStep[];
+  failed: { step: SaveStep; error: unknown } | null;
+  pending: SaveStep[];
+}
+
+/**
+ * Saves an existing product (8): the product fields in one request, then
+ * every pack size that is removed, changed or added in a request of its
+ * own, in that order. Every answer is the whole product. The sequence stops
+ * at the first refusal; what went through before it stays saved, and the
+ * report says what is still to be sent.
+ */
+export function useSaveProduct(id: Id) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (id: Id) => (await api.products.makeDefault(id)).product,
-    onSuccess: (product) => keepProduct(client, product),
-    meta: { invalidates: [queryKeys.products.all] },
+    mutationFn: async ({
+      product,
+      plan,
+    }: {
+      product: ProductDetail;
+      plan: ProductPlan;
+    }): Promise<SaveReport> => {
+      const steps: { step: SaveStep; run: () => Promise<ProductDetail> }[] = [];
+      if (Object.keys(plan.patch).length > 0) {
+        steps.push({
+          step: { kind: "product", label: "the product details" },
+          run: async () => (await api.products.update(id, plan.patch)).product,
+        });
+      }
+      for (const variant of plan.remove) {
+        steps.push({
+          step: {
+            kind: "remove",
+            label: variant.packSize.label,
+            variantId: variant.id,
+          },
+          run: async () =>
+            (await api.products.removeVariant(id, variant.id)).product,
+        });
+      }
+      for (const { variant, patch } of plan.change) {
+        steps.push({
+          step: {
+            kind: "change",
+            label: variant.packSize.label,
+            variantId: variant.id,
+          },
+          run: async () =>
+            (await api.products.updateVariant(id, variant.id, patch)).product,
+        });
+      }
+      for (const { row, label, input } of plan.add) {
+        steps.push({
+          step: { kind: "add", label, row },
+          run: async () => (await api.products.addVariant(id, input)).product,
+        });
+      }
+      let latest = product;
+      const done: SaveStep[] = [];
+      for (const [index, { step, run }] of steps.entries()) {
+        try {
+          latest = await run();
+          done.push(step);
+        } catch (error) {
+          if (isSessionError(error)) throw error;
+          return {
+            product: latest,
+            done,
+            failed: { step, error },
+            pending: steps.slice(index + 1).map((entry) => entry.step),
+          };
+        }
+      }
+      return { product: latest, done, failed: null, pending: [] };
+    },
+    onSuccess: ({ product }) => keepProduct(client, product),
+    meta: {
+      invalidates: [
+        queryKeys.products.all,
+        queryKeys.categories.all,
+        queryKeys.attention,
+      ],
+      silent: true,
+    },
   });
 }
 

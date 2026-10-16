@@ -13,10 +13,14 @@ import type {
   OrderDetail,
   OrderStatus,
   OrderSummary,
+  PackUnit,
   PaymentBlock,
   PriceView,
   ProductDetail,
+  ProductStock,
+  ProductStockOverview,
   ProductSummary,
+  ProductVariant,
   Refundable,
   SettableOrderStatus,
   Totals,
@@ -27,6 +31,7 @@ import type {
   OrderRecord,
   ProductRecord,
   StockRecord,
+  VariantRecord,
 } from "./db.ts";
 import { newId } from "./http.ts";
 import { berlinDay, iso } from "./time.ts";
@@ -68,36 +73,73 @@ const PER: Record<string, { per: "kg" | "l" | "pcs"; factor: number }> = {
   pcs: { per: "pcs", factor: 1 },
 };
 
+/** The unit family of a pack (8): weight, volume or pieces. */
+export const UNIT_FAMILY: Record<PackUnit, "weight" | "volume" | "pieces"> = {
+  g: "weight",
+  kg: "weight",
+  ml: "volume",
+  l: "volume",
+  pcs: "pieces",
+};
+
+/** The pack in its base unit (g, ml or pieces): it orders the pack sizes. */
+export function baseQuantity(pack: { value: number; unit: PackUnit }): number {
+  const factor = pack.unit === "kg" || pack.unit === "l" ? 1000 : 1;
+  return Math.round(pack.value * factor * 1000) / 1000;
+}
+
 export function packLabel(value: number, unit: string): string {
   return `${value} ${unit}`;
 }
 
-export function priceView(product: {
-  regularPrice: number;
-  salePrice: number | null;
-  vatRate: number;
-  packSize: { value: number; unit: string };
-}): PriceView {
-  const price = product.salePrice ?? product.regularPrice;
-  const onSale = product.salePrice !== null;
-  const base = PER[product.packSize.unit];
+/** The part a pack adds to the base slug: `1kg`, `1-5kg`, `250ml`, `6pcs` (German `6stk`). */
+export function packSlug(
+  pack: { value: number; unit: PackUnit },
+  language: "en" | "de",
+): string {
+  const unit = pack.unit === "pcs" && language === "de" ? "stk" : pack.unit;
+  return `${String(pack.value).replace(".", "-")}${unit}`;
+}
+
+/** The URL of a pack size in each language: the base slug plus the pack (8). */
+export function variantSlug(
+  slug: { en: string; de?: string | null },
+  pack: { value: number; unit: PackUnit },
+): { en: string; de: string | null } {
+  return {
+    en: `${slug.en}-${packSlug(pack, "en")}`,
+    de: slug.de ? `${slug.de}-${packSlug(pack, "de")}` : null,
+  };
+}
+
+export function priceView(
+  variant: {
+    regularPrice: number;
+    salePrice: number | null;
+    packSize: { value: number; unit: string };
+  },
+  vatRate: number,
+): PriceView {
+  const price = variant.salePrice ?? variant.regularPrice;
+  const onSale = variant.salePrice !== null;
+  const base = PER[variant.packSize.unit];
   return {
     currency: "EUR",
     price,
-    regularPrice: product.regularPrice,
-    salePrice: product.salePrice,
+    regularPrice: variant.regularPrice,
+    salePrice: variant.salePrice,
     onSale,
     discountPercent: onSale
-      ? Math.round((1 - price / product.regularPrice) * 100)
+      ? Math.round((1 - price / variant.regularPrice) * 100)
       : null,
-    discountAmount: onSale ? product.regularPrice - price : null,
+    discountAmount: onSale ? variant.regularPrice - price : null,
     vatIncluded: true,
-    vatRate: product.vatRate,
-    vatPercent: product.vatRate / 100,
-    vatAmount: vatOf(price, product.vatRate),
+    vatRate,
+    vatPercent: vatRate / 100,
+    vatAmount: vatOf(price, vatRate),
     basePrice: base
       ? {
-          amount: Math.round((price * base.factor) / product.packSize.value),
+          amount: Math.round((price * base.factor) / variant.packSize.value),
           per: base.per,
         }
       : null,
@@ -108,8 +150,8 @@ export function vatOf(gross: number, rate: number): number {
   return Math.round((gross * rate) / (10000 + rate));
 }
 
-/** The stock as the API shows it (8): `isLow` needs a threshold. */
-export function stockView(stock: StockRecord) {
+/** The stock of a pack size as the API shows it (8): `isLow` needs a threshold. */
+export function stockView(stock: StockRecord): ProductStock {
   return {
     quantity: stock.quantity,
     lowStockThreshold: stock.lowStockThreshold,
@@ -119,11 +161,66 @@ export function stockView(stock: StockRecord) {
   };
 }
 
-function groupOf(db: Db, product: ProductRecord): ProductRecord[] {
-  if (!product.variantGroupId) return [];
-  return db.products
-    .filter((entry) => entry.variantGroupId === product.variantGroupId)
-    .sort((a, b) => a.packSize.value - b.packSize.value);
+/** The pack sizes of a product, smallest first. */
+export function sortedVariants(product: ProductRecord): VariantRecord[] {
+  return [...product.variants].sort(
+    (a, b) => baseQuantity(a.packSize) - baseQuantity(b.packSize),
+  );
+}
+
+/**
+ * The pack size that stands for the product (8): the smallest enabled one
+ * whose stock covers the smallest order quantity, else the smallest enabled
+ * one, else the smallest of all. Never the cheapest.
+ */
+export function defaultVariantOf(product: ProductRecord): VariantRecord {
+  const sorted = sortedVariants(product);
+  const enabled = sorted.filter((variant) => variant.isEnabled);
+  return (
+    enabled.find(
+      (variant) => variant.stock.quantity >= product.minOrderQuantity,
+    ) ??
+    enabled[0] ??
+    sorted[0]!
+  );
+}
+
+export function variantView(
+  product: ProductRecord,
+  variant: VariantRecord,
+): ProductVariant {
+  const label = variant.packSize.label;
+  return {
+    id: variant.id,
+    sku: variant.sku,
+    gtin: variant.gtin,
+    packSize: variant.packSize,
+    slug: variantSlug(product.slug, variant.packSize),
+    displayName: {
+      en: `${product.name.en} (${label})`,
+      de: product.name.de ? `${product.name.de} (${label})` : null,
+    },
+    pricing: priceView(variant, product.vatRate),
+    isEnabled: variant.isEnabled,
+    isDefault: defaultVariantOf(product).id === variant.id,
+    stock: stockView(variant.stock),
+    createdAt: variant.createdAt,
+  };
+}
+
+/** The stock over the pack sizes (8.1): the sum and the number of low ones. */
+export function stockOverview(product: ProductRecord): ProductStockOverview {
+  const lowVariants = product.variants.filter(
+    (variant) => stockView(variant.stock).isLow,
+  ).length;
+  return {
+    quantity: product.variants.reduce(
+      (sum, variant) => sum + variant.stock.quantity,
+      0,
+    ),
+    lowVariants,
+    isLow: lowVariants > 0,
+  };
 }
 
 export function productSummary(db: Db, product: ProductRecord): ProductSummary {
@@ -132,9 +229,12 @@ export function productSummary(db: Db, product: ProductRecord): ProductSummary {
   );
   const primary =
     product.images.find((image) => image.isPrimary) ?? product.images[0];
+  const variants = sortedVariants(product).map((variant) =>
+    variantView(product, variant),
+  );
+  const defaultVariant = variants.find((variant) => variant.isDefault)!;
   return {
     id: product.id,
-    sku: product.sku,
     name: product.name,
     slug: product.slug,
     brand: product.brand,
@@ -142,16 +242,16 @@ export function productSummary(db: Db, product: ProductRecord): ProductSummary {
       id: product.categoryId,
       name: category?.name ?? { en: "Unknown" },
     },
-    packSize: product.packSize,
-    pricing: priceView(product),
     status: product.status,
     isAvailable: product.isAvailable,
     isFeatured: product.isFeatured,
     sortOrder: product.sortOrder,
-    stock: stockView(product.stock),
-    variantGroupId: product.variantGroupId,
-    isDefaultVariant: product.isDefaultVariant,
-    packSizeCount: Math.max(1, groupOf(db, product).length),
+    vatRate: product.vatRate,
+    priceFrom: defaultVariant.pricing.price,
+    defaultVariant,
+    variants,
+    variantCount: variants.length,
+    stock: stockOverview(product),
     imageCount: product.images.length,
     image: primary
       ? {
@@ -176,6 +276,15 @@ export function productInUse(db: Db, productId: string): number {
   ).length;
 }
 
+/** Orders that hold one pack size, cancelled ones not counted. */
+export function variantInUse(db: Db, variantId: string): number {
+  return db.orders.filter(
+    (order) =>
+      order.status !== "cancelled" &&
+      order.items.some((item) => item.variantId === variantId),
+  ).length;
+}
+
 export function productDetail(db: Db, product: ProductRecord): ProductDetail {
   // Whether `DELETE` would succeed now (8), with the reason of a refusal.
   const orders = productInUse(db, product.id);
@@ -195,7 +304,6 @@ export function productDetail(db: Db, product: ProductRecord): ProductDetail {
     ...productSummary(db, product),
     deletable: notDeletableReason === null,
     notDeletableReason,
-    gtin: product.gtin,
     subtitle: product.subtitle,
     shortDescription: product.shortDescription,
     description: product.description,
@@ -214,16 +322,6 @@ export function productDetail(db: Db, product: ProductRecord): ProductDetail {
       isPrimary: product.images.some((entry) => entry.isPrimary)
         ? image.isPrimary
         : index === 0,
-    })),
-    packSizes: groupOf(db, product).map((entry) => ({
-      id: entry.id,
-      sku: entry.sku,
-      packSize: entry.packSize,
-      pricing: priceView(entry),
-      status: entry.status,
-      isAvailable: entry.isAvailable,
-      stock: stockView(entry.stock),
-      isDefault: entry.isDefaultVariant,
     })),
     publishedAt: product.publishedAt,
   };

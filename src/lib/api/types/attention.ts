@@ -20,7 +20,10 @@ export interface Attention {
     items: Refund[];
   };
   returns: { requested: number; items: OrderReturn[] };
-  /** Products at or below their low-stock threshold, the five most recently updated. */
+  /**
+   * Products with a pack size at or below its threshold, the five most
+   * recently updated; `variants[].stock.isLow` names the pack sizes.
+   */
   stock: { low: number; items: ProductSummary[] };
   notifications: { failed: number; queued: number; items: Notification[] };
 }

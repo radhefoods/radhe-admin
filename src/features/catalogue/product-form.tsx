@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
-import { Controller, useWatch } from "react-hook-form";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Controller } from "react-hook-form";
 import { ActionButton } from "@/components/domain/permission";
-import { Money } from "@/components/domain/values";
 import {
   BilingualField,
-  MoneyField,
   SwitchField,
   UnitField,
   UnsavedGuard,
@@ -17,45 +15,55 @@ import {
   SelectField,
   TextField,
   TextareaField,
+  applyFieldErrors,
   useControlProps,
   useSubmit,
   useZodForm,
 } from "@/components/form/form";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { RadioGroup, RadioItem } from "@/components/ui/controls";
-import { Card, CardBody, CardHeader, Fact } from "@/components/ui/surface";
+import { Alert, Card, CardBody, CardHeader } from "@/components/ui/surface";
 import { notify } from "@/components/ui/toast";
 import { errorMessage } from "@/lib/api/error-text";
+import { hasErrorCode } from "@/lib/api/errors";
 import type {
   ProductDetail,
   ProductInput,
-  ProductPatch,
   ProductStatus,
+  ProductVariant,
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
-import { formatMoney, formatVatRate } from "@/lib/format/money";
-import { PACK_UNIT_LABEL, translated } from "@/lib/format/names";
+import { plural, translated } from "@/lib/format/names";
 import { indentedName } from "./category-tree";
 import {
   LIMITS,
-  PACK_UNITS,
   PRODUCT_FIELD_ALIASES,
   PRODUCT_STATUSES,
-  SALE_MODES,
   STORAGE_TYPES,
+  isVariantError,
+  planIsEmpty,
+  planOf,
   productDefaults,
   productErrorField,
   productSchema,
-  salePreview,
   toProductInput,
-  toProductPatch,
   toTag,
+  variantErrorRow,
+  variantFieldAliases,
+  variantRow,
   type ProductFormValues,
-  type SaleMode,
+  type ProductPlan,
 } from "./product-schema";
-import { useCategories } from "./queries";
+import {
+  useCategories,
+  useSaveProduct,
+  type SaveReport,
+  type SaveStep,
+} from "./queries";
+import { StockDialog } from "./stock-panel";
 import { TagListField } from "./tag-list-field";
+import { VariantRows, rowKey, type RowNotice } from "./variant-rows";
 
 /** What a status means for the shop (documentation, 8). */
 export const STATUS_MEANING: Record<
@@ -68,18 +76,12 @@ export const STATUS_MEANING: Record<
   },
   active: {
     label: "Active",
-    hint: "Part of the shop. Customers can order it while it is available and in stock.",
+    hint: "Part of the shop. Customers can order its pack sizes while they are offered and in stock.",
   },
   archived: {
     label: "Archived",
     hint: "Taken out of the shop. Old orders and invoices keep it.",
   },
-};
-
-const SALE_LABEL: Record<SaleMode, string> = {
-  none: "No sale",
-  price: "Sale price",
-  percent: "Discount in percent",
 };
 
 const STORAGE_LABEL = {
@@ -157,17 +159,68 @@ function Choice<V extends string>({
   );
 }
 
+/** The words for what a save did: "the product details and 2 pack sizes". */
+function describe(steps: SaveStep[]): string {
+  const product = steps.some((step) => step.kind === "product");
+  const sizes = steps.filter((step) => step.kind !== "product");
+  const parts = [
+    ...(product ? ["the product details"] : []),
+    ...(sizes.length > 0
+      ? [
+          sizes.length === 1
+            ? `the pack size ${sizes[0]!.label}`
+            : plural(sizes.length, "pack size"),
+        ]
+      : []),
+  ];
+  return parts.join(" and ");
+}
+
 /**
- * The form of a product, for a new one and for changing one. Saving a
- * product sends only what changed; while the admin types, the product may
- * change underneath (a picture is uploaded, a pack size becomes the
- * default): what was typed stays, the rest follows the product.
+ * The form after a save that stopped at a refusal: the product as the API
+ * has it now, with the rows that were not saved as they were typed, so
+ * that saving again sends only what is still different and nothing twice.
+ */
+function afterPartialSave(
+  values: ProductFormValues,
+  report: SaveReport,
+): ProductFormValues {
+  const unsaved = [report.failed!.step, ...report.pending];
+  const unsavedIds = new Set(
+    unsaved.flatMap((step) => (step.variantId ? [step.variantId] : [])),
+  );
+  const unsavedRows = new Set(
+    unsaved.flatMap((step) => (step.row !== undefined ? [step.row] : [])),
+  );
+  const typed = new Map(
+    values.variants
+      .filter((row) => row.variantId !== "")
+      .map((row) => [row.variantId, row]),
+  );
+  const rows = report.product.variants.map((variant) => {
+    const row = typed.get(variant.id);
+    return unsavedIds.has(variant.id) && row ? row : variantRow(variant);
+  });
+  values.variants.forEach((row, index) => {
+    if (row.variantId === "" && unsavedRows.has(index)) rows.push(row);
+  });
+  const productUnsaved = unsaved.some((step) => step.kind === "product");
+  const base = productUnsaved ? values : productDefaults(report.product);
+  return { ...base, variants: rows };
+}
+
+/**
+ * The form of a product, for a new one and for changing one, with the
+ * pack-size table. A new product goes to the API in one request. An
+ * existing one is saved in a sequence: the product fields, then every pack
+ * size that is removed, changed or added; the sequence stops at the first
+ * refusal, what went through stays saved, and the form says what is left.
  */
 export function ProductForm({
   product,
   categoryId,
   onCreate,
-  onUpdate,
+  onSaved,
   onCancel,
   pictures,
   alsoUnsaved = false,
@@ -177,7 +230,8 @@ export function ProductForm({
   /** The category a new product starts in (the list was filtered by it). */
   categoryId?: string;
   onCreate?: (input: ProductInput) => Promise<unknown>;
-  onUpdate?: (patch: ProductPatch) => Promise<ProductDetail>;
+  /** An existing product was saved, wholly or in part: the product as the API has it now. */
+  onSaved?: (product: ProductDetail) => void;
   onCancel?: () => void;
   /** For a new product: the pictures that go with it, as a part of the form. */
   pictures?: ReactNode;
@@ -194,15 +248,103 @@ export function ProductForm({
   });
   const categoriesQuery = useCategories();
   const categories = categoriesQuery.data?.items;
+  const save = useSaveProduct(product?.id ?? "");
+  const [confirming, setConfirming] = useState<{
+    values: ProductFormValues;
+    plan: ProductPlan;
+  } | null>(null);
+  const [report, setReport] = useState<SaveReport | null>(null);
+  const [notices, setNotices] = useState<Record<string, RowNotice>>({});
+  const [changingStock, setChangingStock] = useState<ProductVariant | null>(
+    null,
+  );
 
   // The product the form was last brought in line with: a save compares
   // against it, so a field nobody touched here is never sent.
   const baseline = useRef(product);
   useEffect(() => {
     if (!product || product === baseline.current) return;
+    // The same product loaded again (after a save) changes nothing here.
+    if (JSON.stringify(product) === JSON.stringify(baseline.current)) {
+      baseline.current = product;
+      return;
+    }
     baseline.current = product;
     form.reset(productDefaults(product), { keepDirtyValues: true });
   }, [product, form]);
+
+  /** Runs the sequence of requests and brings the form in line with what came of it. */
+  async function run(values: ProductFormValues, plan: ProductPlan) {
+    const base = baseline.current!;
+    const result = await save.mutateAsync({ product: base, plan });
+    baseline.current = result.product;
+    onSaved?.(result.product);
+    setNotices({});
+    if (!result.failed) {
+      form.reset(productDefaults(result.product));
+      setReport(null);
+      notify.success(
+        `${translated(result.product.name)} saved`,
+        `Saved: ${describe(result.done)}.`,
+      );
+      return;
+    }
+    // What was not saved stays in the form as typed; the rest follows the API.
+    const merged = afterPartialSave(values, result);
+    form.reset(productDefaults(result.product));
+    form.reset(merged, { keepDefaultValues: true });
+    setReport(result);
+    const { step, error } = result.failed;
+    if (step.kind === "product") {
+      const field = productErrorField(error, "none");
+      if (field && !isVariantError(field)) {
+        form.setError(
+          field,
+          { type: "server", message: errorMessage(error) },
+          { shouldFocus: true },
+        );
+      } else {
+        applyFieldErrors(form, error, PRODUCT_FIELD_ALIASES);
+      }
+      return;
+    }
+    const index =
+      step.kind === "add"
+        ? result.product.variants.length
+        : merged.variants.findIndex((row) => row.variantId === step.variantId);
+    const row = merged.variants[index];
+    if (!row) return;
+    const key = rowKey(row, index);
+    if (step.kind === "remove") {
+      setNotices({
+        [key]: {
+          message: errorMessage(error),
+          canDisable:
+            hasErrorCode(error, "PRODUCT_VARIANT_IN_USE") ||
+            hasErrorCode(error, "PRODUCT_VARIANT_LAST"),
+        },
+      });
+      return;
+    }
+    const field = productErrorField(error, row.saleMode);
+    if (field && isVariantError(field)) {
+      form.setError(
+        `variants.${index}.${field}`,
+        { type: "server", message: errorMessage(error) },
+        { shouldFocus: true },
+      );
+      return;
+    }
+    const unplaced = applyFieldErrors(form, error, variantFieldAliases(index));
+    const placed =
+      Object.keys(unplaced).length === 0 &&
+      Object.keys(form.formState.errors).length > 0;
+    if (!placed) {
+      setNotices({
+        [key]: { message: errorMessage(error), canDisable: false },
+      });
+    }
+  }
 
   const {
     onSubmit: submit,
@@ -211,73 +353,52 @@ export function ProductForm({
   } = useSubmit(
     form,
     async (values: ProductFormValues) => {
-      try {
-        if (!baseline.current) {
+      setReport(null);
+      setNotices({});
+      if (!baseline.current) {
+        try {
           await onCreate?.(toProductInput(values));
-          return;
-        }
-        const patch = toProductPatch(values, baseline.current);
-        if (Object.keys(patch).length === 0) {
-          form.reset(productDefaults(baseline.current));
-          notify.info(
-            "Nothing to save",
-            "The product already has these values.",
+        } catch (error) {
+          // A documented refusal that belongs to a field is shown there; one
+          // about a pack size at its row, when the row can be told.
+          const row = variantErrorRow(error, values.variants);
+          const field = productErrorField(
+            error,
+            row === null ? "none" : values.variants[row]!.saleMode,
           );
-          return;
+          if (!field) throw error;
+          if (isVariantError(field)) {
+            if (row === null) throw error;
+            form.setError(
+              `variants.${row}.${field}`,
+              { type: "server", message: errorMessage(error) },
+              { shouldFocus: true },
+            );
+            return;
+          }
+          form.setError(
+            field,
+            { type: "server", message: errorMessage(error) },
+            { shouldFocus: true },
+          );
         }
-        const updated = await onUpdate?.(patch);
-        if (updated) {
-          baseline.current = updated;
-          form.reset(productDefaults(updated));
-        }
-      } catch (error) {
-        // A documented refusal that belongs to one field is shown there.
-        const field = productErrorField(error, values.saleMode);
-        if (!field) throw error;
-        form.setError(
-          field,
-          { type: "server", message: errorMessage(error) },
-          { shouldFocus: true },
-        );
+        return;
       }
+      const plan = planOf(values, baseline.current);
+      if (planIsEmpty(plan)) {
+        form.reset(productDefaults(baseline.current));
+        notify.info("Nothing to save", "The product already has these values.");
+        return;
+      }
+      if (plan.remove.length > 0) {
+        setConfirming({ values, plan });
+        return;
+      }
+      await run(values, plan);
     },
     { aliases: PRODUCT_FIELD_ALIASES },
   );
 
-  const [
-    saleMode,
-    regularPrice,
-    salePrice,
-    discountPercent,
-    packValue,
-    packUnit,
-  ] = useWatch({
-    control: form.control,
-    name: [
-      "saleMode",
-      "regularPrice",
-      "salePrice",
-      "discountPercent",
-      "packSize.value",
-      "packSize.unit",
-    ],
-  });
-  const preview = salePreview({
-    saleMode,
-    regularPrice,
-    salePrice,
-    discountPercent,
-  });
-  const saved = product?.pricing;
-  const endsSale = Boolean(saved?.onSale) && saleMode === "none";
-  const priceTouched =
-    Boolean(product) &&
-    (form.formState.dirtyFields.regularPrice ||
-      form.formState.dirtyFields.saleMode ||
-      form.formState.dirtyFields.salePrice ||
-      form.formState.dirtyFields.discountPercent ||
-      form.formState.dirtyFields.packSize ||
-      form.formState.dirtyFields.vatRate);
   const dirty = form.formState.isDirty;
   const problems = Object.keys(form.formState.errors).length;
   // The category of the product is an option from the first moment on, also
@@ -293,6 +414,10 @@ export function ProductForm({
       label: indentedName(entry),
     })),
   ];
+  const removing = confirming?.plan.remove ?? [];
+  const staying = confirming
+    ? confirming.values.variants.filter((row) => !row.removed)
+    : [];
 
   return (
     <form onSubmit={submit} noValidate className="flex min-w-0 flex-col gap-6">
@@ -312,7 +437,7 @@ export function ProductForm({
             label="Name"
             requiredEn
             maxLength={LIMITS.name}
-            hint="Without the pack size: it is shown next to the name."
+            hint="Without the pack size: the shop adds it, “Basmati Rice (1 kg)”."
           />
           <BilingualField
             form={form}
@@ -358,229 +483,63 @@ export function ProductForm({
               autoComplete="off"
             />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <TextField
-              form={form}
-              name="sku"
-              label="Article number (SKU)"
-              optional={creating}
-              required={!creating}
-              maxLength={40}
-              autoComplete="off"
-              spellCheck={false}
-              className="uppercase tabular placeholder:normal-case"
-              placeholder={creating ? "Generated when left empty" : undefined}
-              hint={
-                creating
-                  ? "Leave it empty and the API gives the next number (RF-00001 …)."
-                  : "Letters, digits, dot, underscore, hyphen. No other product may have it."
-              }
-            />
-            <TextField
-              form={form}
-              name="gtin"
-              label="Barcode (GTIN)"
-              optional
-              inputMode="numeric"
-              maxLength={14}
-              autoComplete="off"
-              className="tabular"
-              hint="8, 12, 13 or 14 digits."
-            />
-          </div>
         </Section>
 
         {pictures}
 
         <Section
-          id="price"
-          title="Pack size and price"
-          description="Prices are typed in euros and include VAT."
+          id="pack-sizes"
+          title="Pack sizes and prices"
+          description="Each pack size has its own article number, price and stock; the VAT rate is the product's. Prices are typed in euros and include VAT."
         >
-          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)]">
-            <TextField
+          <div className="flex items-start gap-2 sm:max-w-80">
+            <UnitField
               form={form}
-              name="packSize.value"
-              label="Pack size"
+              name="vatRate"
+              label="VAT rate"
               required
-              inputMode="decimal"
-              autoComplete="off"
-              className="tabular"
-              placeholder="5"
+              unit="%"
+              decimal
+              placeholder="7"
+              fieldClassName="flex-1"
+              hint="Contained in every price. The same for every pack size."
             />
-            <SelectField form={form} name="packSize.unit" label="Unit" required>
-              {PACK_UNITS.map((unit) => (
-                <option key={unit} value={unit}>
-                  {PACK_UNIT_LABEL[unit]}
-                </option>
+            <div className="flex gap-1 pt-[26px]">
+              {["7", "19"].map((rate) => (
+                <Button
+                  key={rate}
+                  variant="ghost"
+                  className="px-2.5"
+                  aria-label={`Set the VAT rate to ${rate} percent`}
+                  onClick={() =>
+                    form.setValue("vatRate", rate, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    })
+                  }
+                >
+                  {rate} %
+                </Button>
               ))}
-            </SelectField>
-            <p className="self-end pb-1.5 text-13 text-ink-subtle">
-              Up to three decimals. The shop shows it as “
-              {packValue.trim() || "5"} {packUnit}”.
-            </p>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <MoneyField
-              form={form}
-              name="regularPrice"
-              label="Regular price"
-              required
-              hint="From €0.01 to €100,000.00."
-            />
-            <div className="flex items-start gap-2">
-              <UnitField
-                form={form}
-                name="vatRate"
-                label="VAT rate"
-                required
-                unit="%"
-                decimal
-                placeholder="7"
-                fieldClassName="flex-1"
-                hint="Contained in the price."
-              />
-              <div className="flex gap-1 pt-[26px]">
-                {["7", "19"].map((rate) => (
-                  <Button
-                    key={rate}
-                    variant="ghost"
-                    className="px-2.5"
-                    aria-label={`Set the VAT rate to ${rate} percent`}
-                    onClick={() =>
-                      form.setValue("vatRate", rate, {
-                        shouldDirty: true,
-                        shouldValidate: true,
-                      })
-                    }
-                  >
-                    {rate} %
-                  </Button>
-                ))}
-              </div>
             </div>
           </div>
-
-          <div className="flex flex-col gap-3 rounded-lg border border-line bg-canvas/50 p-3.5">
-            <Field
-              label="Sale"
-              hint="A sale is given either as a price or as a percentage of the regular price, never both."
-            >
-              <Controller
-                control={form.control}
-                name="saleMode"
-                render={({ field }) => (
-                  <Choice
-                    label="Sale"
-                    inline
-                    value={field.value}
-                    onBlur={field.onBlur}
-                    disabled={!manage}
-                    onChange={(mode) => {
-                      field.onChange(mode);
-                      form.clearErrors(["salePrice", "discountPercent"]);
-                    }}
-                    options={SALE_MODES.map((mode) => ({
-                      value: mode,
-                      label: SALE_LABEL[mode],
-                    }))}
-                  />
-                )}
-              />
-            </Field>
-            {saleMode === "price" ? (
-              <MoneyField
-                form={form}
-                name="salePrice"
-                label="Sale price"
-                required
-                fieldClassName="sm:max-w-80"
-                hint="Must be below the regular price."
-              />
-            ) : null}
-            {saleMode === "percent" ? (
-              <UnitField
-                form={form}
-                name="discountPercent"
-                label="Discount"
-                required
-                unit="%"
-                placeholder="20"
-                fieldClassName="sm:max-w-80"
-                hint="A whole number from 1 to 99. The API sets the sale price from it."
-              />
-            ) : null}
-            {preview ? (
-              <p className="text-13 text-ink-muted" aria-live="polite">
-                {saleMode === "percent"
-                  ? "Customers will pay about "
-                  : "Customers will pay "}
-                <span className="font-semibold text-ink">
-                  {formatMoney(preview.price)}
-                </span>
-                {saleMode === "price"
-                  ? `, about ${preview.percent} % less.`
-                  : "."}
-              </p>
-            ) : null}
-            {endsSale ? (
-              <p className="text-13 text-ink-muted">
-                Saving ends the sale of{" "}
-                <span className="font-semibold text-ink">
-                  {formatMoney(saved?.salePrice ?? 0)}
-                </span>
-                : customers pay the regular price again.
-              </p>
-            ) : null}
-          </div>
-
-          {saved ? (
-            <div className="flex flex-col gap-2 border-t border-line pt-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-13 font-semibold text-ink">
-                  As the shop has it now
-                </h3>
-                {priceTouched ? (
-                  <Badge tone="attention">Calculated again when you save</Badge>
-                ) : null}
-              </div>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
-                <Fact label="Customers pay">
-                  <Money cents={saved.price} className="font-semibold" />
-                  {saved.onSale && saved.discountPercent !== null ? (
-                    <span className="text-ink-muted">
-                      {" "}
-                      (−{saved.discountPercent} %)
-                    </span>
-                  ) : null}
-                </Fact>
-                <Fact label="Base price">
-                  {saved.basePrice ? (
-                    <span className="tabular">
-                      {formatMoney(saved.basePrice.amount)} per{" "}
-                      {saved.basePrice.per === "pcs"
-                        ? "piece"
-                        : saved.basePrice.per}
-                    </span>
-                  ) : (
-                    <span className="text-ink-subtle">None</span>
-                  )}
-                </Fact>
-                <Fact label={`VAT inside (${formatVatRate(saved.vatRate)})`}>
-                  <Money cents={saved.vatAmount} />
-                </Fact>
-                <Fact label="Regular price">
-                  <Money cents={saved.regularPrice} />
-                </Fact>
-              </dl>
-            </div>
-          ) : (
-            <p className="text-13 text-ink-subtle">
-              The base price (per kg, litre or piece) is calculated by the API
-              when the product is saved.
-            </p>
-          )}
+          <VariantRows
+            form={form}
+            product={product}
+            manage={manage}
+            notices={notices}
+            onDisableInstead={(index) => {
+              form.setValue(`variants.${index}.removed`, false, {
+                shouldDirty: true,
+              });
+              form.setValue(`variants.${index}.isEnabled`, false, {
+                shouldDirty: true,
+                shouldValidate: true,
+              });
+              setNotices({});
+            }}
+            onChangeStock={setChangingStock}
+          />
         </Section>
 
         <Section id="status" title="Status and ordering">
@@ -609,7 +568,7 @@ export function ProductForm({
               name="isAvailable"
               label="Available"
               disabled={!manage}
-              hint="Switch it off while the product cannot be supplied. It stays in the catalogue, shown as sold out. A product with a stock of 0 is sold out as well."
+              hint="Switch it off while the product cannot be supplied: every pack size is shown as sold out. A pack size with a stock of 0 is sold out on its own."
             />
             <SwitchField
               form={form}
@@ -625,7 +584,7 @@ export function ProductForm({
               name="minOrderQuantity"
               label="Smallest order quantity"
               required
-              hint="What a customer orders at least: 1 to 10,000."
+              hint="Packs a customer orders at least, of any pack size: 1 to 10,000."
             />
             <UnitField
               form={form}
@@ -633,7 +592,7 @@ export function ProductForm({
               label="Largest order quantity"
               optional
               placeholder="No limit"
-              hint="What a customer orders at most. Empty: no limit."
+              hint="Packs a customer orders at most. Empty: no limit."
             />
             <UnitField
               form={form}
@@ -641,39 +600,6 @@ export function ProductForm({
               label="Sort order"
               required
               hint="The place among the products: 0 to 1,000,000."
-            />
-          </div>
-          <div className="grid gap-4 border-t border-line pt-4 sm:grid-cols-2">
-            {creating ? (
-              <UnitField
-                form={form}
-                name="stockQuantity"
-                label="Opening stock"
-                unit="units"
-                required
-                hint="What is on the shelf now. Later changes go through the stock panel of the product, so every one is in its history."
-              />
-            ) : (
-              <Field label="In stock">
-                <p className="text-sm text-ink">
-                  <span className="font-semibold tabular">
-                    {product.stock.quantity}
-                  </span>{" "}
-                  <span className="text-ink-muted">
-                    units. Changed in the stock panel, not here, so every change
-                    is in the history.
-                  </span>
-                </p>
-              </Field>
-            )}
-            <UnitField
-              form={form}
-              name="lowStockThreshold"
-              label="Low-stock threshold"
-              unit="units"
-              optional
-              placeholder="No threshold"
-              hint="You are warned at or below this count, on the start page and in the list. Empty: never."
             />
             <SelectField form={form} name="storageType" label="Storage">
               {product && !product.storageType ? (
@@ -835,8 +761,8 @@ export function ProductForm({
             maxLength={LIMITS.slug}
             hint={
               creating
-                ? "Generated from the name and the pack size when left empty. Lower-case letters, digits and single hyphens."
-                : "Generated when the product was created. Changing it breaks links that point to the old address."
+                ? "The base of the URLs: each pack size adds its pack to it (basmati-rice-1kg). Generated from the name when left empty."
+                : "The base of the URLs of every pack size (basmati-rice-1kg). Changing it renames them all and breaks links to the old addresses."
             }
           />
         </Section>
@@ -844,6 +770,24 @@ export function ProductForm({
 
       <div className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-3 border-t border-line bg-surface px-4 pt-3 pb-safe sm:mx-0 sm:px-0 sm:pb-3">
         <FormError state={state} />
+        {report?.failed ? (
+          <Alert
+            tone="warning"
+            title={
+              report.done.length > 0
+                ? `Saved: ${describe(report.done)}. Not saved: ${report.failed.step.label}.`
+                : `Not saved: ${report.failed.step.label}.`
+            }
+          >
+            {errorMessage(report.failed.error)}
+            {report.pending.length > 0
+              ? ` ${plural(report.pending.length, "further change")} ${
+                  report.pending.length === 1 ? "was" : "were"
+                } not sent.`
+              : ""}{" "}
+            What was saved stays saved; save again to send what is left.
+          </Alert>
+        ) : null}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <p className="min-w-0 text-13 text-ink-muted" aria-live="polite">
             {problems > 0 && form.formState.submitCount > 0 ? (
@@ -878,7 +822,11 @@ export function ProductForm({
                 variant="ghost"
                 size="lg"
                 disabled={!dirty || pending}
-                onClick={() => form.reset(productDefaults(baseline.current))}
+                onClick={() => {
+                  form.reset(productDefaults(baseline.current));
+                  setReport(null);
+                  setNotices({});
+                }}
               >
                 Discard changes
               </Button>
@@ -888,7 +836,7 @@ export function ProductForm({
               permission="catalog.manage"
               variant="primary"
               size="lg"
-              loading={pending}
+              loading={pending || save.isPending}
               disabled={!creating && !dirty}
             >
               {creating ? "Create product" : "Save changes"}
@@ -896,6 +844,59 @@ export function ProductForm({
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirming !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirming(null);
+        }}
+        title={
+          removing.length === 1
+            ? `Remove the pack size ${removing[0]!.packSize.label}?`
+            : `Remove ${plural(removing.length, "pack size")}?`
+        }
+        description="Removed for good when the product is saved. The price history of a removed pack size goes with it; its stock history stays. A pack size an order holds cannot be removed: the API says so, and you can disable it instead."
+        facts={[
+          {
+            label: "Removed",
+            value: removing.map((entry) => entry.packSize.label).join(", "),
+          },
+          {
+            label: staying.length === 1 ? "Stays" : "Stay",
+            value:
+              staying
+                .map((row) => `${row.packSize.value} ${row.packSize.unit}`)
+                .join(", ") || "None",
+          },
+        ]}
+        confirmLabel={
+          removing.length === 1
+            ? `Save and remove ${removing[0]!.packSize.label}`
+            : `Save and remove ${removing.length} pack sizes`
+        }
+        cancelLabel="Keep them"
+        tone="danger"
+        onConfirm={async () => {
+          if (!confirming) return;
+          const { values, plan } = confirming;
+          setConfirming(null);
+          await run(values, plan);
+        }}
+      />
+
+      {product && changingStock ? (
+        <StockDialog
+          product={product}
+          variant={
+            product.variants.find((entry) => entry.id === changingStock.id) ??
+            changingStock
+          }
+          open
+          onOpenChange={(open) => {
+            if (!open) setChangingStock(null);
+          }}
+        />
+      ) : null}
     </form>
   );
 }

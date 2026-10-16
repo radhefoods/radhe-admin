@@ -127,7 +127,7 @@ export function OrderItemsCard({
                 item.returnedQuantity > 0;
               return (
                 <tr
-                  key={item.productId}
+                  key={item.variantId}
                   className="border-b border-line last:border-b-0"
                 >
                   <th
@@ -188,7 +188,7 @@ export function OrderItemsCard({
                         permission="orders.manage"
                         size="sm"
                         variant="ghost"
-                        aria-label={`Correct the delivered units of ${translated(item.name)} ${item.packSize.label}`}
+                        aria-label={`Correct the delivered units of ${item.displayName}`}
                         onClick={() => setCorrecting(item)}
                       >
                         Correct

@@ -191,31 +191,35 @@ function groupsOf(attention: Attention): Group[] {
       href: withQuery(routes.products, { lowStock: true }),
       detail:
         attention.stock.low > 0
-          ? "At or below their threshold. A product at 0 is sold out in the shop."
-          : "Every product with a threshold is above it.",
-      rows: attention.stock.items.map((product) => ({
-        key: product.id,
-        href: routes.product(product.id),
-        title: `${translated(product.name)} ${product.packSize.label}`,
-        meta: (
-          <>
-            <span className="tabular">{product.sku}</span> · threshold{" "}
-            {product.stock.lowStockThreshold ?? "—"}
-          </>
-        ),
-        trailing: (
-          <span
-            className={cn(
-              "font-semibold tabular",
-              product.stock.quantity === 0 ? "text-danger-fg" : "text-gold",
-            )}
-          >
-            {product.stock.quantity === 0
-              ? "Sold out"
-              : `${product.stock.quantity} left`}
-          </span>
-        ),
-      })),
+          ? "Pack sizes at or below their threshold. A pack size at 0 is sold out in the shop; the other pack sizes of the product stay on sale."
+          : "Every pack size with a threshold is above it.",
+      rows: attention.stock.items.flatMap((product) =>
+        product.variants
+          .filter((variant) => variant.stock.isLow)
+          .map((variant) => ({
+            key: variant.id,
+            href: routes.product(product.id),
+            title: `${translated(product.name)} ${variant.packSize.label}`,
+            meta: (
+              <>
+                <span className="tabular">{variant.sku}</span> · threshold{" "}
+                {variant.stock.lowStockThreshold ?? "—"}
+              </>
+            ),
+            trailing: (
+              <span
+                className={cn(
+                  "font-semibold tabular",
+                  variant.stock.quantity === 0 ? "text-danger-fg" : "text-gold",
+                )}
+              >
+                {variant.stock.quantity === 0
+                  ? "Sold out"
+                  : `${variant.stock.quantity} left`}
+              </span>
+            ),
+          })),
+      ),
     },
     {
       key: "messages",

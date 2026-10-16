@@ -77,7 +77,7 @@ export interface Category {
   sortOrder: number;
   isVisible: boolean;
   image: AdminImage | null;
-  /** Every product (all statuses and pack sizes) in the category and below. */
+  /** Every product (all statuses; a product with several pack sizes counts once) in the category and below. */
   productCount: number;
   seo: CategorySeo | null;
   createdAt: IsoDateTime;
@@ -131,9 +131,9 @@ export interface PriceView {
 }
 
 /**
- * The stock of a product (8). `isLow` is true when a threshold is set and
- * the quantity is at or below it; a product without a threshold is never
- * low. Quantity 0 is sold out in the shop.
+ * The stock of one pack size (8). `isLow` is true when a threshold is set
+ * and the quantity is at or below it; a pack size without a threshold is
+ * never low. Quantity 0 is sold out in the shop.
  */
 export interface ProductStock {
   quantity: number;
@@ -141,24 +141,58 @@ export interface ProductStock {
   isLow: boolean;
 }
 
-export interface ProductSummary {
+/**
+ * The stock of a product over its pack sizes (8.1): the sum, the number of
+ * pack sizes at or below their threshold, and whether there is at least one.
+ */
+export interface ProductStockOverview {
+  quantity: number;
+  lowVariants: number;
+  isLow: boolean;
+}
+
+/**
+ * A pack size of a product (8.1): its own article number, barcode, pack,
+ * URL, prices, enabled switch and stock. `isDefault` marks the one that
+ * stands for the product in lists; the API computes it.
+ */
+export interface ProductVariant {
   id: Id;
   sku: string;
+  gtin: string | null;
+  packSize: PackSize;
+  /** The URL of this pack size in each language: the base slug plus the pack. */
+  slug: Translated;
+  /** What customers see for it: "Basmati Rice (1 kg)". */
+  displayName: Translated;
+  pricing: PriceView;
+  /** `false`: not listed, not orderable, its URL answers 404. */
+  isEnabled: boolean;
+  isDefault: boolean;
+  stock: ProductStock;
+  createdAt: IsoDateTime;
+}
+
+export interface ProductSummary {
+  id: Id;
   name: Translated;
+  /** The base of the URLs; each pack size adds its pack to it. */
   slug: Translated;
   brand: string | null;
   category: { id: Id; name: Translated };
-  packSize: PackSize;
-  pricing: PriceView;
   status: ProductStatus;
   isAvailable: boolean;
   isFeatured: boolean;
   sortOrder: number;
-  stock: ProductStock;
-  /** `null` for a product without other pack sizes. */
-  variantGroupId: Id | null;
-  isDefaultVariant: boolean;
-  packSizeCount: number;
+  /** The same for every pack size. */
+  vatRate: VatRate;
+  /** The selling price of the default pack size. */
+  priceFrom: Cents;
+  defaultVariant: ProductVariant;
+  /** Every pack size, smallest first, disabled ones included. */
+  variants: ProductVariant[];
+  variantCount: number;
+  stock: ProductStockOverview;
   imageCount: number;
   image: SummaryImage | null;
   createdAt: IsoDateTime;
@@ -174,18 +208,6 @@ export interface ProductFood {
   manufacturer: string | null;
 }
 
-/** A member of the variant group, smallest first. */
-export interface ProductPackSizeEntry {
-  id: Id;
-  sku: string;
-  packSize: PackSize;
-  pricing: PriceView;
-  status: ProductStatus;
-  isAvailable: boolean;
-  stock: ProductStock;
-  isDefault: boolean;
-}
-
 export interface ProductSeo {
   title?: TranslatedOptional | null;
   description?: TranslatedOptional | null;
@@ -198,7 +220,6 @@ export interface ProductDetail extends ProductSummary {
     code: "PRODUCT_IS_ACTIVE" | "PRODUCT_IN_USE";
     message: string;
   } | null;
-  gtin: string | null;
   subtitle: TranslatedOptional | null;
   shortDescription: TranslatedOptional | null;
   description: TranslatedOptional | null;
@@ -212,10 +233,8 @@ export interface ProductDetail extends ProductSummary {
   tags: string[];
   searchKeywords: string[];
   seo: ProductSeo | null;
-  /** In the admin's order. */
+  /** In the admin's order; shown for every pack size. */
   images: AdminImage[];
-  /** `[]` for a product without a group. */
-  packSizes: ProductPackSizeEntry[];
   publishedAt: IsoDateTime | null;
 }
 
@@ -232,9 +251,11 @@ export const STOCK_MOVEMENT_REASONS = [
 ] as const;
 export type StockMovementReason = (typeof STOCK_MOVEMENT_REASONS)[number];
 
-/** One line of the stock history (8.1): `delta` positive for units that came in. */
+/** One line of the stock history of a pack size (8.1): `delta` positive for units that came in. */
 export interface StockMovement {
   id: Id;
+  variantId: Id;
+  sku: string;
   reason: StockMovementReason;
   delta: number;
   quantityAfter: number;
@@ -246,7 +267,7 @@ export interface StockMovement {
   createdAt: IsoDateTime;
 }
 
-/** `POST /products/{id}/stock`: the counted number, or units to add or remove. */
+/** `POST …/variants/{variantId}/stock`: the counted number, or units to add or remove. */
 export type StockChangeInput =
   { quantity: number; note?: string } | { delta: number; note?: string };
 
@@ -284,9 +305,11 @@ export interface ImportRowResult {
   key: string;
   name: string;
   action: ImportAction;
-  /** The record the row matched, or after an import the record it created. */
+  /** The record the row matched, or after an import the record it created: the category, or the product. */
   id: Id | null;
-  /** The fields an update changes. */
+  /** Product rows: the pack size the row matched, or after an import the one it created. */
+  variantId?: Id | null;
+  /** The fields an update changes; `variant` for a pack size added to a product. */
   changes: string[];
   /** Why the row is not written. */
   problems: string[];
@@ -327,13 +350,14 @@ export interface ProductQuery extends PageQuery {
   status?: ProductStatus;
   /** Sub-categories included. */
   categoryId?: Id;
-  /** 2 to 80 characters. */
+  /** 2 to 80 characters; every article number of a product counts. */
   q?: string;
   isAvailable?: boolean;
+  /** `true`: products with a reduced enabled pack size. */
   onSale?: boolean;
-  variantGroupId?: Id;
-  /** `true`: only products at or below their low-stock threshold. */
+  /** `true`: only products with a pack size at or below its threshold. */
   lowStock?: boolean;
+  /** `sku` by the smallest article number, the prices by `priceFrom`. */
   sort?: ProductSort;
 }
 
@@ -346,11 +370,31 @@ export interface ProductFoodInput {
   manufacturer?: string;
 }
 
-/** `POST /products`; every field optional on `PATCH`. */
-export interface ProductInput {
+/** A pack size as `POST /products` and `POST …/variants` take it (8). */
+export interface VariantInput {
+  /** Generated (`RF-00001`, …) when left out. */
   sku?: string;
   gtin?: string | null;
+  packSize: { value: number; unit: PackUnit };
+  regularPrice: Cents;
+  /** Below `regularPrice`; `null` ends a sale. Not together with `discountPercent`. */
+  salePrice?: Cents | null;
+  discountPercent?: number | null;
+  /** Default `true`. */
+  isEnabled?: boolean;
+  /** The opening stock, 0 to 1,000,000 (default 0). Only when the pack size is created. */
+  stockQuantity?: number;
+  /** The admin is warned at or below this count; `null` removes it. */
+  lowStockThreshold?: number | null;
+}
+
+/** `PATCH …/variants/{variantId}`: the count itself changes only through the stock endpoint. */
+export type VariantPatch = Partial<Omit<VariantInput, "stockQuantity">>;
+
+/** `POST /products`: the product with its pack sizes. */
+export interface ProductInput {
   name: Translated;
+  /** The base of the URLs; generated from the name when left out. */
   slug?: TranslatedOptional;
   subtitle?: TranslatedOptional;
   shortDescription?: TranslatedOptional;
@@ -359,17 +403,9 @@ export interface ProductInput {
   uses?: TranslatedList;
   brand?: string | null;
   categoryId: Id;
-  packSize: { value: number; unit: PackUnit };
-  /** The opening stock, 0 to 1,000,000 (default 0). Only on create. */
-  stockQuantity?: number;
-  /** The admin is warned at or below this count; `null` removes it. */
-  lowStockThreshold?: number | null;
-  /** Id of any pack size of the product to join; `null` separates. */
-  variantOf?: Id | null;
-  regularPrice: Cents;
-  /** Below `regularPrice`; `null` ends a sale. Not together with `discountPercent`. */
-  salePrice?: Cents | null;
-  discountPercent?: number | null;
+  /** 1 to 20, all of one unit family, no pack twice. */
+  variants: VariantInput[];
+  /** The same for every pack size. */
   vatRate: VatRate;
   status?: ProductStatus;
   isAvailable?: boolean;
@@ -384,20 +420,8 @@ export interface ProductInput {
   seo?: { title?: TranslatedOptional; description?: TranslatedOptional };
 }
 
-/** `PATCH /products/{id}`: the count itself changes only through `POST …/stock`. */
-export type ProductPatch = Partial<Omit<ProductInput, "stockQuantity">>;
-
-export interface DuplicateProductInput {
-  sku?: string;
-  packSize: { value: number; unit: PackUnit };
-  regularPrice: Cents;
-  salePrice?: Cents | null;
-  discountPercent?: number | null;
-  /** Default `true`: the copy joins the pack sizes of the product. */
-  asVariant?: boolean;
-  /** Default `true`. */
-  copyImages?: boolean;
-}
+/** `PATCH /products/{id}`: the product fields only; the pack sizes have endpoints of their own. */
+export type ProductPatch = Partial<Omit<ProductInput, "variants">>;
 
 export interface PriceChange {
   regularPrice: Cents;

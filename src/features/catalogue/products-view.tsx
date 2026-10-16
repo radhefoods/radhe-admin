@@ -40,6 +40,7 @@ import type {
   ProductSort,
   ProductSummary,
 } from "@/lib/api/types";
+import { plural } from "@/lib/format/names";
 import { useCan } from "@/lib/auth/auth-provider";
 import { cn } from "@/lib/cn";
 import { formatVatRate } from "@/lib/format/money";
@@ -49,7 +50,7 @@ import { routes, withQuery } from "@/lib/routes";
 import { PRODUCT_STATUS, statusOptions } from "@/lib/status";
 import { PRODUCT_STATUSES } from "./product-schema";
 import { ImportExportButton } from "./import-export-dialog";
-import { stockState } from "./stock";
+import { overviewState } from "./stock";
 import { useCategories, useProducts, useSetAvailable } from "./queries";
 
 const PAGE_SIZE = 25;
@@ -65,21 +66,35 @@ const SORTS: { value: ProductSort; label: string }[] = [
 ];
 const SORT_VALUES = SORTS.map((sort) => sort.value);
 
-/** The price of a product; a sale shows the regular price struck through and the percentage. */
+/**
+ * The price of a pack size; a sale shows the regular price struck through
+ * and the percentage. With `from`, it is the lowest of several pack sizes.
+ */
 export function ProductPrice({
   pricing,
+  from = false,
   className,
 }: {
   pricing: PriceView;
+  from?: boolean;
   className?: string;
 }) {
+  const prefix = from ? (
+    <span className="text-13 font-normal text-ink-subtle">from </span>
+  ) : null;
   if (!pricing.onSale)
-    return <Money cents={pricing.price} className={className} />;
+    return (
+      <span className={cn("whitespace-nowrap", className)}>
+        {prefix}
+        <Money cents={pricing.price} />
+      </span>
+    );
   return (
     <span
       className={cn("inline-flex flex-col items-end leading-tight", className)}
     >
       <span className="inline-flex items-center gap-1.5">
+        {prefix}
         {pricing.discountPercent !== null ? (
           <Badge tone="neutral" dot={false} className="h-[18px] px-1.5">
             <span className="sr-only">On sale: </span>−{pricing.discountPercent}{" "}
@@ -211,7 +226,7 @@ function AvailableSwitch({ product }: { product: ProductSummary }) {
     <Switch
       checked={product.isAvailable}
       disabled={!can("catalog.manage")}
-      aria-label={`${translated(product.name)} ${product.packSize.label} is available`}
+      aria-label={`${translated(product.name)} is available`}
       onCheckedChange={(isAvailable) =>
         set.mutate({ id: product.id, isAvailable })
       }
@@ -219,9 +234,9 @@ function AvailableSwitch({ product }: { product: ProductSummary }) {
   );
 }
 
-/** The count, with the low or sold-out state as a word next to it. */
+/** The count over the pack sizes, with the low or sold-out state as a word next to it. */
 function StockCell({ product }: { product: ProductSummary }) {
-  const state = stockState(product.stock);
+  const state = overviewState(product.stock);
   return (
     <span className="inline-flex flex-col items-end gap-0.5 leading-tight">
       <span
@@ -259,12 +274,20 @@ const columns: Column<ProductSummary>[] = [
                 >
                   {translated(product.name)}
                 </Link>{" "}
-                <span className="text-ink-muted">{product.packSize.label}</span>
+                <span className="text-ink-muted">
+                  {product.variantCount > 1
+                    ? plural(product.variantCount, "pack size")
+                    : product.defaultVariant.packSize.label}
+                </span>
               </>
             }
             secondary={
               <span className="tabular">
-                {product.sku}
+                {product.variantCount > 1
+                  ? product.variants
+                      .map((entry) => entry.packSize.label)
+                      .join(", ")
+                  : product.defaultVariant.sku}
                 {product.brand ? <span> · {product.brand}</span> : null}
               </span>
             }
@@ -307,7 +330,12 @@ const columns: Column<ProductSummary>[] = [
   {
     id: "price",
     header: "Price",
-    cell: ({ row }) => <ProductPrice pricing={row.original.pricing} />,
+    cell: ({ row }) => (
+      <ProductPrice
+        pricing={row.original.defaultVariant.pricing}
+        from={row.original.variantCount > 1}
+      />
+    ),
     meta: { align: "right", skeleton: "w-16" },
   },
   {
@@ -315,7 +343,7 @@ const columns: Column<ProductSummary>[] = [
     header: "VAT",
     cell: ({ row }) => (
       <span className="whitespace-nowrap text-ink-muted">
-        {formatVatRate(row.original.pricing.vatRate)}
+        {formatVatRate(row.original.vatRate)}
       </span>
     ),
     meta: { align: "right", from: "md", skeleton: "w-8" },
@@ -324,14 +352,14 @@ const columns: Column<ProductSummary>[] = [
     id: "packs",
     header: "Pack sizes",
     cell: ({ row }) => {
-      const { packSizeCount, isDefaultVariant } = row.original;
-      if (packSizeCount <= 1) return <span className="text-ink-subtle">1</span>;
+      const { variantCount, defaultVariant } = row.original;
+      if (variantCount <= 1) return <span className="text-ink-subtle">1</span>;
       return (
         <span className="inline-flex flex-col items-end leading-tight">
-          {packSizeCount}
-          {isDefaultVariant ? (
-            <span className="text-xs text-ink-subtle">default</span>
-          ) : null}
+          {variantCount}
+          <span className="text-xs text-ink-subtle">
+            {defaultVariant.packSize.label} shown
+          </span>
         </span>
       );
     },
@@ -362,17 +390,26 @@ function ProductCard({ product }: { product: ProductSummary }) {
         >
           {translated(product.name)}{" "}
           <span className="font-normal text-ink-muted">
-            {product.packSize.label}
+            {product.variantCount > 1
+              ? plural(product.variantCount, "pack size")
+              : product.defaultVariant.packSize.label}
           </span>
         </Link>
         <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-13 text-ink-subtle">
-          <span className="tabular">{product.sku}</span>
+          <span className="tabular">
+            {product.variantCount > 1
+              ? product.variants.map((entry) => entry.packSize.label).join(", ")
+              : product.defaultVariant.sku}
+          </span>
           <StatusBadge kind="product" value={product.status} />
           <span className="tabular">{product.stock.quantity} in stock</span>
         </span>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-2">
-        <ProductPrice pricing={product.pricing} />
+        <ProductPrice
+          pricing={product.defaultVariant.pricing}
+          from={product.variantCount > 1}
+        />
         <AvailableSwitch product={product} />
       </div>
     </div>
@@ -440,7 +477,7 @@ export function ProductsView() {
     <RequirePermission permission="catalog.read">
       <PageHeader
         title="Products"
-        description="Every pack size is a product of its own, with its article number, price and pictures. The pack sizes of one article are linked, and one of them is shown in the shop's listings."
+        description="One product with all its pack sizes: each has its own article number, price and stock, the texts and pictures are shared. The smallest pack size that is offered and in stock stands for the product in the shop."
         actions={
           <>
             <ImportExportButton type="products" />
@@ -548,8 +585,8 @@ export function ProductsView() {
               }
             >
               {filtered
-                ? "Change the search or the filters. The search looks at names, article numbers, brands, keywords and tags."
-                : "Products are what customers buy in the shop. Create one with its pack size, price and opening stock; pictures are added once it exists."}
+                ? "Change the search or the filters. The search looks at names, the article numbers of every pack size, brands, keywords and tags."
+                : "Products are what customers buy in the shop. Create one with its pack sizes, prices and opening stock; pictures are added once it exists."}
             </EmptyState>
           }
           footer={

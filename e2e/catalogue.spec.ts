@@ -87,10 +87,10 @@ test("a new product takes its pictures with it: created first, then the upload, 
     }
   });
 
-  await page.locator('[name="name.en"]').fill("Moong Dal");
+  await page.locator('[name="name.en"]').fill("Horse Gram");
   await page.locator('[name="categoryId"]').selectOption({ index: 1 });
-  await page.locator('[name="packSize.value"]').fill("500");
-  await page.locator('[name="regularPrice"]').fill("3.49");
+  await page.locator('[name="variants.0.packSize.value"]').fill("500");
+  await page.locator('[name="variants.0.regularPrice"]').fill("3.49");
   await page.locator('[name="vatRate"]').fill("7");
   await page.getByLabel("Choose pictures to upload").setInputFiles([
     { name: "front.png", mimeType: "image/png", buffer: png(640, 480) },
