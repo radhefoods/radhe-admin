@@ -8,7 +8,8 @@ import { z } from "zod";
 import { authenticate, registerAuth, revokeSessions } from "./auth.ts";
 import type { Db } from "./db.ts";
 import { HttpError, fail, json, noContent, setPeople } from "./http.ts";
-import { placeholderSvg } from "./media.ts";
+import { bannerSvg, placeholderSvg } from "./media.ts";
+import { registerBanners } from "./modules/banners.ts";
 import { registerCatalog } from "./modules/catalog.ts";
 import { registerCatalogSheets } from "./modules/catalog-sheets.ts";
 import { registerCommunication } from "./modules/communication.ts";
@@ -87,6 +88,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   registerOrders(router);
   registerPayments(router);
   registerCommunication(router);
+  registerBanners(router);
 
   const originAllowed = (origin: string) =>
     (options.allowedOrigins ?? []).includes(origin) ||
@@ -171,6 +173,26 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
           Number(placeholder[1]),
           Number(placeholder[2]),
           decodeURIComponent(placeholder[3] ?? ""),
+        ),
+        {
+          headers: {
+            "Content-Type": "image/svg+xml; charset=utf-8",
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "Cross-Origin-Resource-Policy": "cross-origin",
+          },
+        },
+      );
+    }
+    const banner = /^\/media\/banner\/(\d+)\/(\d+)x(\d+)\/(.+)\.svg$/.exec(
+      path,
+    );
+    if (banner) {
+      return new Response(
+        bannerSvg(
+          Number(banner[1]),
+          Number(banner[2]),
+          Number(banner[3]),
+          decodeURIComponent(banner[4] ?? ""),
         ),
         {
           headers: {

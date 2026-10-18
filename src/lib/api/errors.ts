@@ -110,6 +110,11 @@ export const API_ERROR_CODES = [
   "ANNOUNCEMENT_NOT_FOUND",
   "ANNOUNCEMENT_NO_RECIPIENTS",
   "MAIL_DELIVERY_FAILED",
+  // banners (20)
+  "BANNER_NOT_FOUND",
+  "BANNER_LIMIT_REACHED",
+  "BANNER_SCHEDULE_INVALID",
+  "BANNER_ORDER_INVALID",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -154,9 +159,22 @@ export interface ErrorDetails {
     wanted: number;
   };
   IMAGE_FORMAT_NOT_ALLOWED: { accepted: string[] };
-  IMAGE_DIMENSIONS_INVALID: { width: number; height: number; minimum: number };
+  /**
+   * Products and categories name `minimum` (one side); a banner names
+   * `minimumHeight` with it, or `landscape: true` when the picture is not
+   * wider than tall (20).
+   */
+  IMAGE_DIMENSIONS_INVALID: {
+    width: number;
+    height: number;
+    minimum?: number;
+    minimumHeight?: number;
+    landscape?: true;
+  };
   IMAGE_LIMIT_REACHED: { maximum: number; remaining: number };
   IMAGE_ORDER_INVALID: { expected: Id[] } | undefined;
+  BANNER_LIMIT_REACHED: { maximum: number };
+  BANNER_ORDER_INVALID: { expected: Id[] } | undefined;
   ORDER_TRANSITION_NOT_ALLOWED: {
     from: OrderStatus;
     to: OrderStatus;

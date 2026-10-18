@@ -16,11 +16,7 @@ import {
   type SettableOrderStatus,
 } from "@/lib/api/types";
 import { formatMoney } from "@/lib/format/money";
-import {
-  DELIVERY_METHOD_LABEL,
-  personName,
-  translated,
-} from "@/lib/format/names";
+import { DELIVERY_METHOD_LABEL, personName } from "@/lib/format/names";
 import { ORDER_STATUS, humanize } from "@/lib/status";
 import { ORDER_PATH, orderActionLabel } from "@/lib/status/transitions";
 import type { OrderActions } from "./queries";

@@ -73,7 +73,8 @@ export function formatBytes(bytes: number): string {
 
 const EXTENSION = /\.(jpe?g|png|webp)$/i;
 
-function hasAcceptedFormat(file: File): boolean {
+/** JPEG, PNG or WebP, by the type the browser gives or by the name. */
+export function hasAcceptedFormat(file: File): boolean {
   if ((IMAGE_RULES.acceptedTypes as readonly string[]).includes(file.type)) {
     return true;
   }

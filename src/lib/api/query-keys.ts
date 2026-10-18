@@ -52,6 +52,10 @@ export const queryKeys = {
     list: () => ["categories", "list"] as const,
     detail: (id: Id) => ["categories", "detail", id] as const,
   },
+  banners: {
+    all: ["banners"] as const,
+    list: () => ["banners", "list"] as const,
+  },
   products: {
     all: ["products"] as const,
     list: (query: ProductQuery) => ["products", "list", query] as const,

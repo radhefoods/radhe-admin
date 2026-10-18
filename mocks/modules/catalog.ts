@@ -20,7 +20,6 @@ import {
   productDetail,
   productInUse,
   productSummary,
-  sortedVariants,
   stockOverview,
   variantInUse,
   variantSlug,

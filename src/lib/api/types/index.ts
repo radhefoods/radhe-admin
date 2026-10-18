@@ -13,3 +13,4 @@ export * from "./returns";
 export * from "./payments";
 export * from "./notifications";
 export * from "./attention";
+export * from "./banners";

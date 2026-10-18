@@ -11,6 +11,24 @@ const MAX_BYTES = 10 * 1024 * 1024;
 const MIN_SIDE = 200;
 const MAX_PIXELS = 40_000_000;
 
+/** What a picture must measure: a side for products and categories (8), … */
+export interface ImageRules {
+  minSide?: number;
+  /** … or a width and a height, wider than tall, for a banner (20). */
+  minWidth?: number;
+  minHeight?: number;
+}
+
+const PRODUCT_IMAGE: ImageRules = { minSide: MIN_SIDE };
+export const BANNER_IMAGE: ImageRules = { minWidth: 1200, minHeight: 300 };
+
+/** The widths a banner is stored in (20), never enlarged. */
+export const BANNER_WIDTHS = {
+  small: 768,
+  medium: 1536,
+  large: 2560,
+} as const;
+
 interface ReadImage {
   bytes: Uint8Array;
   type: string;
@@ -109,7 +127,10 @@ function sizeOf(
 }
 
 /** Checks one uploaded file the way the API does, with its error codes. */
-export async function readImage(file: File): Promise<ReadImage> {
+export async function readImage(
+  file: File,
+  rules: ImageRules = PRODUCT_IMAGE,
+): Promise<ReadImage> {
   if (file.size > MAX_BYTES) {
     throw fail(413, "FILE_TOO_LARGE", "The file is larger than 10 MB.");
   }
@@ -131,11 +152,31 @@ export async function readImage(file: File): Promise<ReadImage> {
     }
     throw fail(400, "IMAGE_INVALID", "The file is not an image.");
   }
-  if (found.width < MIN_SIDE || found.height < MIN_SIDE) {
+  if (rules.minWidth !== undefined && rules.minHeight !== undefined) {
+    if (found.width <= found.height) {
+      throw fail(
+        400,
+        "IMAGE_DIMENSIONS_INVALID",
+        "The image must be wider than tall.",
+        { width: found.width, height: found.height, landscape: true },
+      );
+    }
+    if (found.width < rules.minWidth || found.height < rules.minHeight) {
+      throw fail(400, "IMAGE_DIMENSIONS_INVALID", "The image is too small.", {
+        width: found.width,
+        height: found.height,
+        minimum: rules.minWidth,
+        minimumHeight: rules.minHeight,
+      });
+    }
+  } else if (
+    found.width < (rules.minSide ?? MIN_SIDE) ||
+    found.height < (rules.minSide ?? MIN_SIDE)
+  ) {
     throw fail(400, "IMAGE_DIMENSIONS_INVALID", "The image is too small.", {
       width: found.width,
       height: found.height,
-      minimum: MIN_SIDE,
+      minimum: rules.minSide ?? MIN_SIDE,
     });
   }
   if (found.width * found.height > MAX_PIXELS) {
@@ -161,20 +202,40 @@ function scaled(width: number, height: number, longest: number) {
   };
 }
 
-/** Keeps the upload and describes it as the API describes a stored image. */
-export function storeImage(db: Db, image: ReadImage, now: number): AdminImage {
+function toWidth(width: number, height: number, wanted: number) {
+  const factor = Math.min(1, wanted / width);
+  return {
+    width: Math.round(width * factor),
+    height: Math.round(height * factor),
+  };
+}
+
+/**
+ * Keeps the upload and describes it as the API describes a stored image:
+ * by the longest side for products and categories, by width for a banner.
+ */
+export function storeImage(
+  db: Db,
+  image: ReadImage,
+  now: number,
+  widths?: { small: number; medium: number; large: number },
+): AdminImage {
   const key = newId(now);
   db.files.set(key, { bytes: image.bytes, type: image.type });
   const url = `${db.config.publicUrl}/media/upload/${key}`;
+  const size = (longest: number, width: number) =>
+    widths
+      ? toWidth(image.width, image.height, width)
+      : scaled(image.width, image.height, longest);
   return {
     id: newId(now),
     alt: { en: null, de: null },
     isPrimary: false,
     url,
     sizes: {
-      small: { url, ...scaled(image.width, image.height, 320) },
-      medium: { url, ...scaled(image.width, image.height, 800) },
-      large: { url, ...scaled(image.width, image.height, 1600) },
+      small: { url, ...size(320, widths?.small ?? 0) },
+      medium: { url, ...size(800, widths?.medium ?? 0) },
+      large: { url, ...size(1600, widths?.large ?? 0) },
     },
     bytes: image.bytes.byteLength,
     uploadedAt: iso(now),
@@ -228,5 +289,22 @@ export function placeholderSvg(
 <circle cx="200" cy="184" r="96" fill="hsl(${hue} 55% 97% / 0.75)"/>
 <text x="200" y="212" text-anchor="middle" font-family="Georgia, serif" font-size="84" fill="hsl(${hue} 48% 28%)">${initials}</text>
 <text x="200" y="336" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="22" fill="hsl(${hue} 40% 30%)">${text}</text>
+</svg>`;
+}
+
+/** A drawn stand-in for a banner: a wide ground with the offer's words. */
+export function bannerSvg(
+  hue: number,
+  width: number,
+  height: number,
+  label: string,
+): string {
+  const text = label.replace(/[<&>"]/g, "");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 1200 500" role="img" aria-label="${text}">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="hsl(${hue} 60% 30%)"/><stop offset="1" stop-color="hsl(${(hue + 40) % 360} 65% 45%)"/></linearGradient></defs>
+<rect width="1200" height="500" fill="url(#g)"/>
+<circle cx="980" cy="250" r="170" fill="hsl(${hue} 70% 92% / 0.25)"/>
+<text x="110" y="270" font-family="Georgia, serif" font-size="72" fill="hsl(${hue} 50% 97%)">${text}</text>
+<text x="112" y="330" font-family="Segoe UI, Arial, sans-serif" font-size="28" fill="hsl(${hue} 50% 92%)">Radhe Foods · radhefoods.de</text>
 </svg>`;
 }

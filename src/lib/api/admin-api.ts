@@ -1,4 +1,5 @@
 import { adminUsersApi, authApi, rolesApi } from "./endpoints/auth";
+import { bannersApi } from "./endpoints/banners";
 import {
   catalogSheetsApi,
   categoriesApi,
@@ -37,6 +38,7 @@ export function createAdminApi(transport: SessionTransport) {
     notifications: notificationsApi(transport),
     announcements: announcementsApi(transport),
     attention: attentionApi(transport),
+    banners: bannersApi(transport),
   };
 }
 

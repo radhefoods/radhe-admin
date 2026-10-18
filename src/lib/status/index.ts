@@ -1,5 +1,6 @@
 import type {
   AdminStatus,
+  BannerStatus,
   CustomerStatus,
   InvoiceType,
   LegalStatus,
@@ -115,6 +116,14 @@ export const LEGAL_STATUS = table<LegalStatus>({
   published: "success",
 });
 
+/** A live banner is in the shop; a scheduled one waits for its start. */
+export const BANNER_STATUS = table<BannerStatus>({
+  live: "success",
+  scheduled: "planned",
+  expired: "neutral",
+  inactive: "neutral",
+});
+
 export const INVOICE_TYPE = table<InvoiceType>({
   invoice: "planned",
   credit_note: "moving",
@@ -131,6 +140,7 @@ export const STATUS_TABLES = {
   admin: ADMIN_STATUS,
   legal: LEGAL_STATUS,
   invoiceType: INVOICE_TYPE,
+  banner: BANNER_STATUS,
 } as const;
 
 export type StatusKind = keyof typeof STATUS_TABLES;

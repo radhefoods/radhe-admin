@@ -15,6 +15,7 @@ import type {
 } from "../src/lib/api/types/index.ts";
 import type {
   AdminRecord,
+  BannerRecord,
   CategoryRecord,
   Db,
   MockConfig,
@@ -1868,6 +1869,79 @@ export function seed(options: SeedOptions): Db {
       now - 60_000,
     );
   }
+
+  // --- Homepage banners (20) ------------------------------------------------
+  const bannerImage = (
+    at: number,
+    label: string,
+    hue: number,
+    alt: [string | null, string | null],
+  ): AdminImage => {
+    const url = (width: number, height: number) =>
+      `${options.publicUrl}/media/banner/${hue}/${width}x${height}/${encodeURIComponent(label)}.svg`;
+    return {
+      id: newId(at + 1),
+      alt: { en: alt[0], de: alt[1] },
+      isPrimary: false,
+      url: url(2400, 1000),
+      sizes: {
+        small: { url: url(768, 320), width: 768, height: 320 },
+        medium: { url: url(1536, 640), width: 1536, height: 640 },
+        large: { url: url(2400, 1000), width: 2400, height: 1000 },
+      },
+      bytes: 380_000 + hue * 200,
+      uploadedAt: iso(at),
+    };
+  };
+  const banner = (
+    at: number,
+    name: string,
+    hue: number,
+    alt: [string | null, string | null],
+    rest: Partial<BannerRecord>,
+  ): void => {
+    db.banners.push({
+      id: newId(at),
+      name,
+      image: bannerImage(at, name, hue, alt),
+      linkUrl: null,
+      isActive: true,
+      sortOrder: db.banners.length,
+      startsAt: null,
+      endsAt: null,
+      createdAt: iso(at),
+      updatedAt: iso(at),
+      ...rest,
+    });
+  };
+  const firstCategory = db.categories.find((entry) => entry.parentId === null);
+  banner(
+    now - 20 * DAY,
+    "Diwali offer",
+    28,
+    ["Diwali offer: sweets and snacks for the festival", "Diwali-Angebot"],
+    {
+      linkUrl: firstCategory ? `/categories/${firstCategory.slug.en}` : null,
+      endsAt: iso(now + 12 * DAY),
+    },
+  );
+  banner(
+    now - 9 * DAY,
+    "Free delivery from 50 euros",
+    150,
+    ["Free delivery on every order from 50 euros", null],
+    { linkUrl: "https://www.radhefoods.de/delivery" },
+  );
+  banner(
+    now - 3 * DAY,
+    "Winter warmers",
+    210,
+    ["Winter warmers: lentils, rice and spices", "Winterküche"],
+    { startsAt: iso(now + 30 * DAY), endsAt: iso(now + 90 * DAY) },
+  );
+  banner(now - DAY, "Fresh produce (draft)", 95, [null, null], {
+    isActive: false,
+  });
 
   return db;
 }

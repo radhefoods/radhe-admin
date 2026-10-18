@@ -144,6 +144,12 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   ANNOUNCEMENT_NOT_FOUND: "This announcement does not exist.",
   ANNOUNCEMENT_NO_RECIPIENTS: "No customer has asked for news yet.",
   MAIL_DELIVERY_FAILED: "The email could not be sent.",
+  // banners
+  BANNER_NOT_FOUND: "This banner does not exist (any more).",
+  BANNER_LIMIT_REACHED: "The shop holds 20 banners at most. Delete one first.",
+  BANNER_SCHEDULE_INVALID: "The end must come after the start.",
+  BANNER_ORDER_INVALID:
+    "The banners changed in the meantime. The list was loaded again.",
 };
 
 function list(values: readonly string[]): string {
@@ -178,7 +184,19 @@ export function errorMessage(error: unknown): string {
   if (hasErrorCode(error, "IMAGE_DIMENSIONS_INVALID")) {
     const d = error.details;
     if (d && typeof d.width === "number") {
+      if (d.landscape) {
+        return `The picture must be wider than tall; it has ${d.width} × ${d.height} px.`;
+      }
+      if (typeof d.minimumHeight === "number") {
+        return `The picture is too small (${d.width} × ${d.height} px). It needs at least ${d.minimum} × ${d.minimumHeight} px.`;
+      }
       return `The picture is too small (${d.width} × ${d.height} px). Each side needs at least ${d.minimum} px.`;
+    }
+  }
+  if (hasErrorCode(error, "BANNER_LIMIT_REACHED")) {
+    const d = error.details;
+    if (d && typeof d.maximum === "number") {
+      return `The shop holds ${d.maximum} banners at most. Delete one first.`;
     }
   }
   if (hasErrorCode(error, "IMAGE_LIMIT_REACHED")) {

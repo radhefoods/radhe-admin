@@ -28,6 +28,7 @@ For the Next.js Admin Panel. Generated from the implemented NestJS backend (`rad
 17. Reference: enums, state machines, permission matrix, error codes
 18. Prepared but not yet active
 19. Answers to the requests of the panel (2026-10-14)
+20. Homepage banners (hero carousel)
 
 ---
 
@@ -442,7 +443,6 @@ Read customer accounts and block or unblock them. A blocked customer cannot sign
   "lastName": "Schmidt",
   "phone": "+4915112345678",
   "locale": "de",
-  "hasGoogleLogin": false,
   "communication": {
     "whatsappNumber": "+4915112345678",
     "whatsappOptIn": true,
@@ -455,8 +455,6 @@ Read customer accounts and block or unblock them. A blocked customer cannot sign
   "status": "active",
   "blockedReason": null,
   "blockedAt": null,
-  "signupMethod": "email_otp",
-  "emailVerifiedAt": "2026-09-01T10:00:00.000Z",
   "lastLoginAt": "2026-09-20T08:00:00.000Z",
   "updatedAt": "2026-09-20T08:00:00.000Z",
   "addresses": [
@@ -465,7 +463,7 @@ Read customer accounts and block or unblock them. A blocked customer cannot sign
 }
 ```
 
-`status` ∈ `active`, `blocked`; `signupMethod` ∈ `email_otp`, `google`. `communication.whatsappNumber` falls back to `phone` when no separate number was given; `whatsappOptIn` allows messages about own orders by WhatsApp, `marketingOptIn` the news of section 14.
+`status` ∈ `active`, `blocked`. Customers sign up with email and password; the admin never sees or sets a password. `communication.whatsappNumber` falls back to `phone` when no separate number was given; `whatsappOptIn` allows messages about own orders by WhatsApp, `marketingOptIn` the news of section 14.
 
 ### `GET /v1/admin/customers`
 
@@ -1950,7 +1948,7 @@ Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 | Enum | Values |
 | ---- | ------ |
 | Admin status | `active`, `disabled` |
-| Customer status | `active`, `blocked`; sign-up method `email_otp`, `google` |
+| Customer status | `active`, `blocked` |
 | Product status | `draft`, `active`, `archived` |
 | Pack units | `g`, `kg`, `ml`, `l`, `pcs`; `basePrice.per` `kg`, `l`, `pcs` |
 | Storage type | `ambient`, `chilled`, `frozen` |
@@ -1974,12 +1972,12 @@ Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 
 ### 17.3 Error codes by HTTP status (all modules)
 
-- **400**: `VALIDATION_FAILED`, `BAD_REQUEST`, `IDEMPOTENCY_KEY_REQUIRED`, `ADMIN_MFA_SETUP_REQUIRED`, `ROLE_PERMISSION_UNKNOWN`, `ADDRESS_LIMIT_REACHED`, `CATEGORY_PARENT_INVALID`, `CATEGORY_TOO_DEEP`, `CATEGORY_ORDER_INVALID`, `PRODUCT_PRICE_INVALID`, `PRODUCT_QUANTITY_INVALID`, `PRODUCT_VARIANT_INVALID`, `STOCK_CHANGE_INVALID`, `CART_FULL`, `ORDER_QUANTITY_INVALID`, `ORDER_ITEM_NOT_FOUND` (returns), `RETURN_QUANTITY_INVALID` (approve), `REFUND_AMOUNT_INVALID` (more than can be refunded), `REFUND_METHOD_INVALID`, `IMAGE_REQUIRED`, `IMAGE_INVALID`, `IMAGE_FORMAT_NOT_ALLOWED`, `IMAGE_DIMENSIONS_INVALID`, `IMAGE_LIMIT_REACHED`, `IMAGE_ORDER_INVALID`, `WEBHOOK_SIGNATURE_INVALID`.
-- **401**: `UNAUTHENTICATED` (generic), `AUTH_TOKEN_INVALID`, `AUTH_REFRESH_INVALID`, `AUTH_SESSION_REVOKED`, `ADMIN_CREDENTIALS_INVALID`, `ADMIN_MFA_TOKEN_INVALID`, `ADMIN_MFA_CODE_INVALID`, `OTP_INVALID`, `GOOGLE_TOKEN_INVALID`, `GOOGLE_EMAIL_NOT_VERIFIED`.
+- **400**: `VALIDATION_FAILED`, `BAD_REQUEST`, `IDEMPOTENCY_KEY_REQUIRED`, `ADMIN_MFA_SETUP_REQUIRED`, `ROLE_PERMISSION_UNKNOWN`, `ADDRESS_LIMIT_REACHED`, `CATEGORY_PARENT_INVALID`, `CATEGORY_TOO_DEEP`, `CATEGORY_ORDER_INVALID`, `PRODUCT_PRICE_INVALID`, `PRODUCT_QUANTITY_INVALID`, `PRODUCT_VARIANT_INVALID`, `STOCK_CHANGE_INVALID`, `CART_FULL`, `ORDER_QUANTITY_INVALID`, `ORDER_ITEM_NOT_FOUND` (returns), `RETURN_QUANTITY_INVALID` (approve), `REFUND_AMOUNT_INVALID` (more than can be refunded), `REFUND_METHOD_INVALID`, `IMAGE_REQUIRED`, `IMAGE_INVALID`, `IMAGE_FORMAT_NOT_ALLOWED`, `IMAGE_DIMENSIONS_INVALID`, `IMAGE_LIMIT_REACHED`, `IMAGE_ORDER_INVALID`, `BANNER_LIMIT_REACHED`, `BANNER_ORDER_INVALID`, `BANNER_SCHEDULE_INVALID`, `WISHLIST_FULL` (store), `WEBHOOK_SIGNATURE_INVALID`.
+- **401**: `UNAUTHENTICATED` (generic), `AUTH_TOKEN_INVALID`, `AUTH_REFRESH_INVALID`, `AUTH_SESSION_REVOKED`, `ADMIN_CREDENTIALS_INVALID`, `ADMIN_MFA_TOKEN_INVALID`, `ADMIN_MFA_CODE_INVALID`, `CUSTOMER_CREDENTIALS_INVALID` (store).
 - **403**: `FORBIDDEN` (generic), `ADMIN_PERMISSION_DENIED`, `ADMIN_PASSWORD_CHANGE_REQUIRED`, `ADMIN_ACCOUNT_DISABLED`, `ADMIN_SELF_MODIFICATION`, `ROLE_IS_SYSTEM`, `ORIGIN_NOT_ALLOWED`, `CUSTOMER_BLOCKED`, `JOBS_TOKEN_INVALID`.
-- **404**: `NOT_FOUND`, `ADMIN_NOT_FOUND`, `ROLE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `ADDRESS_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `PRODUCT_VARIANT_NOT_FOUND`, `IMAGE_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND`, `ORDER_ITEM_NOT_FOUND` (orders), `RETURN_NOT_FOUND`, `INVOICE_NOT_FOUND`, `REFUND_NOT_FOUND`, `LEGAL_DOCUMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `ANNOUNCEMENT_NOT_FOUND`.
+- **404**: `NOT_FOUND`, `ADMIN_NOT_FOUND`, `ROLE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `ADDRESS_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `PRODUCT_VARIANT_NOT_FOUND`, `IMAGE_NOT_FOUND`, `BANNER_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND`, `ORDER_ITEM_NOT_FOUND` (orders), `RETURN_NOT_FOUND`, `INVOICE_NOT_FOUND`, `REFUND_NOT_FOUND`, `LEGAL_DOCUMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `ANNOUNCEMENT_NOT_FOUND`.
 - **409**: `CONFLICT`, `ADMIN_EMAIL_TAKEN`, `ADMIN_SELF_MODIFICATION` (last super admin), `ROLE_KEY_TAKEN`, `ROLE_IN_USE`, `CATEGORY_SLUG_TAKEN`, `CATEGORY_HAS_CHILDREN`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_SKU_TAKEN`, `PRODUCT_SLUG_TAKEN`, `PRODUCT_IS_ACTIVE`, `PRODUCT_IN_USE`, `PRODUCT_VARIANT_LAST`, `PRODUCT_VARIANT_IN_USE`, `STOCK_INSUFFICIENT`, `IMAGE_ORDER_INVALID` (changed meanwhile), `CART_EMPTY`, `ORDER_ITEMS_NOT_ORDERABLE`, `ORDER_TOTAL_CHANGED`, `ORDER_NOT_PAYABLE`, `ORDER_CANNOT_BE_CANCELLED`, `ORDER_TRANSITION_NOT_ALLOWED`, `ORDER_CANNOT_BE_CHANGED`, `ORDER_CHANGED_MEANWHILE`, `RETURN_NOT_POSSIBLE`, `RETURN_WINDOW_CLOSED`, `RETURN_QUANTITY_INVALID` (request/complete), `RETURN_TRANSITION_NOT_ALLOWED`, `LEGAL_DOCUMENT_PUBLISHED`, `LEGAL_DOCUMENTS_MISSING`, `LEGAL_VERSION_CHANGED`, `COMPANY_DETAILS_MISSING`, `REFUND_AMOUNT_INVALID` (nothing paid), `REFUND_TRANSITION_NOT_ALLOWED`, `NOTIFICATION_TRANSITION_NOT_ALLOWED`, `ANNOUNCEMENT_NO_RECIPIENTS`.
-- **413**: `FILE_TOO_LARGE`. **429**: `RATE_LIMITED`, `ADMIN_ACCOUNT_LOCKED`, `OTP_COOLDOWN`, `OTP_LIMIT_REACHED`. **502**: `PAYMENT_PROVIDER_ERROR`. **503**: `SERVICE_UNAVAILABLE`, `PAYMENTS_NOT_CONFIGURED`, `GOOGLE_NOT_CONFIGURED`, `MAIL_DELIVERY_FAILED`, `STORAGE_UNAVAILABLE`. **500**: `INTERNAL_ERROR`.
+- **413**: `FILE_TOO_LARGE`. **429**: `RATE_LIMITED`, `ADMIN_ACCOUNT_LOCKED`. **502**: `PAYMENT_PROVIDER_ERROR`. **503**: `SERVICE_UNAVAILABLE`, `PAYMENTS_NOT_CONFIGURED`, `STORAGE_UNAVAILABLE`. **500**: `INTERNAL_ERROR`.
 
 ---
 
@@ -2024,3 +2022,71 @@ What the panel asked the backend for, and where it landed. Every item is impleme
 **Cursors are opaque strings** (still the ObjectId for the default sort). The panel must not parse it.
 
 **Search words of old records.** Orders and customers created before the search words existed are found by `q` once `npm run db:indexes` has run on the server (it fills the search words in, once).
+
+---
+
+## 20. Homepage banners (hero carousel)
+
+One finished picture per slide, an optional link, a switch, an order and an optional period. The API adds no text to the picture. `doc/BANNERS.md` has the full description, the upload rules and the panel workflow. **Permissions:** `catalog.read` to see, `catalog.manage` to change.
+
+### 20.1 The banner object
+
+```json
+{
+  "id": "66f3…",
+  "name": "Diwali offer",
+  "image": { "id": "66f4…", "alt": { "en": "Diwali offer", "de": "Diwali-Angebot" }, "isPrimary": false, "url": "…/large.webp", "sizes": { "small": { "url": "…", "width": 768, "height": 320 }, "medium": { "url": "…", "width": 1536, "height": 640 }, "large": { "url": "…", "width": 2400, "height": 1000 } }, "bytes": 412000, "uploadedAt": "2026-10-19T09:00:00.000Z" },
+  "linkUrl": "/products/basmati-rice-1kg",
+  "isActive": true,
+  "status": "live",
+  "sortOrder": 0,
+  "startsAt": null,
+  "endsAt": "2026-11-05T23:00:00.000Z",
+  "createdAt": "2026-10-19T09:00:00.000Z",
+  "updatedAt": "2026-10-19T09:05:00.000Z"
+}
+```
+
+`status` ∈ `live`, `inactive`, `scheduled` (start in the future), `expired` (end in the past). The shop shows the `live` banners in `sortOrder`. At most 20 banners.
+
+### `GET /v1/admin/banners`
+
+All banners in display order: `{ "items": [ … ] }`.
+
+### `POST /v1/admin/banners`
+
+**Request:** `multipart/form-data` with one field `file` (JPEG, PNG or WebP; ≤10 MB; wider than tall; at least 1200 × 300 px; recommended 2400 × 1000). Stored as WebP in widths 768, 1536 and 2560 (never enlarged). The banner starts switched off and last in the order.
+
+**Success Response (201):** `{ "banner": { … } }`. **Possible Errors:** `400 IMAGE_REQUIRED`, `400 IMAGE_FORMAT_NOT_ALLOWED`, `400 IMAGE_DIMENSIONS_INVALID` (`details: { width, height, minimum: 1200, minimumHeight: 300 }` or `{ width, height, landscape: true }`), `400 IMAGE_INVALID`, `400 BANNER_LIMIT_REACHED` (`details: { maximum: 20 }`), `413 FILE_TOO_LARGE`, `503 STORAGE_UNAVAILABLE`.
+
+### `GET /v1/admin/banners/{id}`
+
+`{ "banner": { … } }`. **Possible Errors:** `404 BANNER_NOT_FOUND`.
+
+### `PATCH /v1/admin/banners/{id}`
+
+**Request Body** (any of): `{ "name": "Diwali offer", "linkUrl": "/products/basmati-rice-1kg", "isActive": true, "startsAt": "2026-10-20T00:00:00.000Z", "endsAt": "2026-11-05T23:00:00.000Z", "alt": { "en": "…", "de": "…" } }`
+
+| Field | Validation |
+| ----- | ---------- |
+| `name` | ≤80 chars; `""` removes it |
+| `linkUrl` | a path starting with one `/`, or an `https://` address; no spaces; ≤2000; `null` removes it (`http://`, `javascript:`, `//host` refused) |
+| `isActive` | boolean |
+| `startsAt`, `endsAt` | ISO 8601 instants; `null` removes one; the end must come after the start |
+| `alt` | `{ en?, de? }` ≤300 each |
+
+**Success Response (200):** `{ "banner": { … } }`. **Possible Errors:** `400 VALIDATION_FAILED`, `400 BANNER_SCHEDULE_INVALID`, `404 BANNER_NOT_FOUND`.
+
+### `PUT /v1/admin/banners/{id}/image`
+
+Replace the picture (same request and rules as the creation). The old files are deleted; the description stays. **Success Response (200):** `{ "banner": { … } }`.
+
+### `PUT /v1/admin/banners/order`
+
+**Request Body:** `{ "orderedIds": [ … every banner exactly once, in the new order … ] }`. **Success Response:** `204`. **Possible Errors:** `400 BANNER_ORDER_INVALID` (`details: { expected: [ids] }`).
+
+### `DELETE /v1/admin/banners/{id}`
+
+Deletes the banner and its files. **Success Response:** `204`. **Possible Errors:** `404 BANNER_NOT_FOUND`.
+
+The shop reads `GET /v1/store/banners` (section 17 of the customer documentation): only `live` banners, cached for 60 seconds, so a change shows within a minute.

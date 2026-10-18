@@ -84,6 +84,7 @@ describe("the navigation follows the permissions", () => {
       "Today",
       "Products",
       "Categories",
+      "Banners",
       "Legal texts",
     ]);
   });

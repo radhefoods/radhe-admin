@@ -6,6 +6,7 @@ import type {
   AdminImage,
   AdminStatus,
   Announcement,
+  Banner,
   Category,
   Customer,
   InvoiceDetail,
@@ -111,6 +112,9 @@ export type CategoryRecord = Omit<
   "productCount" | "ancestorIds" | "level"
 >;
 
+/** A homepage banner as stored (20): its status is worked out on reading. */
+export type BannerRecord = Omit<Banner, "status">;
+
 /**
  * The payment of an order as stored (architecture, "Order document"): the
  * status lives on the order, the flags are worked out on reading.
@@ -189,6 +193,8 @@ export interface Db {
   invoices: InvoiceDetail[];
   notifications: NotificationDetail[];
   announcements: Announcement[];
+  /** The homepage banners (20). */
+  banners: BannerRecord[];
   /** Pictures uploaded while the mock runs, by the key in their address. */
   files: Map<string, StoredFile>;
   counters: {
@@ -234,6 +240,7 @@ export function emptyDb(config: MockConfig): Db {
     invoices: [],
     notifications: [],
     announcements: [],
+    banners: [],
     files: new Map(),
     counters: { order: 1000, sku: 0, invoice: 0, creditNote: 0 },
   };

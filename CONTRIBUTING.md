@@ -23,7 +23,7 @@ src/lib/status/             status → label and tone; the documented transition
 src/lib/auth/               who is signed in, permissions
 src/lib/routes.ts           every address of the panel
 mocks/                      the mock admin API (development and tests)
-src/test/                   the test harness: the mock API behind fetch, render helpers
+src/test/                   the test harness: the mock API behind fetch, render helpers, the fake upload (XMLHttpRequest over fetch)
 e2e/                        browser tests (Playwright) against the mock API
 ```
 
