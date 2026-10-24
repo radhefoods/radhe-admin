@@ -152,6 +152,30 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   BANNER_SCHEDULE_INVALID: "The end must come after the start.",
   BANNER_ORDER_INVALID:
     "The banners changed in the meantime. The list was loaded again.",
+  // analytics
+  ANALYTICS_RANGE_INVALID:
+    "This period is not possible: the custom range needs a start and an end, the start before the end, and at most two years between them.",
+  // FAQ
+  FAQ_NOT_FOUND: "This question does not exist (any more).",
+  FAQ_GROUP_NOT_FOUND: "This group does not exist (any more).",
+  FAQ_ORDER_INVALID:
+    "The questions of this group changed in the meantime. The list was loaded again.",
+  FAQ_GROUP_ORDER_INVALID:
+    "The groups changed in the meantime. The list was loaded again.",
+  FAQ_GROUP_HAS_FAQS:
+    "The group still has questions. Move or delete them first.",
+  // blog
+  BLOG_POST_NOT_FOUND: "This post does not exist (any more).",
+  BLOG_CATEGORY_NOT_FOUND: "This blog category does not exist (any more).",
+  BLOG_POST_SLUG_TAKEN: "Another post already uses this address (slug).",
+  BLOG_CATEGORY_SLUG_TAKEN:
+    "Another blog category already uses this address (slug).",
+  BLOG_CATEGORY_HAS_POSTS:
+    "The category still has posts. Move them to another category first.",
+  BLOG_CATEGORY_ORDER_INVALID:
+    "The blog categories changed in the meantime. The list was loaded again.",
+  BLOG_POST_INCOMPLETE:
+    "The post cannot be published yet: it needs its English text.",
 };
 
 function list(values: readonly string[]): string {

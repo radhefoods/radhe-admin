@@ -9,6 +9,7 @@ import { authenticate, registerAuth, revokeSessions } from "./auth.ts";
 import type { Db } from "./db.ts";
 import { HttpError, fail, json, noContent, setPeople } from "./http.ts";
 import { bannerSvg, placeholderSvg } from "./media.ts";
+import { registerAnalytics } from "./modules/analytics.ts";
 import { registerBanners } from "./modules/banners.ts";
 import { registerCatalog } from "./modules/catalog.ts";
 import { registerCatalogSheets } from "./modules/catalog-sheets.ts";
@@ -89,6 +90,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   registerPayments(router);
   registerCommunication(router);
   registerBanners(router);
+  registerAnalytics(router);
 
   const originAllowed = (origin: string) =>
     (options.allowedOrigins ?? []).includes(origin) ||

@@ -7,6 +7,8 @@ export const RESOURCES = [
   "payments",
   "customers",
   "catalog",
+  "content",
+  "analytics",
   "notifications",
   "settings",
   "legal",
@@ -16,6 +18,17 @@ export const RESOURCES = [
 export type Resource = (typeof RESOURCES)[number];
 export type PermissionAction = "read" | "manage";
 export type Permission = `${Resource}.${PermissionAction}`;
+
+/** Resources with a `read` permission only (17.1): nothing there can be changed. */
+export const READ_ONLY_RESOURCES: readonly Resource[] = ["analytics"];
+
+/** Every permission the documentation lists (17.1), in the order of the resources. */
+export const PERMISSIONS: readonly Permission[] = RESOURCES.flatMap(
+  (resource) =>
+    READ_ONLY_RESOURCES.includes(resource)
+      ? [`${resource}.read` as const]
+      : [`${resource}.read` as const, `${resource}.manage` as const],
+);
 
 export const WILDCARD = "*";
 export const SUPER_ADMIN_ROLE_KEY = "super_admin";
@@ -40,7 +53,16 @@ export const RESOURCE_LABELS: Record<
   },
   catalog: {
     label: "Catalogue",
-    covers: "Categories, products, stock, pictures, import and export",
+    covers:
+      "Categories, products, stock, pictures, import and export, the homepage banners",
+  },
+  content: {
+    label: "Content",
+    covers: "The FAQ and the blog",
+  },
+  analytics: {
+    label: "Analytics",
+    covers: "The figures of the shop on the start page; read only",
   },
   notifications: {
     label: "Communication",

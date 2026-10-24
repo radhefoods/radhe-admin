@@ -88,14 +88,16 @@ Cron job ── POST /v1/jobs/run ─────────────┤
 
 | Module | Responsibility |
 |---|---|
-| `auth` | Email OTP, Google sign-in, admin login with password and TOTP, sessions, guards |
+| `auth` | Customer sign-up and sign-in with email and password, password reset links, admin login with password and TOTP, sessions, guards |
 | `customers` | Profiles, addresses, language, account status (blocking), communication preferences, the unsubscribe link |
 | `admin-users` | Admin accounts, roles, permissions |
 | `people` | The names of admins and customers next to their ids in admin answers. Owns no data |
 | `catalog` | Products with their pack sizes (`variants`), categories, translations, SEO fields, images, prices with their history per pack size, stock per pack size with the movement ledger, CSV import and export |
 | `media`, `storage` | Image validation and conversion; file storage behind a provider interface (S3, local folder) |
-| `storefront` | What customers see: the catalogue, one entry per product shown as one pack size, with `ordering` per pack size (can it be ordered, why not, how many are left), facets. Owns no data |
+| `storefront` | What customers see: the catalogue in the admin's order, as one entry per product or one per pack size (grouped by product or in rounds of ascending size), with `ordering` per pack size (can it be ordered, why not, how many are left), facets. Owns no data |
 | `cart` | Server cart for signed-in customers, one line per pack size, price preview for anonymous carts, and the bill: totals, VAT, delivery fee |
+| `wishlist` | The products a customer wants to find again, one entry per product with the remembered pack size; preview for visitors, merge after sign-in |
+| `banners` | The homepage carousel: pictures the admin uploads (one upload, three widths), with link, switch, order and period |
 | `orders` | The order from checkout to delivery: creation from the cart as `pending_payment`, taking stock and giving it back, statuses and history, delivery method and tracking, bulk actions, corrections of delivered quantities, cancellation, the final bill, the hooks the modules above register |
 | `payments` | Stripe Checkout with manual capture, settlement from the webhook, paying again, the checkout cleanup job, credit notes after a changed bill, refunds through Stripe or by hand |
 | `invoices` | Invoices and credit notes: numbers without gaps, immutable documents, PDF rendering, the PDF attachment for notifications |
@@ -103,7 +105,10 @@ Cron job ── POST /v1/jobs/run ─────────────┤
 | `notifications` | Every message to a customer: the queue in MongoDB, the dispatcher with retries, consent rules, templates per type and language, the WhatsApp provider, the admin's list and retry |
 | `mail` | Email providers (Amazon SES, SMTP, console), the email layout, the logo endpoint |
 | `announcements` | News about a product or an offer, sent by the admin to the customers who asked, by email and WhatsApp |
-| `attention` | What waits for the admin, in one answer. Owns no data |
+| `attention` | What waits for the admin, in one answer: the Decisions tab of the start page. Owns no data |
+| `analytics` | The Analytics tab of the start page: revenue, orders, customers, products, payments, returns and stock over a period of Berlin days, compared with the period before. Aggregations over the collections of the other modules through their schemas; owns no data (`doc/ANALYTICS.md`) |
+| `faq` | Questions and answers in both languages under optional headings, ordered by the admin; the shop shows the published ones (`doc/FAQ.md`) |
+| `blog` | Articles in both languages with a featured picture, pictures in the text, categories, tags, dates and SEO fields; drafts, scheduled and published posts (`doc/BLOG.md`) |
 | `settings` | Configurable business rules |
 | `legal` | Versioned `terms` and `privacy` documents |
 | `jobs` | Every scheduled job in one call, for an external timer. Owns no data |
@@ -119,6 +124,8 @@ Rule: dependencies between business modules point one way.
 
 ```text
 attention ──► orders, returns, payments, notifications, catalog
+analytics ──► the schemas of orders, payments, returns, customers, catalog, invoices (reads only)
+blog ───────► admin-users (the author's name), media
 payments ───► orders, invoices, cart, settings, notifications
 returns ────► orders, settings, notifications
 orders ─────► cart, catalog, customers, legal, settings, notifications
@@ -157,11 +164,17 @@ MongoDB Atlas with Mongoose. Collections have `createdAt` and `updatedAt` unless
 | Collection | Key contents |
 |---|---|
 | `adminUsers` | email, password hash, encrypted TOTP secret, role, status, failed logins |
-| `customers` | email, name, phone, addresses, language, account status, Google ID, communication preferences (WhatsApp number and yes, news yes, dated), search words |
+| `customers` | email, name, password hash (Argon2id), phone, addresses, language, account status, communication preferences (WhatsApp number and yes, news yes, dated), search words |
 | `customerSessions`, `adminSessions` | hashed refresh token, user, expiry, previous token hash for reuse detection; expire by TTL |
-| `otpChallenges` | email, keyed hash of the login code, attempts, expiry; purged by TTL |
+| `passwordResets` | customer, keyed hash of the reset token, expiry, used-at; purged by TTL |
 | `roles` | key, name, permission strings |
-| `categories` | translated name and slug, parent, ancestors, sort order, visibility, image |
+| `categories` | translated name and slug, parent, ancestors, sort order, visibility, image, listing view (how the shop shows the pack sizes of its products) |
+| `banners` | picture (three widths), name, link, switch, sort order, period |
+| `faqGroups` | translated name, sort order, visible switch |
+| `faqs` | translated question and answer (Markdown), group, position within the group, published switch and date |
+| `blogCategories` | translated name and slug, description, sort order, SEO fields |
+| `blogPosts` | translated title, slug, summary and Markdown content, featured picture and pictures for the text, author, category, tags, status (`draft`, `published`) and date, SEO fields, word counts, search words |
+| `wishlists` | customer, products with the remembered pack size and the date added |
 | `products` | one document per product with its pack sizes, see below: translated name, base slug and description, category and category path, `variants[]` (SKU, pack size, URL, prices, enabled switch, stock per size), `defaultVariantId`, `priceFrom`, VAT rate, status (`draft`, `active`, `archived`), `isAvailable`, `minOrderQuantity`, `maxOrderQuantity`, images, food information, SEO fields, search words |
 | `productPriceChanges` | one entry per price change of a pack size: product, pack size (`variantId`), SKU, prices, VAT rate, admin |
 | `stockMovements` | the ledger: product, pack size (`variantId`), SKU, reason (`restock`, `adjustment`, `import`, `order`, `cancel`, `return`, `release`), delta, quantity afterwards, the order or the admin, note. Appended, never edited; `createdAt` only |
@@ -197,7 +210,8 @@ variants[]:                                                (the pack sizes, 1 to
 defaultVariantId                                           (the size that stands for the product)
 priceFrom, discountPercent                                 (of the default size, for sorting and filtering)
 vatRate                                                    (the same for every size)
-status, isAvailable, isFeatured, sortOrder
+status, isAvailable, isFeatured
+sortOrder                                                  (position among the products of its category, 0 first)
 minOrderQuantity, maxOrderQuantity                         (packs per order, the same for every size)
 storageType, images[], primaryImageId, food, tags[], searchKeywords[], searchTokens[], seo
 publishedAt, createdBy, updatedBy
@@ -239,21 +253,24 @@ idempotencyKey
 
 ### Important indexes
 
-- `orders`: unique `orderNumber`; unique `(customerId, idempotencyKey)` where the key exists, so the database itself guarantees one order per attempt; `(customerId, _id)` and `(orderStatus, _id)` for the lists; `(orderStatus, pendingUntil)` on `pending_payment` only, for the cleanup; sparse `payment.checkoutSessionId` and `payment.paymentIntentId` for what Stripe talks about; `(paymentStatus, orderStatus)` for the refunds to decide.
-- `products`: unique `variants.sku` (a unique index on an array field refuses the same value in two documents; within one document the service checks); unique base slug per language (`slug.en`, `slug.de`); unique URL of a pack size per language (`variants.slug.en`, `variants.slug.de`); `(categoryPath, status, sortOrder, _id)` for the products of a category and its sub-categories; `(status, sortOrder, _id)` for the shop listing; `(status, priceFrom, _id)` for the sort by price; `(variants.packSize.value, variants.packSize.unit)` for the pack-size filter; `searchTokens`.
+- `orders`: unique `orderNumber`; unique `(customerId, idempotencyKey)` where the key exists, so the database itself guarantees one order per attempt; `(customerId, _id)` and `(orderStatus, _id)` for the lists; `(orderStatus, pendingUntil)` on `pending_payment` only, for the cleanup; sparse `payment.checkoutSessionId` and `payment.paymentIntentId` for what Stripe talks about; `(paymentStatus, orderStatus)` for the refunds to decide; partial `payment.paidAt`, `cancellation.at`, `delivery.dispatchedAt` and `delivery.deliveredAt` (on the orders that have the date) for the dashboard.
+- `products`: unique `variants.sku` (a unique index on an array field refuses the same value in two documents; within one document the service checks); unique base slug per language (`slug.en`, `slug.de`); unique URL of a pack size per language (`variants.slug.en`, `variants.slug.de`); `(categoryPath, status, sortOrder, _id)` for the products of a category and its sub-categories; `(status, sortOrder, _id)` for the shop listing; `(categoryId, sortOrder, _id)` for the admin's order of one category and the next free position; `(status, priceFrom, _id)` for the sort by price; `(variants.packSize.value, variants.packSize.unit)` for the pack-size filter; `searchTokens`.
 - `stockMovements`: `(productId, variantId, _id)`, the history of one pack size newest first. `productPriceChanges`: `(productId, variantId, createdAt)`.
 - `carts`: unique `customerId`; TTL on `updatedAt` of 90 days.
 - `invoices`: unique `number`; `(orderId, _id)` ascending, so the documents of an order come in order of issue; `(customerId, _id)`; `(type, issuedAt)`.
-- `refunds`: unique `refundNumber`; `(orderId, _id)`, `(status, _id)`; sparse `stripe.refundId`.
-- `returns`: unique `returnNumber`; `(orderId, _id)`, `(customerId, _id)`, `(status, _id)`.
+- `refunds`: unique `refundNumber`; `(orderId, _id)`, `(status, _id)`; sparse `stripe.refundId`; partial `completedAt` for the dashboard.
+- `returns`: unique `returnNumber`; `(orderId, _id)`, `(customerId, _id)`, `(status, _id)`; partial `completedAt` for the dashboard.
 - `paymentEvents`: unique Stripe event id, which makes webhooks safe to receive twice; TTL of 90 days.
 - `notifications`: `(status, nextAttemptAt)` is the queue; unique sparse `dedupeKey` makes every event one message; `(customerId, _id)`, `(orderId, _id)`, `(status, _id)`, `(type, _id)`, sparse `(announcementId, status)` for the lists.
-- `customers`: unique email; unique sparse `googleId`; partial `(communication.marketingOptIn, _id)` on `true` for the recipients of an announcement; `searchTokens`.
+- `customers`: unique email; partial `(communication.marketingOptIn, _id)` on `true` for the recipients of an announcement; `searchTokens`; `createdAt` for the dashboard.
+- `faqGroups`: `(sortOrder, _id)`. `faqs`: `(groupId, sortOrder, _id)`. `blogCategories`: unique slug per language, `(sortOrder, _id)`. `blogPosts`: unique slug per language; `(status, publishedAt, _id)`, `(status, categoryId, publishedAt, _id)`, `(status, tags, publishedAt, _id)` for the blog of the shop; `searchTokens`.
+- The dashboard reads records created in a period by the time in their `_id` (refunds, returns, stock movements, checkouts), which the `_id` index serves.
+- `wishlists`: unique `customerId`. `banners`: `(sortOrder, _id)`.
 - `legalDocuments`: unique `(type, version)`. `categories`: unique slug per language, `(parentId, sortOrder)`, `ancestorIds`.
-- `customerSessions`, `adminSessions`, `otpChallenges`: TTL on the expiry.
+- `customerSessions`, `adminSessions`: TTL on the expiry. `passwordResets`: unique `tokenHash`, `(customerId, createdAt)` for the limit per hour, TTL a day after the request.
 - Indexes on optional fields are sparse, not partial with a `$type` filter: MongoDB uses a sparse index for a lookup by value, and does not use such a partial one.
 
-`npm run db:indexes` builds every index and fills in the search words of older orders and customers.
+`npm run db:indexes` makes the indexes of every collection match its schema: it builds the ones the schema declares, drops the ones it no longer declares (Mongoose never drops one on its own, so a field that moved, such as the article number from `sku` to `variants.sku`, would leave a stale unique index behind that refuses new records), and fills in the search words of older orders and customers.
 
 ## 6. Status models
 
@@ -301,7 +318,8 @@ Payment status: `pending` while the customer has not paid; `authorized` once the
 
 ### 7.1 Catalogue and cart
 
-- `GET /v1/store/products` answers one entry per product, shown as its default pack size: `variantId`, `sku`, `slug` (the URL of that size), `displayName` ("Basmati Rice (1 kg)": the name, a space, the pack label in parentheses), `packSize`, `pricing` (with `basePrice` per kg, l or piece) and `ordering` are those of the shown size; `variants[]` lists every enabled size, smallest first, each with `isDefault` and `isSelected`. With the `packSize` filter a product is listed when one of its enabled sizes matches, and shown as the smallest matching one. `orderable=true` means some enabled size can be ordered, `onSale=true` that some enabled size is reduced; `minPrice`, `maxPrice`, `sort=price_asc|price_desc` and `sort=discount` use the default size (`priceFrom` and `discountPercent` on the product). The pack-size facet counts the enabled sizes of the listed products; the other facets and the price bands count products.
+- The shop's order is the admin's (`doc/PRODUCT_DISPLAY_ORDER.md`): every product has a position among the products of its own category (`sortOrder`, set with `PUT /v1/admin/categories/{id}/products/order`; a new or moved product takes the last position), and a list that spans categories shows them category by category in the tree's display order. The `view` parameter (or the category's `listingView`) decides whether an entry is a product or one pack size: `product`, `variants_by_product` (the sizes of a product together) or `variants_by_size` (rounds: the smallest size of every product, then the second size of every product that has one). The lists are one aggregation (`product-listing.ts`): the filter uses the indexes, the rank of the category is looked up in the pipeline and the matched products are sorted in memory.
+- `GET /v1/store/products` answers, in the `product` view, one entry per product, shown as its default pack size: `variantId`, `sku`, `slug` (the URL of that size), `displayName` ("Basmati Rice (1 kg)": the name, a space, the pack label in parentheses), `packSize`, `pricing` (with `basePrice` per kg, l or piece) and `ordering` are those of the shown size; `variants[]` lists every enabled size, smallest first, each with `isDefault` and `isSelected`. With the `packSize` filter a product is listed when one of its enabled sizes matches, and shown as the smallest matching one. `orderable=true` means some enabled size can be ordered, `onSale=true` that some enabled size is reduced; `minPrice`, `maxPrice`, `sort=price_asc|price_desc` and `sort=discount` use the default size (`priceFrom` and `discountPercent` on the product). The pack-size facet counts the enabled sizes of the listed products; the other facets and the price bands count products.
 - `GET /v1/store/products/{slug}` takes the URL of a pack size (`basmati-rice-1kg`, which selects that size) or the base slug of the product (`basmati-rice`, which selects the default size), in either language; the slug of the requested language is tried first, then the other one, so a link still works after a language switch. A disabled size answers 404, as does a product that is not active or in a hidden category. The answer is the list entry with the selected size plus `slugs` (the selected size's URL in both languages, for the language switch), `gtin`, the texts, images, breadcrumbs, food information and SEO (`title` defaults to the display name). Switching sizes on the page needs no further request: every size is in `variants`.
 - The cart holds pack sizes: `PUT /v1/store/cart/items/{variantId}` sets the quantity of a line (0 removes it), `DELETE .../items/{variantId}` removes it; `POST /v1/store/cart/preview` (for visitors) and `POST /v1/store/cart/merge` take `items: [{ variantId, quantity }]`. A size that is unknown or disabled, or whose product is not active, answers 404 `CART_PRODUCT_NOT_FOUND`. Every line is priced from the current price of its size when the cart is shown and answers `variantId`, `productId` (null when the size is gone), `quantity`, `unitPrice`, `lineTotal`, `vatRate`, `vatAmount`, `issue` (`product_not_found` when the size or the product is gone, `product_unavailable` when the product or the size is switched off, `sold_out`, `quantity_below_minimum`, `quantity_above_maximum`, or null), `ordering` and `product` (the list entry with this size selected, or null). The admin's stock changes, the CSV import and every order, cancellation and return write the stock of one size and refresh the product's default size and `priceFrom`.
 
@@ -373,12 +391,11 @@ The cleanup finds orders that are `pending_payment` with `pendingUntil` in the p
 
 | User | Method |
 |---|---|
-| Customer | Email OTP: 6 digits, 10 minutes, 5 attempts, stored as a keyed hash in MongoDB, rate-limited per email and IP |
-| Customer | Google sign-in, verified on the server, linked by verified email |
+| Customer | Email and password (Argon2id, 8 to 128 characters, common passwords refused); password reset by emailed link |
 | Admin | Email and password (Argon2id) plus TOTP |
 
-- Signing up and logging in are the same OTP flow.
-- Login codes live in MongoDB with automatic expiry, not in Redis, so that authentication needs no second data store; the job queue in MongoDB follows the same choice.
+- Sign-up takes first name, last name, email and password and sends a welcome email; there is no email verification step. Sign-in answers the same for a wrong password and an unknown email, and spends the same time on both (a decoy hash is checked for unknown emails).
+- Forgotten passwords: `POST /v1/store/auth/password/forgot` always answers 204 and emails a link (`<SHOP_URL>/reset-password?token=…`) in the background; the token is random, only its HMAC (`LINK_HMAC_SECRET`) is stored, it lives 60 minutes and works once; at most three links per customer per hour. `POST …/password/reset` sets the password and revokes every session of the customer. Reset links live in MongoDB with automatic expiry, not in Redis, so that authentication needs no second data store; the job queue in MongoDB follows the same choice.
 - Access token: JWT, 15 minutes. Refresh token: opaque, rotating, stored hashed, with reuse detection.
 - Tokens travel in httpOnly, Secure, SameSite cookies under one parent domain.
 - Customer and admin sessions use separate cookies, audiences and collections.
@@ -474,7 +491,7 @@ All variables are in `.env.example`; `npm run secrets` prints every secret at on
 | Database | `MONGODB_URI`, `MONGODB_DB_NAME`, `MONGODB_MAX_POOL_SIZE` |
 | Browser access | `CORS_ORIGINS`, `COOKIE_DOMAIN`, `COOKIE_SECURE` |
 | Tokens and sessions | `JWT_CUSTOMER_ACCESS_SECRET`, `JWT_ADMIN_ACCESS_SECRET`, `JWT_ADMIN_MFA_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `CUSTOMER_REFRESH_TTL_DAYS`, `ADMIN_REFRESH_TTL_HOURS`, `CUSTOMER_SESSION_MAX_DAYS`, `ADMIN_SESSION_MAX_HOURS` |
-| Login codes | `OTP_HMAC_SECRET`, `OTP_TTL_SECONDS`, `OTP_MAX_ATTEMPTS`, `OTP_RESEND_COOLDOWN_SECONDS`, `OTP_MAX_PER_HOUR`, `GOOGLE_CLIENT_ID` |
+| Links in emails | `LINK_HMAC_SECRET` (signs the password reset and unsubscribe links) |
 | Admin security | `ADMIN_MFA_REQUIRED`, `TOTP_ENCRYPTION_KEY`, `ADMIN_MAX_FAILED_LOGINS`, `ADMIN_LOCKOUT_MINUTES` |
 | Email | `MAIL_PROVIDER` (`console`, `ses`, `smtp`), `MAIL_FROM`, `MAIL_REPLY_TO`, `SES_REGION`, `SES_ACCESS_KEY_ID`, `SES_SECRET_ACCESS_KEY`, `SES_CONFIGURATION_SET`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` |
 | Notifications and jobs | `NOTIFICATION_INTERVAL_SECONDS`, `NOTIFICATION_CONCURRENCY`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_API_VERSION`, `JOBS_TOKEN` |
@@ -492,7 +509,7 @@ Without `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` the shop can be browsed 
 | `npm run secrets` | Prints every secret the environment needs |
 | `npm run seed:admin` | Creates the first admin from `SEED_ADMIN_*` |
 | `npm run reset:mfa -- <email>` | Removes the authenticator of an admin who lost it |
-| `npm run db:indexes` | Builds the indexes and fills in the search words of older orders and customers |
+| `npm run db:indexes` | Makes the indexes match the schemas (builds new ones, drops stale ones) and fills in the search words of older orders and customers |
 | `npm run storage:check` | Verifies the image storage configuration |
 
 ## 14. Build order
@@ -505,6 +522,7 @@ The foundation (configuration, database, errors, OpenAPI, health), authenticatio
 4. Returns and refunds on the new model: stock back on completed returns, credit note and refund after a return, trimmed admin payment routes.
 5. Removal: the cargos module, payment activation, reminders, pay links, cash, waiving, the overdue block and overrides, obsolete notification types and templates, settings and environment keys, the concept documents of the pre-order shop. A script for moving a database of the old shop existed briefly and was removed again, since no database with real data existed.
 6. Hardening and documentation: this document, both API references, the prompts for the shop and the panel, README and the Hostinger guide.
+8. Admin dashboard, FAQ and blog (2026-10-24): the Analytics tab (`analytics` module, `doc/ANALYTICS.md`) with the permission `analytics.read`; the FAQ and the blog (`faq` and `blog` modules, `doc/FAQ.md`, `doc/BLOG.md`) with the permissions `content.read` and `content.manage`; new indexes for the dashboard.
 7. Pack sizes (2026-10-16, commit `feat(catalog): one product with several pack sizes`): one product holds its pack sizes as embedded `variants` with their own SKU, price, stock and URL; the default size, the display name, the product page by base or size URL, the cart, orders, returns, corrections, the attention page and the CSV sheets by pack size; the one-document-per-size model with `variantGroupId`, `isDefaultVariant`, `make-default` and `variant_of_sku` removed. Design and decisions in `PRODUCT_VARIANTS_PLAN.md`.
 
 ## 15. Open items

@@ -1,5 +1,7 @@
 import { adminUsersApi, authApi, rolesApi } from "./endpoints/auth";
+import { analyticsApi } from "./endpoints/analytics";
 import { bannersApi } from "./endpoints/banners";
+import { blogCategoriesApi, blogPostsApi } from "./endpoints/blog";
 import {
   catalogSheetsApi,
   categoriesApi,
@@ -13,6 +15,7 @@ import {
   refundsApi,
   returnsApi,
 } from "./endpoints/orders";
+import { faqGroupsApi, faqsApi } from "./endpoints/faq";
 import { customersApi, legalApi, settingsApi } from "./endpoints/shop";
 import type { SessionTransport } from "./session";
 
@@ -39,6 +42,11 @@ export function createAdminApi(transport: SessionTransport) {
     announcements: announcementsApi(transport),
     attention: attentionApi(transport),
     banners: bannersApi(transport),
+    analytics: analyticsApi(transport),
+    faqGroups: faqGroupsApi(transport),
+    faqs: faqsApi(transport),
+    blogPosts: blogPostsApi(transport),
+    blogCategories: blogCategoriesApi(transport),
   };
 }
 

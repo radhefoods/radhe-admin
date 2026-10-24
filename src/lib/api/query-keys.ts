@@ -1,6 +1,9 @@
 import type {
+  AnalyticsQuery,
   AnnouncementQuery,
+  BlogPostQuery,
   CustomerQuery,
+  FaqQuery,
   Id,
   InvoiceQuery,
   LegalType,
@@ -109,6 +112,25 @@ export const queryKeys = {
     detail: (id: Id) => ["announcements", "detail", id] as const,
   },
   search: (text: string) => ["search", text] as const,
+  /** The figures of a period (21); each endpoint under its own name. */
+  analytics: {
+    all: ["analytics"] as const,
+    part: (part: string, query: AnalyticsQuery & Record<string, unknown>) =>
+      ["analytics", part, query] as const,
+  },
+  faq: {
+    all: ["faq"] as const,
+    groups: () => ["faq", "groups"] as const,
+    list: (query: FaqQuery = {}) => ["faq", "list", query] as const,
+    detail: (id: Id) => ["faq", "detail", id] as const,
+  },
+  blog: {
+    all: ["blog"] as const,
+    posts: (query: BlogPostQuery) => ["blog", "posts", query] as const,
+    post: (id: Id) => ["blog", "post", id] as const,
+    tags: () => ["blog", "tags"] as const,
+    categories: () => ["blog", "categories"] as const,
+  },
 } as const;
 
 type Key = readonly unknown[];

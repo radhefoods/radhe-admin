@@ -116,6 +116,22 @@ export const API_ERROR_CODES = [
   "BANNER_LIMIT_REACHED",
   "BANNER_SCHEDULE_INVALID",
   "BANNER_ORDER_INVALID",
+  // analytics (21)
+  "ANALYTICS_RANGE_INVALID",
+  // FAQ (22)
+  "FAQ_NOT_FOUND",
+  "FAQ_GROUP_NOT_FOUND",
+  "FAQ_ORDER_INVALID",
+  "FAQ_GROUP_ORDER_INVALID",
+  "FAQ_GROUP_HAS_FAQS",
+  // blog (23)
+  "BLOG_POST_NOT_FOUND",
+  "BLOG_CATEGORY_NOT_FOUND",
+  "BLOG_POST_SLUG_TAKEN",
+  "BLOG_CATEGORY_SLUG_TAKEN",
+  "BLOG_CATEGORY_HAS_POSTS",
+  "BLOG_CATEGORY_ORDER_INVALID",
+  "BLOG_POST_INCOMPLETE",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -177,6 +193,13 @@ export interface ErrorDetails {
   IMAGE_ORDER_INVALID: { expected: Id[] } | undefined;
   BANNER_LIMIT_REACHED: { maximum: number };
   BANNER_ORDER_INVALID: { expected: Id[] } | undefined;
+  FAQ_ORDER_INVALID: { unknown: Id[]; expected: Id[] } | undefined;
+  FAQ_GROUP_ORDER_INVALID: { expected: Id[] } | undefined;
+  FAQ_GROUP_HAS_FAQS: { faqs: number } | undefined;
+  BLOG_CATEGORY_HAS_POSTS: { posts: number } | undefined;
+  BLOG_CATEGORY_ORDER_INVALID: { expected: Id[] } | undefined;
+  /** `missing` names the fields a post needs before it is published: `content.en`. */
+  BLOG_POST_INCOMPLETE: { missing: string[] } | undefined;
   ORDER_TRANSITION_NOT_ALLOWED: {
     from: OrderStatus;
     to: OrderStatus;

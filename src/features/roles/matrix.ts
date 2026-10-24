@@ -1,4 +1,5 @@
 import {
+  PERMISSIONS,
   RESOURCES,
   RESOURCE_LABELS,
   WILDCARD,
@@ -88,9 +89,7 @@ export function buildCatalogue(permissions: readonly string[]): Catalogue {
 
 /** The catalogue as the documentation lists it, when the API cannot be asked. */
 export function defaultCatalogue(): Catalogue {
-  return buildCatalogue(
-    RESOURCES.flatMap((resource) => [`${resource}.read`, `${resource}.manage`]),
-  );
+  return buildCatalogue(PERMISSIONS);
 }
 
 export interface MatrixState {

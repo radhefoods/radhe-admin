@@ -34,6 +34,15 @@ export const routes = {
   categoryProducts: (id: Id) => `/catalogue/categories/${id}/products` as Route,
   banners: "/catalogue/banners" as Route,
 
+  /** The start page with its Analytics tab open. */
+  analytics: "/?tab=analytics" as Route,
+
+  faq: "/content/faq" as Route,
+  blog: "/content/blog" as Route,
+  blogPostNew: "/content/blog/new" as Route,
+  blogPost: (id: Id) => `/content/blog/${id}` as Route,
+  blogCategories: "/content/blog/categories" as Route,
+
   notifications: "/communication/notifications" as Route,
   notification: (id: Id) => `/communication/notifications/${id}` as Route,
   announcements: "/communication/announcements" as Route,

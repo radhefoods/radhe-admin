@@ -68,6 +68,9 @@ export const ALL_PERMISSIONS = [
   "payments.manage",
   "notifications.read",
   "notifications.manage",
+  "analytics.read",
+  "content.read",
+  "content.manage",
 ];
 
 /** The sign-ins of the demo. Every admin also accepts the code 000000. */

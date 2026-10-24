@@ -14,3 +14,6 @@ export * from "./payments";
 export * from "./notifications";
 export * from "./attention";
 export * from "./banners";
+export * from "./analytics";
+export * from "./faq";
+export * from "./blog";

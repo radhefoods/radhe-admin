@@ -13,7 +13,7 @@ src/app/(auth)/…            sign-in, forced password change
 src/app/(panel)/…           every page behind the sign-in; a page file only sets the title and renders a view
 src/features/<area>/        the views, dialogs, queries and tests of one area (orders, catalogue, …)
 src/components/ui/          primitives: button, input, dialog, menu, badge, surface (card, alert, empty state), toast, scroll-x
-src/components/data/        data-table, filter-bar, pagination (page-based and "load more")
+src/components/data/        data-table, filter-bar, pagination (page-based and "load more"), charts (SVG lines, bars, donut, share bars)
 src/components/form/        form.tsx (Field, useZodForm, useSubmit, FormError, TextField …), fields.tsx (MoneyField, BilingualField, …), reason-field.tsx
 src/components/domain/      status-badge, permission (RequirePermission, ActionButton, Can), values (Money, DateTime, AdminName …), timeline
 src/components/shell/       sidebar, topbar, global search, page header, crash (what a failed page shows)

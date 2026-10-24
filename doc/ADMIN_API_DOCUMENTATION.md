@@ -29,6 +29,9 @@ For the Next.js Admin Panel. Generated from the implemented NestJS backend (`rad
 18. Prepared but not yet active
 19. Answers to the requests of the panel (2026-10-14)
 20. Homepage banners (hero carousel)
+21. Analytics (the second tab of the start page)
+22. FAQ
+23. Blog
 
 ---
 
@@ -1895,6 +1898,8 @@ News about a product or an offer, written by the admin, sent to the customers wh
 
 ## 15. Attention overview (start page)
 
+The start page has two tabs: **Decisions**, this endpoint, and **Analytics**, section 21.
+
 ### `GET /v1/admin/attention`
 
 **Purpose:** What waits for the admin, in one call: paid orders to prepare, refunds to decide, return requests, products that run low, failed messages. Each group has a count and the newest five; the module lists give the rest (`orders?status=confirmed`, `orders?needsRefund=true`, `refunds?status=pending` / `failed`, `returns?status=requested`, `products?lowStock=true`, `notifications?status=failed`).
@@ -1969,6 +1974,8 @@ Stripe's webhook (header `stripe-signature`, verified with the webhook secret; t
 | Legal texts | `legal.read` | `legal.manage` |
 | Payment of an order, refunds, invoices | `payments.read` | `payments.manage` |
 | Notifications, announcements | `notifications.read` | `notifications.manage` |
+| Analytics (dashboard tab) | `analytics.read` | – |
+| FAQ, blog | `content.read` | `content.manage` |
 
 Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 
@@ -2001,11 +2008,11 @@ Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 
 ### 17.3 Error codes by HTTP status (all modules)
 
-- **400**: `VALIDATION_FAILED`, `BAD_REQUEST`, `IDEMPOTENCY_KEY_REQUIRED`, `ADMIN_MFA_SETUP_REQUIRED`, `ROLE_PERMISSION_UNKNOWN`, `ADDRESS_LIMIT_REACHED`, `CATEGORY_PARENT_INVALID`, `CATEGORY_TOO_DEEP`, `CATEGORY_ORDER_INVALID`, `CATEGORY_PRODUCT_ORDER_INVALID`, `PRODUCT_PRICE_INVALID`, `PRODUCT_QUANTITY_INVALID`, `PRODUCT_VARIANT_INVALID`, `STOCK_CHANGE_INVALID`, `CART_FULL`, `ORDER_QUANTITY_INVALID`, `ORDER_ITEM_NOT_FOUND` (returns), `RETURN_QUANTITY_INVALID` (approve), `REFUND_AMOUNT_INVALID` (more than can be refunded), `REFUND_METHOD_INVALID`, `IMAGE_REQUIRED`, `IMAGE_INVALID`, `IMAGE_FORMAT_NOT_ALLOWED`, `IMAGE_DIMENSIONS_INVALID`, `IMAGE_LIMIT_REACHED`, `IMAGE_ORDER_INVALID`, `BANNER_LIMIT_REACHED`, `BANNER_ORDER_INVALID`, `BANNER_SCHEDULE_INVALID`, `WISHLIST_FULL` (store), `WEBHOOK_SIGNATURE_INVALID`.
+- **400**: `VALIDATION_FAILED`, `BAD_REQUEST`, `IDEMPOTENCY_KEY_REQUIRED`, `ADMIN_MFA_SETUP_REQUIRED`, `ROLE_PERMISSION_UNKNOWN`, `ADDRESS_LIMIT_REACHED`, `CATEGORY_PARENT_INVALID`, `CATEGORY_TOO_DEEP`, `CATEGORY_ORDER_INVALID`, `CATEGORY_PRODUCT_ORDER_INVALID`, `PRODUCT_PRICE_INVALID`, `PRODUCT_QUANTITY_INVALID`, `PRODUCT_VARIANT_INVALID`, `STOCK_CHANGE_INVALID`, `CART_FULL`, `ORDER_QUANTITY_INVALID`, `ORDER_ITEM_NOT_FOUND` (returns), `RETURN_QUANTITY_INVALID` (approve), `REFUND_AMOUNT_INVALID` (more than can be refunded), `REFUND_METHOD_INVALID`, `IMAGE_REQUIRED`, `IMAGE_INVALID`, `IMAGE_FORMAT_NOT_ALLOWED`, `IMAGE_DIMENSIONS_INVALID`, `IMAGE_LIMIT_REACHED`, `IMAGE_ORDER_INVALID`, `BANNER_LIMIT_REACHED`, `BANNER_ORDER_INVALID`, `BANNER_SCHEDULE_INVALID`, `WISHLIST_FULL` (store), `WEBHOOK_SIGNATURE_INVALID`, `ANALYTICS_RANGE_INVALID`, `FAQ_ORDER_INVALID`, `FAQ_GROUP_ORDER_INVALID`, `BLOG_CATEGORY_ORDER_INVALID`, `BLOG_POST_INCOMPLETE`.
 - **401**: `UNAUTHENTICATED` (generic), `AUTH_TOKEN_INVALID`, `AUTH_REFRESH_INVALID`, `AUTH_SESSION_REVOKED`, `ADMIN_CREDENTIALS_INVALID`, `ADMIN_MFA_TOKEN_INVALID`, `ADMIN_MFA_CODE_INVALID`, `CUSTOMER_CREDENTIALS_INVALID` (store).
 - **403**: `FORBIDDEN` (generic), `ADMIN_PERMISSION_DENIED`, `ADMIN_PASSWORD_CHANGE_REQUIRED`, `ADMIN_ACCOUNT_DISABLED`, `ADMIN_SELF_MODIFICATION`, `ROLE_IS_SYSTEM`, `ORIGIN_NOT_ALLOWED`, `CUSTOMER_BLOCKED`, `JOBS_TOKEN_INVALID`.
-- **404**: `NOT_FOUND`, `ADMIN_NOT_FOUND`, `ROLE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `ADDRESS_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `PRODUCT_VARIANT_NOT_FOUND`, `IMAGE_NOT_FOUND`, `BANNER_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND`, `ORDER_ITEM_NOT_FOUND` (orders), `RETURN_NOT_FOUND`, `INVOICE_NOT_FOUND`, `REFUND_NOT_FOUND`, `LEGAL_DOCUMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `ANNOUNCEMENT_NOT_FOUND`.
-- **409**: `CONFLICT`, `ADMIN_EMAIL_TAKEN`, `ADMIN_SELF_MODIFICATION` (last super admin), `ROLE_KEY_TAKEN`, `ROLE_IN_USE`, `CATEGORY_SLUG_TAKEN`, `CATEGORY_HAS_CHILDREN`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_SKU_TAKEN`, `PRODUCT_SLUG_TAKEN`, `PRODUCT_IS_ACTIVE`, `PRODUCT_IN_USE`, `PRODUCT_VARIANT_LAST`, `PRODUCT_VARIANT_IN_USE`, `STOCK_INSUFFICIENT`, `IMAGE_ORDER_INVALID` (changed meanwhile), `CART_EMPTY`, `ORDER_ITEMS_NOT_ORDERABLE`, `ORDER_TOTAL_CHANGED`, `ORDER_NOT_PAYABLE`, `ORDER_CANNOT_BE_CANCELLED`, `ORDER_TRANSITION_NOT_ALLOWED`, `ORDER_CANNOT_BE_CHANGED`, `ORDER_CHANGED_MEANWHILE`, `RETURN_NOT_POSSIBLE`, `RETURN_WINDOW_CLOSED`, `RETURN_QUANTITY_INVALID` (request/complete), `RETURN_TRANSITION_NOT_ALLOWED`, `LEGAL_DOCUMENT_PUBLISHED`, `LEGAL_DOCUMENTS_MISSING`, `LEGAL_VERSION_CHANGED`, `COMPANY_DETAILS_MISSING`, `REFUND_AMOUNT_INVALID` (nothing paid), `REFUND_TRANSITION_NOT_ALLOWED`, `NOTIFICATION_TRANSITION_NOT_ALLOWED`, `ANNOUNCEMENT_NO_RECIPIENTS`.
+- **404**: `NOT_FOUND`, `ADMIN_NOT_FOUND`, `ROLE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `ADDRESS_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `PRODUCT_VARIANT_NOT_FOUND`, `IMAGE_NOT_FOUND`, `BANNER_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND`, `ORDER_ITEM_NOT_FOUND` (orders), `RETURN_NOT_FOUND`, `INVOICE_NOT_FOUND`, `REFUND_NOT_FOUND`, `LEGAL_DOCUMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `ANNOUNCEMENT_NOT_FOUND`, `FAQ_NOT_FOUND`, `FAQ_GROUP_NOT_FOUND`, `BLOG_POST_NOT_FOUND`, `BLOG_CATEGORY_NOT_FOUND`.
+- **409**: `CONFLICT`, `ADMIN_EMAIL_TAKEN`, `ADMIN_SELF_MODIFICATION` (last super admin), `ROLE_KEY_TAKEN`, `ROLE_IN_USE`, `CATEGORY_SLUG_TAKEN`, `CATEGORY_HAS_CHILDREN`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_SKU_TAKEN`, `PRODUCT_SLUG_TAKEN`, `PRODUCT_IS_ACTIVE`, `PRODUCT_IN_USE`, `PRODUCT_VARIANT_LAST`, `PRODUCT_VARIANT_IN_USE`, `STOCK_INSUFFICIENT`, `IMAGE_ORDER_INVALID` (changed meanwhile), `CART_EMPTY`, `ORDER_ITEMS_NOT_ORDERABLE`, `ORDER_TOTAL_CHANGED`, `ORDER_NOT_PAYABLE`, `ORDER_CANNOT_BE_CANCELLED`, `ORDER_TRANSITION_NOT_ALLOWED`, `ORDER_CANNOT_BE_CHANGED`, `ORDER_CHANGED_MEANWHILE`, `RETURN_NOT_POSSIBLE`, `RETURN_WINDOW_CLOSED`, `RETURN_QUANTITY_INVALID` (request/complete), `RETURN_TRANSITION_NOT_ALLOWED`, `LEGAL_DOCUMENT_PUBLISHED`, `LEGAL_DOCUMENTS_MISSING`, `LEGAL_VERSION_CHANGED`, `COMPANY_DETAILS_MISSING`, `REFUND_AMOUNT_INVALID` (nothing paid), `REFUND_TRANSITION_NOT_ALLOWED`, `NOTIFICATION_TRANSITION_NOT_ALLOWED`, `ANNOUNCEMENT_NO_RECIPIENTS`, `FAQ_GROUP_HAS_FAQS`, `BLOG_POST_SLUG_TAKEN`, `BLOG_CATEGORY_SLUG_TAKEN`, `BLOG_CATEGORY_HAS_POSTS`.
 - **413**: `FILE_TOO_LARGE`. **429**: `RATE_LIMITED`, `ADMIN_ACCOUNT_LOCKED`. **502**: `PAYMENT_PROVIDER_ERROR`. **503**: `SERVICE_UNAVAILABLE`, `PAYMENTS_NOT_CONFIGURED`, `STORAGE_UNAVAILABLE`. **500**: `INTERNAL_ERROR`.
 
 ---
@@ -2119,3 +2126,69 @@ Replace the picture (same request and rules as the creation). The old files are 
 Deletes the banner and its files. **Success Response:** `204`. **Possible Errors:** `404 BANNER_NOT_FOUND`.
 
 The shop reads `GET /v1/store/banners` (section 17 of the customer documentation): only `live` banners, cached for 60 seconds, so a change shows within a minute.
+
+---
+
+## 21. Analytics (the second tab of the start page)
+
+The start page has two tabs: **Decisions** (section 15, unchanged) and **Analytics**: the figures of the shop over a period, compared with the period before. `doc/ANALYTICS.md` has the definitions, the full answers and the panel workflow. **Permission:** `analytics.read` (a permission of its own; the super admin has it through the wildcard).
+
+Every endpoint is a `GET` under `/v1/admin/analytics` with the same query: `range` = `today` | `yesterday` | `last_7_days` | `this_month` (default: the first of the month up to today) | `last_month` | `custom` with `from` and `to` (`YYYY-MM-DD`, both included, at most 731 days); `granularity` = `day` | `week` | `month` (default by the length of the range). Days are calendar days in `Europe/Berlin`. Every answer repeats the resolved `range` with its `previous` period; every compared figure is `{ value, previous, change }` (`change` in percent, `null` when `previous` is 0). Amounts are cents, VAT included.
+
+| Endpoint | Answers |
+| --- | --- |
+| `GET /v1/admin/analytics/summary` | KPIs: `revenue` (gross, net, goods, deliveryFees, vat, netOfVat, credits, refunded), `orders` (paid, averageOrderValue, units, cancelled, abandoned, dispatched, delivered), `customers` (buyers, firstTime, returning, new), `returns` (requested, completed, credited), `refunds` (completed, amount) |
+| `GET /v1/admin/analytics/sales` | `current` and `previous`: one point per bucket, zero-filled: `{ period, revenue, orders, units, averageOrderValue, refunded }` |
+| `GET /v1/admin/analytics/products?limit=10&sortBy=units\|revenue` | `totals`, `bestSellers` (product with image, units and revenue with change, orders, pack sizes), `categories` (by the product's current category, with share) |
+| `GET /v1/admin/analytics/customers?limit=10` | new, buyers, firstTime, returning, repeatRate; `newCustomers` per bucket; `topCustomers`; `byLanguage` |
+| `GET /v1/admin/analytics/payments` | `byType` (card, paypal), `checkouts` funnel (started, paid, pending, failed, abandoned, conversion), `refunds` (created, completed, by status, reason, method), `returns` (requested, completed, by status, reason) |
+| `GET /v1/admin/analytics/inventory?limit=10` | `stock` now (variants, unitsOnHand, stockValue, out of stock, low), `movements` in the period (sold, restocked, returned, released, adjusted), `lowStock`, `outOfStock`, `slowMovers` |
+
+What counts when: an order on the day its money was captured, a cancellation on the day it was cancelled, a refund on the day it was completed, a return on the day it was requested or completed, stock now. **Errors:** `400 ANALYTICS_RANGE_INVALID`, `400 VALIDATION_FAILED`.
+
+---
+
+## 22. FAQ
+
+Questions and answers in both languages under optional headings (groups), in the admin's order; the shop shows the published ones. `doc/FAQ.md` has the objects, the rules and the panel workflow. **Permissions:** `content.read` to see, `content.manage` to change (shared with the blog).
+
+| Endpoint | Body | Answer |
+| --- | --- | --- |
+| `GET /v1/admin/faq-groups` | | `{ items, ungrouped: { total, published } }` in display order, with `faqCount`, `publishedCount` |
+| `POST /v1/admin/faq-groups` | `{ name: { en, de? }, isVisible? }` | `201 { group }`, last in the order |
+| `GET /v1/admin/faq-groups/{id}`, `PATCH …/{id}` | `{ name?, isVisible? }` | `{ group }` |
+| `PUT /v1/admin/faq-groups/order` | `{ orderedIds }` (every group once) | `{ items }` |
+| `DELETE /v1/admin/faq-groups/{id}` | | `204`; `409 FAQ_GROUP_HAS_FAQS` while it has questions |
+| `GET /v1/admin/faqs` | query `groupId`, `ungrouped=true`, `isPublished` | `{ items }`: by group in display order, then without a group; within a group by position |
+| `POST /v1/admin/faqs` | `{ question: { en, de? }, answer: { en, de? }, groupId?: id \| null, isPublished? }` | `201 { faq }`, last in its group |
+| `GET /v1/admin/faqs/{id}`, `PATCH …/{id}` | any field; `isPublished` is the publish switch; `groupId: null` removes the group | `{ faq }`; a moved question goes last in the new group |
+| `PUT /v1/admin/faqs/order` | `{ groupId?: id \| null, orderedIds }` (partial allowed: named first, the rest keeps its order) | `{ items }` of that group |
+| `DELETE /v1/admin/faqs/{id}` | | `204` |
+
+The FAQ object: `id`, `question { en, de }`, `answer { en, de }` (Markdown), `groupId`, `group { id, name }`, `sortOrder`, `isPublished`, `publishedAt`, `createdAt`, `updatedAt`. **Errors:** `404 FAQ_NOT_FOUND`, `404 FAQ_GROUP_NOT_FOUND`, `400 FAQ_ORDER_INVALID` (`details.unknown`, `details.expected`), `400 FAQ_GROUP_ORDER_INVALID` (`details.expected`), `409 FAQ_GROUP_HAS_FAQS` (`details.faqs`).
+
+---
+
+## 23. Blog
+
+Articles in both languages with a featured picture, pictures in the text, a category, tags, a date and SEO fields; drafts, scheduled and published. `doc/BLOG.md` has the objects, the rules and the panel workflow. **Permissions:** `content.read` to see, `content.manage` to change.
+
+| Endpoint | Body / query | Answer |
+| --- | --- | --- |
+| `GET /v1/admin/blog-posts` | `page`, `limit`, `status`, `categoryId`, `tag`, `q`, `sort` = `updated` \| `newest` \| `published` \| `title` | page of post summaries (no text) |
+| `GET /v1/admin/blog-posts/tags` | | `{ items: [{ tag, count }] }` |
+| `POST /v1/admin/blog-posts` | `{ title: { en, de? }, slug?, summary?, content? (Markdown), authorName?, categoryId?, tags?, status?, publishedAt?, seo? }` | `201 { post }` |
+| `GET /v1/admin/blog-posts/{id}`, `PATCH …/{id}` | any field of the creation | `{ post }` with `content`, `seo`, `images` |
+| `POST /v1/admin/blog-posts/{id}/publish` | `{ publishedAt? }` (a future date schedules) | `{ post }` |
+| `POST /v1/admin/blog-posts/{id}/unpublish` | | `{ post }` (a draft again, date kept) |
+| `DELETE /v1/admin/blog-posts/{id}` | | `204`, pictures deleted |
+| `PUT /v1/admin/blog-posts/{id}/featured-image` | multipart `file`, ≥ 800 × 400 px, stored in widths 480 / 1024 / 1920 | `{ post }` |
+| `PATCH …/{id}/featured-image` | `{ alt: { en?, de? } }` | `{ post }` |
+| `DELETE …/{id}/featured-image` | | `{ post }` |
+| `POST /v1/admin/blog-posts/{id}/images` | multipart `files` (≤10; ≤20 per post) | `200 { post }`; paste `images[].url` into the Markdown |
+| `DELETE …/{id}/images/{imageId}` | | `{ post }` |
+| `GET /v1/admin/blog-categories` | | `{ items, uncategorized }` with `postCount`, `publishedCount` |
+| `POST /v1/admin/blog-categories` | `{ name: { en, de? }, slug?, description?, seo? }` | `201 { category }` |
+| `GET …/{id}`, `PATCH …/{id}`, `PUT /v1/admin/blog-categories/order`, `DELETE …/{id}` | as the FAQ groups | `409 BLOG_CATEGORY_HAS_POSTS` while it has posts |
+
+The post object (admin): `id`, `title`, `slug { en, de }`, `summary`, `status` (`draft` | `published`), `visibility` (`draft` | `scheduled` | `published`), `publishedAt`, `authorName`, `authorId`, `categoryId`, `category`, `tags`, `featuredImage`, `imageCount`, `readingMinutes`, `createdAt`, `updatedAt`; the detail adds `content { en, de }`, `seo { title, description }`, `images`. **Errors:** `404 BLOG_POST_NOT_FOUND`, `404 BLOG_CATEGORY_NOT_FOUND`, `409 BLOG_POST_SLUG_TAKEN`, `409 BLOG_CATEGORY_SLUG_TAKEN`, `409 BLOG_CATEGORY_HAS_POSTS`, `400 BLOG_POST_INCOMPLETE` (publishing without the English text), `400 BLOG_CATEGORY_ORDER_INVALID`, the image errors of section 8.

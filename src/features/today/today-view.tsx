@@ -7,11 +7,26 @@ import type { ReactNode } from "react";
 import { RequirePermission } from "@/components/domain/permission";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { DateTime, Money } from "@/components/domain/values";
-import { PageBody, PageHeader } from "@/components/shell/page";
+import { PageBody, PageHeader, gutter } from "@/components/shell/page";
 import { useAttention } from "@/components/shell/sidebar";
 import { toneClass } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/controls";
 import { Alert, EmptyState, Skeleton } from "@/components/ui/surface";
+import { AnalyticsTab } from "@/features/analytics/analytics-tab";
+import { useAnalyticsSummary } from "@/features/analytics/queries";
+import {
+  RANGE_PARAMS,
+  customProblem,
+  queryOf,
+  rangeText,
+} from "@/features/analytics/range";
+import { RangePicker } from "@/features/analytics/range-picker";
 import { useSettings } from "@/features/settings/queries";
 import { missingForInvoicesText } from "@/features/settings/settings-frame";
 import { errorMessage } from "@/lib/api/error-text";
@@ -22,6 +37,7 @@ import { berlinParts } from "@/lib/format/dates";
 import { formatMoney } from "@/lib/format/money";
 import { personName, plural, translated } from "@/lib/format/names";
 import { useNow } from "@/lib/hooks/use-now";
+import { param, useUrlState } from "@/lib/hooks/use-url-state";
 import { routes, withQuery } from "@/lib/routes";
 import { humanize, type Tone } from "@/lib/status";
 
@@ -376,72 +392,159 @@ function ShopBlocked() {
   );
 }
 
-/** The start page: what needs a person now. */
+/** The Decisions tab: what needs a person now (15), as it always was. */
+function DecisionsTab() {
+  const can = useCan();
+  const attention = useAttention();
+  const groups = attention.data ? groupsOf(attention.data) : null;
+  const waiting = groups?.reduce((sum, group) => sum + group.count, 0) ?? 0;
+
+  if (!can("orders.read")) {
+    return (
+      <RequirePermission permission="orders.read">{null}</RequirePermission>
+    );
+  }
+  return (
+    <section className="flex flex-col gap-4">
+      <h2 className="sr-only">Waiting for you</h2>
+      {attention.isError ? (
+        <Alert tone="danger" title="The overview could not be loaded">
+          {errorMessage(attention.error)}
+        </Alert>
+      ) : groups && attention.data ? (
+        <>
+          <AttentionStrip groups={groups} />
+          {waiting === 0 ? (
+            <EmptyState
+              icon={<CircleCheck />}
+              title="All clear"
+              className="rounded-lg border border-line py-10"
+            >
+              No paid order waits to be prepared, no refund or return waits for
+              a decision, no product runs low and every message went out.
+            </EmptyState>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+              {groups
+                .filter((group) => group.rows.length > 0)
+                .map((group) => (
+                  <AttentionPanel key={group.key} group={group} />
+                ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <Skeleton className="h-24 rounded-lg" />
+      )}
+    </section>
+  );
+}
+
+const TABS = ["decisions", "analytics"] as const;
+
+/**
+ * The start page, in two tabs: Decisions, what needs a person now, and
+ * Analytics, the figures of the shop over a period (21). The tab and the
+ * period live in the address.
+ */
 export function TodayView() {
   const admin = useAdmin();
   const can = useCan();
   const now = useNow();
   const attention = useAttention();
+  const [state, setState] = useUrlState({
+    tab: param.oneOfOr(TABS, "decisions"),
+    ...RANGE_PARAMS,
+  });
+  const canAnalytics = can("analytics.read");
+  const tab =
+    state.tab === "analytics" && canAnalytics ? "analytics" : "decisions";
+
+  const range = {
+    range: state.range,
+    from: state.from,
+    to: state.to,
+    granularity: state.granularity,
+  };
+  const problem = customProblem(range);
+  const query = queryOf(range);
+  const summary = useAnalyticsSummary(
+    query,
+    tab === "analytics" && problem === null,
+  );
+
   const time = berlinParts(now);
-  const groups = attention.data ? groupsOf(attention.data) : null;
-  const waiting = groups?.reduce((sum, group) => sum + group.count, 0) ?? 0;
+  const waiting = attention.data
+    ? groupsOf(attention.data).reduce((sum, group) => sum + group.count, 0)
+    : null;
   const firstName = admin.name.split(" ")[0] ?? admin.name;
 
   return (
-    <>
+    <Tabs
+      value={tab}
+      onValueChange={(value) =>
+        setState({ tab: value as (typeof TABS)[number] })
+      }
+    >
       <PageHeader
         title={`${greeting(time.hour)}, ${firstName}`}
         description={
-          <>
-            {WEEKDAYS[time.weekday]}, {time.day} {MONTHS[time.month - 1]}.{" "}
-            {groups
-              ? waiting > 0
-                ? `${plural(waiting, "thing")} wait${waiting === 1 ? "s" : ""} for a decision.`
-                : "Nothing waits for a decision."
-              : null}
-          </>
-        }
-      />
-      <PageBody className="gap-8">
-        <ShopBlocked />
-        {!can("orders.read") ? (
-          <RequirePermission permission="orders.read">{null}</RequirePermission>
-        ) : (
-          <section className="flex flex-col gap-4">
-            <h2 className="sr-only">Waiting for you</h2>
-            {attention.isError ? (
-              <Alert tone="danger" title="The overview could not be loaded">
-                {errorMessage(attention.error)}
-              </Alert>
-            ) : groups && attention.data ? (
-              <>
-                <AttentionStrip groups={groups} />
-                {waiting === 0 ? (
-                  <EmptyState
-                    icon={<CircleCheck />}
-                    title="All clear"
-                    className="rounded-lg border border-line py-10"
-                  >
-                    No paid order waits to be prepared, no refund or return
-                    waits for a decision, no product runs low and every message
-                    went out.
-                  </EmptyState>
-                ) : (
-                  <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-                    {groups
-                      .filter((group) => group.rows.length > 0)
-                      .map((group) => (
-                        <AttentionPanel key={group.key} group={group} />
-                      ))}
-                  </div>
-                )}
-              </>
+          tab === "analytics" ? (
+            summary.data ? (
+              rangeText(summary.data.range)
             ) : (
-              <Skeleton className="h-24 rounded-lg" />
-            )}
-          </section>
-        )}
+              "The figures of the shop over a period, compared with the period before. Amounts include VAT."
+            )
+          ) : (
+            <>
+              {WEEKDAYS[time.weekday]}, {time.day} {MONTHS[time.month - 1]}.{" "}
+              {waiting !== null
+                ? waiting > 0
+                  ? `${plural(waiting, "thing")} wait${waiting === 1 ? "s" : ""} for a decision.`
+                  : "Nothing waits for a decision."
+                : null}
+            </>
+          )
+        }
+        actions={
+          tab === "analytics" ? (
+            <RangePicker
+              state={range}
+              days={summary.data?.range.days ?? null}
+              onChange={(changes) =>
+                setState(
+                  // A preset leaves the typed days behind.
+                  changes.range && changes.range !== "custom"
+                    ? { ...changes, from: "", to: "" }
+                    : changes,
+                )
+              }
+            />
+          ) : undefined
+        }
+        className="pb-0"
+      />
+      {canAnalytics ? (
+        <div className={gutter}>
+          <TabsList aria-label="Start page">
+            <TabsTrigger value="decisions">Decisions</TabsTrigger>
+            <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          </TabsList>
+        </div>
+      ) : (
+        <div className={cn(gutter, "pb-4")} />
+      )}
+      <PageBody className="gap-8 pt-5">
+        <ShopBlocked />
+        <TabsContent value="decisions">
+          <DecisionsTab />
+        </TabsContent>
+        {canAnalytics ? (
+          <TabsContent value="analytics">
+            <AnalyticsTab query={query} problem={problem} summary={summary} />
+          </TabsContent>
+        ) : null}
       </PageBody>
-    </>
+    </Tabs>
   );
 }
