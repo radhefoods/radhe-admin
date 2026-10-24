@@ -35,6 +35,8 @@ import {
   vatOf,
 } from "./domain.ts";
 import { newId } from "./http.ts";
+import { seedBlog } from "./modules/blog.ts";
+import { seedFaq } from "./modules/faq.ts";
 import { completeRefund } from "./modules/payments.ts";
 import {
   recordMovement,
@@ -1960,6 +1962,10 @@ export function seed(options: SeedOptions): Db {
   banner(now - DAY, "Fresh produce (draft)", 95, [null, null], {
     isActive: false,
   });
+
+  // --- FAQ (22) and blog (23) -----------------------------------------------
+  seedFaq(db, now);
+  seedBlog(db, now, owner);
 
   return db;
 }

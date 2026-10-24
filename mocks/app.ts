@@ -11,9 +11,11 @@ import { HttpError, fail, json, noContent, setPeople } from "./http.ts";
 import { bannerSvg, placeholderSvg } from "./media.ts";
 import { registerAnalytics } from "./modules/analytics.ts";
 import { registerBanners } from "./modules/banners.ts";
+import { registerBlog } from "./modules/blog.ts";
 import { registerCatalog } from "./modules/catalog.ts";
 import { registerCatalogSheets } from "./modules/catalog-sheets.ts";
 import { registerCommunication } from "./modules/communication.ts";
+import { registerFaq } from "./modules/faq.ts";
 import { registerOrders } from "./modules/orders.ts";
 import { registerPayments } from "./modules/payments.ts";
 import { registerShop } from "./modules/shop.ts";
@@ -91,6 +93,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   registerCommunication(router);
   registerBanners(router);
   registerAnalytics(router);
+  registerFaq(router);
+  registerBlog(router);
 
   const originAllowed = (origin: string) =>
     (options.allowedOrigins ?? []).includes(origin) ||

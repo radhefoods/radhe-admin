@@ -23,6 +23,8 @@ import type {
   Settings,
   StockMovement,
 } from "../src/lib/api/types/index.ts";
+import type { BlogCategoryRecord, BlogPostRecord } from "./modules/blog.ts";
+import type { FaqGroupRecord, FaqRecord } from "./modules/faq.ts";
 
 export interface AdminRecord {
   id: string;
@@ -195,6 +197,12 @@ export interface Db {
   announcements: Announcement[];
   /** The homepage banners (20). */
   banners: BannerRecord[];
+  /** The FAQ (22): the groups and the questions. */
+  faqGroups: FaqGroupRecord[];
+  faqs: FaqRecord[];
+  /** The blog (23). */
+  blogCategories: BlogCategoryRecord[];
+  blogPosts: BlogPostRecord[];
   /** Pictures uploaded while the mock runs, by the key in their address. */
   files: Map<string, StoredFile>;
   counters: {
@@ -241,6 +249,10 @@ export function emptyDb(config: MockConfig): Db {
     notifications: [],
     announcements: [],
     banners: [],
+    faqGroups: [],
+    faqs: [],
+    blogCategories: [],
+    blogPosts: [],
     files: new Map(),
     counters: { order: 1000, sku: 0, invoice: 0, creditNote: 0 },
   };

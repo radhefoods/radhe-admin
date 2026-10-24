@@ -14,13 +14,30 @@ const MAX_PIXELS = 40_000_000;
 /** What a picture must measure: a side for products and categories (8), … */
 export interface ImageRules {
   minSide?: number;
-  /** … or a width and a height, wider than tall, for a banner (20). */
+  /** … or a width and a height, for a banner (20) or the featured picture of a post (23). */
   minWidth?: number;
   minHeight?: number;
+  /** The picture must be wider than tall (banners). */
+  landscape?: boolean;
 }
 
 const PRODUCT_IMAGE: ImageRules = { minSide: MIN_SIDE };
-export const BANNER_IMAGE: ImageRules = { minWidth: 1200, minHeight: 300 };
+export const BANNER_IMAGE: ImageRules = {
+  minWidth: 1200,
+  minHeight: 300,
+  landscape: true,
+};
+/** The featured picture of a blog post (23): at least 800 × 400 px. */
+export const BLOG_FEATURED_IMAGE: ImageRules = {
+  minWidth: 800,
+  minHeight: 400,
+};
+/** The widths a featured picture is stored in (23), never enlarged. */
+export const BLOG_FEATURED_WIDTHS = {
+  small: 480,
+  medium: 1024,
+  large: 1920,
+} as const;
 
 /** The widths a banner is stored in (20), never enlarged. */
 export const BANNER_WIDTHS = {
@@ -153,7 +170,7 @@ export async function readImage(
     throw fail(400, "IMAGE_INVALID", "The file is not an image.");
   }
   if (rules.minWidth !== undefined && rules.minHeight !== undefined) {
-    if (found.width <= found.height) {
+    if (rules.landscape && found.width <= found.height) {
       throw fail(
         400,
         "IMAGE_DIMENSIONS_INVALID",
