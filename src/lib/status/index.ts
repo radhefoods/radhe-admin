@@ -1,6 +1,7 @@
 import type {
   AdminStatus,
   BannerStatus,
+  BlogVisibility,
   CustomerStatus,
   InvoiceType,
   LegalStatus,
@@ -124,6 +125,13 @@ export const BANNER_STATUS = table<BannerStatus>({
   inactive: "neutral",
 });
 
+/** A scheduled post is published with a date in the future: the shop shows it then. */
+export const BLOG_VISIBILITY = table<BlogVisibility>({
+  draft: "neutral",
+  scheduled: "planned",
+  published: "success",
+});
+
 export const INVOICE_TYPE = table<InvoiceType>({
   invoice: "planned",
   credit_note: "moving",
@@ -141,6 +149,7 @@ export const STATUS_TABLES = {
   legal: LEGAL_STATUS,
   invoiceType: INVOICE_TYPE,
   banner: BANNER_STATUS,
+  blogPost: BLOG_VISIBILITY,
 } as const;
 
 export type StatusKind = keyof typeof STATUS_TABLES;
