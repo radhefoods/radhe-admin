@@ -47,6 +47,7 @@ Both sheets: `*_en` is required where the field is required, `*_de` is optional.
 | `description_en`, `description_de` | no | |
 | `sort_order` | no | 0–100000; the position among its siblings. Default: last. |
 | `is_visible` | no | Default yes. A hidden category hides everything below it in the shop. |
+| `listing_view` | no | `product`, `variants_by_product` or `variants_by_size` (default): how the shop lists the pack sizes of the category's products. See `doc/PRODUCT_DISPLAY_ORDER.md`. |
 | `seo_title_en`, `seo_title_de`, `seo_description_en`, `seo_description_de` | no | |
 
 The category image is not part of the sheet: upload it in the panel.
@@ -75,7 +76,7 @@ One row per pack size. "Pack size" in the table marks the columns that are read 
 | `status` | no | `draft` (default), `active`, `archived`. |
 | `is_available` | no | Default yes. No: every pack size is shown as not available and cannot be ordered. |
 | `is_featured` | no | Default no. |
-| `sort_order` | no | 0–1000000. |
+| `sort_order` | no | 0–1000000; the position among the products of its category, 0 first. Default on a create: the last position. |
 | `min_order_quantity` | no | Default 1. Packs per order, the same for every pack size. |
 | `max_order_quantity` | no | `0` removes the limit. |
 | `stock_quantity` | no | Pack size. Units in stock. On a create the opening stock (default 0); on an update the new count, written to the stock history of the pack size as an import. |

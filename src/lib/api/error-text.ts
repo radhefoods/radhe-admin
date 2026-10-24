@@ -71,6 +71,8 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   CATEGORY_SLUG_TAKEN: "Another category already uses this address (slug).",
   CATEGORY_ORDER_INVALID:
     "The categories changed in the meantime. The list was loaded again.",
+  CATEGORY_PRODUCT_ORDER_INVALID:
+    "Some of these products are no longer in this category. The list was loaded again.",
   CATEGORY_HAS_CHILDREN:
     "The category still has sub-categories. Move or delete them first.",
   CATEGORY_HAS_PRODUCTS:

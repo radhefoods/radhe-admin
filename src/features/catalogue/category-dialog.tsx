@@ -24,6 +24,8 @@ import type { Category } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
 import { CategoryPicture } from "./category-picture";
 import {
+  LISTING_VIEW_HELP,
+  LISTING_VIEW_LABEL,
   altChanged,
   altOf,
   categoryDefaults,
@@ -38,6 +40,7 @@ import {
   indentedName,
   parentChoices,
 } from "./category-tree";
+import { LISTING_VIEWS } from "@/lib/api/types";
 import type { SizeReader } from "./image-rules";
 import {
   useCreateCategory,
@@ -163,6 +166,7 @@ function CategoryForm({
 
   const parents = parentChoices(categories, category);
   const visible = form.watch("isVisible");
+  const listingView = form.watch("listingView");
   const hasPicture = Boolean(category?.image) || file !== null;
 
   return (
@@ -216,6 +220,18 @@ function CategoryForm({
             disabled={!manage}
             hint="A hidden category and its products disappear from the shop until it is shown again. Nothing is deleted."
           />
+          <SelectField
+            form={form}
+            name="listingView"
+            label="How the shop lists the pack sizes"
+            hint={`${LISTING_VIEW_HELP[listingView]} The home page always shows rounds and the search always groups by product.`}
+          >
+            {LISTING_VIEWS.map((view) => (
+              <option key={view} value={view}>
+                {LISTING_VIEW_LABEL[view]}
+              </option>
+            ))}
+          </SelectField>
         </fieldset>
 
         <section

@@ -27,6 +27,7 @@ import {
   createVariant,
   lastPosition,
   logPrice,
+  nextProductPosition,
   slugify,
   variantBySku,
 } from "./catalog.ts";
@@ -45,6 +46,7 @@ export const CATEGORY_COLUMNS = [
   "description_de",
   "sort_order",
   "is_visible",
+  "listing_view",
   "seo_title_en",
   "seo_title_de",
   "seo_description_en",
@@ -299,6 +301,7 @@ interface CategoryPlan {
     description?: { en?: string; de?: string };
     sortOrder?: number;
     isVisible?: boolean;
+    listingView?: "product" | "variants_by_product" | "variants_by_size";
     seoTitle?: { en?: string; de?: string };
     seoDescription?: { en?: string; de?: string };
   };
@@ -348,6 +351,11 @@ function planCategories(
       description: cells.translated("description", 20000),
       sortOrder: cells.int("sort_order", 0, 100000),
       isVisible: cells.bool("is_visible"),
+      listingView: cells.oneOf("listing_view", [
+        "product",
+        "variants_by_product",
+        "variants_by_size",
+      ] as const),
       seoTitle: cells.translated("seo_title", 300),
       seoDescription: cells.translated("seo_description", 300),
     };
@@ -469,6 +477,11 @@ function planCategories(
     if (input.isVisible !== undefined && input.isVisible !== record.isVisible)
       changes.push("is_visible");
     if (
+      input.listingView !== undefined &&
+      input.listingView !== record.listingView
+    )
+      changes.push("listing_view");
+    if (
       input.seoTitle &&
       !same(input.seoTitle, {
         en: record.seo?.title?.en ?? undefined,
@@ -556,6 +569,7 @@ function writeCategory(
       parentId: parent,
       sortOrder: input.sortOrder ?? lastPosition(db, parent),
       isVisible: input.isVisible ?? true,
+      listingView: input.listingView ?? "variants_by_size",
       image: null,
       seo: seo ?? null,
       createdAt: iso(now),
@@ -588,6 +602,7 @@ function writeCategory(
     category.description = { ...category.description, ...input.description };
   if (input.sortOrder !== undefined) category.sortOrder = input.sortOrder;
   if (input.isVisible !== undefined) category.isVisible = input.isVisible;
+  if (input.listingView !== undefined) category.listingView = input.listingView;
   if (seo)
     category.seo = {
       title: seo.title ?? category.seo?.title ?? null,
@@ -1213,7 +1228,9 @@ function writeProduct(
       status,
       isAvailable: true,
       isFeatured: false,
-      sortOrder: 0,
+      // A create without a position goes last (7).
+      sortOrder:
+        input.sortOrder ?? nextProductPosition(db, categoryId as string),
       subtitle: null,
       shortDescription: null,
       description: null,
@@ -1325,7 +1342,12 @@ function writeProduct(
         en: input.name.en ?? product.name.en,
         de: input.name.de ?? product.name.de ?? null,
       };
-    if (categoryId !== undefined) product.categoryId = categoryId;
+    if (categoryId !== undefined && categoryId !== product.categoryId) {
+      // A moved product takes the last position of its new category (7).
+      product.categoryId = categoryId;
+      product.sortOrder =
+        input.sortOrder ?? nextProductPosition(db, categoryId);
+    }
     if (input.status !== undefined) {
       product.status = input.status;
       if (input.status === "active") product.publishedAt ??= iso(now);
@@ -1492,6 +1514,7 @@ function exportCategories(db: Db) {
       description_de: category.description?.de ?? "",
       sort_order: String(category.sortOrder),
       is_visible: yesNo(category.isVisible),
+      listing_view: category.listingView,
       seo_title_en: category.seo?.title?.en ?? "",
       seo_title_de: category.seo?.title?.de ?? "",
       seo_description_en: category.seo?.description?.en ?? "",

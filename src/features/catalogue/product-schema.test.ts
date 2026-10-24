@@ -463,10 +463,14 @@ describe("what POST /products gets", () => {
       status: "draft",
       isAvailable: true,
       isFeatured: false,
-      sortOrder: 0,
       minOrderQuantity: 1,
       storageType: "ambient",
     });
+  });
+
+  it("leaves the position out when none was typed: the API puts the product last", () => {
+    expect(toProductInput(typed()).sortOrder).toBeUndefined();
+    expect(toProductInput(typed({ sortOrder: "3" })).sortOrder).toBe(3);
   });
 
   it("sends money as integer cents and the VAT rate in hundredths of a percent", () => {

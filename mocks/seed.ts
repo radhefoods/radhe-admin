@@ -727,6 +727,13 @@ export function seed(options: SeedOptions): Db {
       parentId,
       sortOrder,
       isVisible: en !== "Frozen",
+      // The second main category groups the sizes of a product; the rest shows rounds.
+      listingView:
+        en === "Pulses"
+          ? "variants_by_product"
+          : en === "Flour"
+            ? "product"
+            : "variants_by_size",
       image: parentId
         ? null
         : {
@@ -1868,6 +1875,14 @@ export function seed(options: SeedOptions): Db {
       },
       now - 60_000,
     );
+  }
+
+  // Every product has a position among the products of its category (7).
+  const positions = new Map<string, number>();
+  for (const product of db.products) {
+    const position = positions.get(product.categoryId) ?? 0;
+    product.sortOrder = position;
+    positions.set(product.categoryId, position + 1);
   }
 
   // --- Homepage banners (20) ------------------------------------------------

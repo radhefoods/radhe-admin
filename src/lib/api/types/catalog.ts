@@ -64,6 +64,21 @@ export interface CategorySeo {
   description: TranslatedOptional | null;
 }
 
+/**
+ * How the shop lists the products of a category on its page (7.1,
+ * doc/PRODUCT_DISPLAY_ORDER.md): one card per product with a size chooser,
+ * one card per pack size with the sizes of a product together, or one card
+ * per pack size in rounds (the smallest size of every product first).
+ */
+export type ListingView =
+  "product" | "variants_by_product" | "variants_by_size";
+export const LISTING_VIEWS: readonly ListingView[] = [
+  "product",
+  "variants_by_product",
+  "variants_by_size",
+];
+export const DEFAULT_LISTING_VIEW: ListingView = "variants_by_size";
+
 /** 7.1. A tree of at most three levels, returned as a flat list in order. */
 export interface Category {
   id: Id;
@@ -76,6 +91,7 @@ export interface Category {
   level: 1 | 2 | 3;
   sortOrder: number;
   isVisible: boolean;
+  listingView: ListingView;
   image: AdminImage | null;
   /** Every product (all statuses; a product with several pack sizes counts once) in the category and below. */
   productCount: number;
@@ -92,11 +108,21 @@ export interface CategoryInput {
   parentId?: Id | null;
   sortOrder?: number;
   isVisible?: boolean;
+  listingView?: ListingView;
   seo?: { title?: TranslatedOptional; description?: TranslatedOptional };
 }
 
 export interface CategoryOrderInput {
   parentId: Id | null;
+  orderedIds: Id[];
+}
+
+/**
+ * `PUT /categories/{id}/products/order` (7): the products named come
+ * first, in this order; every other product of the category follows in
+ * the order it had.
+ */
+export interface CategoryProductOrderInput {
   orderedIds: Id[];
 }
 
@@ -183,6 +209,7 @@ export interface ProductSummary {
   status: ProductStatus;
   isAvailable: boolean;
   isFeatured: boolean;
+  /** The position among the products of its category, 0 first. */
   sortOrder: number;
   /** The same for every pack size. */
   vatRate: VatRate;

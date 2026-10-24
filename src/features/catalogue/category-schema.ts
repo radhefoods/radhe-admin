@@ -1,10 +1,13 @@
 import { z } from "zod";
 import { hasErrorCode } from "@/lib/api/errors";
-import type {
-  Category,
-  CategoryInput,
-  Translated,
-  TranslatedOptional,
+import {
+  DEFAULT_LISTING_VIEW,
+  LISTING_VIEWS,
+  type Category,
+  type CategoryInput,
+  type ListingView,
+  type Translated,
+  type TranslatedOptional,
 } from "@/lib/api/types";
 import { translatedDefaults } from "@/lib/validation";
 
@@ -34,6 +37,7 @@ export const categorySchema = z.object({
   /** Empty: a main category. */
   parentId: z.string().regex(/^([0-9a-f]{24})?$/, "Choose a category."),
   isVisible: z.boolean(),
+  listingView: z.enum(LISTING_VIEWS),
   seo: z.object({ title: translated(300), description: translated(300) }),
   /** The description of the picture (alt text), saved through its own endpoint. */
   alt: translated(300),
@@ -52,6 +56,7 @@ export function categoryDefaults(
     description: translatedDefaults(category?.description),
     parentId: category ? (category.parentId ?? "") : (parentId ?? ""),
     isVisible: category?.isVisible ?? true,
+    listingView: category?.listingView ?? DEFAULT_LISTING_VIEW,
     seo: {
       title: translatedDefaults(category?.seo?.title),
       description: translatedDefaults(category?.seo?.description),
@@ -102,6 +107,7 @@ interface Complete {
   description: TranslatedOptional;
   parentId: string | null;
   isVisible: boolean;
+  listingView: ListingView;
   seo: { title: TranslatedOptional; description: TranslatedOptional };
 }
 
@@ -113,6 +119,7 @@ function complete(values: CategoryFormValues): Complete {
     description: optional(values.description),
     parentId: values.parentId || null,
     isVisible: values.isVisible,
+    listingView: values.listingView,
     seo: {
       title: optional(values.seo.title),
       description: optional(values.seo.description),
@@ -124,6 +131,8 @@ function complete(values: CategoryFormValues): Complete {
 export function toCategoryInput(values: CategoryFormValues): CategoryInput {
   const all = complete(values);
   const input: CategoryInput = { name: all.name, isVisible: all.isVisible };
+  if (all.listingView !== DEFAULT_LISTING_VIEW)
+    input.listingView = all.listingView;
   if (Object.keys(all.slug).length > 0) input.slug = all.slug;
   if (!isEmpty(all.tagline)) input.tagline = all.tagline;
   if (!isEmpty(all.description)) input.description = all.description;
@@ -159,9 +168,28 @@ export function toCategoryPatch(
     patch.description = next.description;
   if (next.parentId !== before.parentId) patch.parentId = next.parentId;
   if (next.isVisible !== before.isVisible) patch.isVisible = next.isVisible;
+  if (next.listingView !== before.listingView)
+    patch.listingView = next.listingView;
   if (!same(next.seo, before.seo)) patch.seo = next.seo;
   return patch;
 }
+
+/** The three ways the shop can list the products of a category (doc/PRODUCT_DISPLAY_ORDER.md, 4). */
+export const LISTING_VIEW_LABEL: Record<ListingView, string> = {
+  product: "One card per product",
+  variants_by_product:
+    "One card per pack size, the sizes of a product together",
+  variants_by_size: "One card per pack size, in rounds",
+};
+
+export const LISTING_VIEW_HELP: Record<ListingView, string> = {
+  product:
+    "One card per product, as its default pack size, with a size chooser on the card.",
+  variants_by_product:
+    "One card per pack size, the sizes of a product together, smallest first, then the next product.",
+  variants_by_size:
+    "One card per pack size, the smallest size of every product first, then the second size of every product that has one (rounds). The default.",
+};
 
 /** The field a documented refusal of the API belongs to. */
 export function categoryErrorField(

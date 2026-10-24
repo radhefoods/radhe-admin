@@ -6,6 +6,7 @@ import type {
   Category,
   CategoryInput,
   CategoryOrderInput,
+  CategoryProductOrderInput,
   CursorResult,
   ExportResult,
   Id,
@@ -56,6 +57,17 @@ export function categoriesApi({ request, upload }: SessionTransport) {
     reorder: (input: CategoryOrderInput) =>
       request<void>(`${base}/order`, { method: "PUT", body: input }),
     remove: (id: Id) => request<void>(`${base}/${id}`, { method: "DELETE" }),
+    /** The products directly in the category, every status, in display order (7). */
+    products: (id: Id, signal?: AbortSignal) =>
+      request<ListResult<ProductSummary>>(`${base}/${id}/products`, {
+        signal,
+      }),
+    /** The new order of the products of the category; the answer is the whole list (7). */
+    reorderProducts: (id: Id, input: CategoryProductOrderInput) =>
+      request<ListResult<ProductSummary>>(`${base}/${id}/products/order`, {
+        method: "PUT",
+        body: input,
+      }),
     putImage: (
       id: Id,
       file: File,

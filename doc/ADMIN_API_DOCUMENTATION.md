@@ -695,6 +695,7 @@ A tree of at most three levels. Products belong to one category; store listings 
   "level": 1,
   "sortOrder": 0,
   "isVisible": true,
+  "listingView": "variants_by_size",
   "image": {
     "id": "66f2…", "alt": { "en": "Rice", "de": null }, "isPrimary": true,
     "url": "https://cdn…/large.webp",
@@ -708,6 +709,8 @@ A tree of at most three levels. Products belong to one category; store listings 
 ```
 
 `productCount` counts every product (all statuses; a product with several pack sizes counts once) in the category and below. `tagline`, `description`, `seo`, `image` are `null` when unset.
+
+`listingView` is how the shop lists the products of the category (and of its sub-categories) on its page: `product` (one card per product, with a size chooser), `variants_by_product` (one card per pack size, the sizes of a product together, smallest first) or `variants_by_size` (one card per pack size in rounds: the smallest size of every product first, then the second size of every product that has one). Default `variants_by_size`. The home page always shows rounds and the search always groups by product, whatever this setting. `doc/PRODUCT_DISPLAY_ORDER.md` has examples.
 
 ### `GET /v1/admin/categories`
 
@@ -730,6 +733,7 @@ A tree of at most three levels. Products belong to one category; store listings 
   "parentId": "66f0…",
   "sortOrder": 3,
   "isVisible": true,
+  "listingView": "variants_by_size",
   "seo": { "title": { "en": "…", "de": "…" }, "description": { "en": "…", "de": "…" } }
 }
 ```
@@ -743,6 +747,7 @@ A tree of at most three levels. Products belong to one category; store listings 
 | `parentId` | ObjectId or `null` | no | `null`/absent = main category |
 | `sortOrder` | int 0–100000 | no | defaults to the last position |
 | `isVisible` | boolean | no | hidden categories (and their products) disappear from the shop |
+| `listingView` | `product` \| `variants_by_product` \| `variants_by_size` | no | default `variants_by_size`; see 7.1 |
 | `seo.title`, `seo.description` | `{ en?, de? }` (≤300) | no | |
 
 **Success Response (201):** `{ "category": { … } }`
@@ -770,6 +775,30 @@ A tree of at most three levels. Products belong to one category; store listings 
 **Request Body:** `{ "parentId": null | ObjectId, "orderedIds": [ …every category of that parent, in the new order… ] }` (1–500 ids, unique).
 
 **Success Response:** `204`. **Possible Errors:** `400 CATEGORY_ORDER_INVALID` (`details: { expected: [ids] }` – the list must contain exactly the children of that parent).
+
+### `GET /v1/admin/categories/{id}/products`
+
+**Purpose:** The products directly in a category (not those of its sub-categories; each sub-category has an order of its own), every status, in the order the shop shows them. For the "product order" page of a category: drafts and archived products are listed too, so a product can be placed before it goes live.
+
+**Permission:** `catalog.read`.
+
+**Success Response (200):** `{ "items": [ …admin product summaries (8.1)… ] }`. `sortOrder` is the position, `0` first; show it as position 1, 2, 3. The list is sorted by it, so its index is the position as well.
+
+**Possible Errors:** `404 CATEGORY_NOT_FOUND`.
+
+### `PUT /v1/admin/categories/{id}/products/order`
+
+**Purpose:** Set the display order of the products of a category (drag and drop, or typed positions). The list may be partial: the products named come first, in the given order; every other product of the category follows in the order it had. Every product of the category ends up with a position of its own, `0` to `n-1`, no gaps and no duplicates. The shop shows the new order at once (its answers are cached by the shop for up to five minutes).
+
+**Permission:** `catalog.manage`.
+
+**Request Body:** `{ "orderedIds": [ "66f3…", "66f4…", … ] }` (1–1000 ids, unique, each a product of this category).
+
+**Success Response (200):** `{ "items": [ … ] }`, the complete list in its new order, as `GET …/products` answers it.
+
+**Possible Errors:** `404 CATEGORY_NOT_FOUND`, `400 CATEGORY_PRODUCT_ORDER_INVALID` (`details: { unknown: [ids not in this category], expected: [ids of this category] }`), `400 VALIDATION_FAILED`.
+
+To move one product to position 3 of a category, send the ids of the products that should be at positions 1 to 3 in that order; the rest keeps its order behind them. To move a product into another category, `PATCH /v1/admin/products/{id}` with `categoryId`: it takes the last position there.
 
 ### `DELETE /v1/admin/categories/{id}`
 
@@ -982,7 +1011,7 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
 | `vatRate` | int | yes | 0–10000 (700 = 7 %, 1900 = 19 %); the same for every pack size |
 | `status` | `draft` \| `active` \| `archived` | no | default `draft`; `active` sets `publishedAt` once |
 | `isAvailable`, `isFeatured` | boolean | no | `isAvailable: false` keeps an active product in the shop but marks every pack size as not orderable (shown as "sold out"; nothing of it can be put in a cart). A pack size with `stock.quantity` 0 is sold out as well. `isFeatured` marks the product for the featured block of the shop (`GET /v1/store/products?featured=true`); it changes nothing else. |
-| `sortOrder` | int 0–1 000 000 | no | |
+| `sortOrder` | int 0–1 000 000 | no | the position among the products of its category, `0` first; defaults to the last position. Set it for a whole category with `PUT /v1/admin/categories/{id}/products/order` (section 7) rather than here |
 | `minOrderQuantity`, `maxOrderQuantity` | int 1–10000 (`max` nullable) | no | packs per order, the same for every pack size; max ≥ min |
 | `storageType` | `ambient` \| `chilled` \| `frozen` | no | |
 | `food` | object | no | free-text fields per language (≤20000); `origin` ≤120; `manufacturer` ≤500 |
@@ -1014,7 +1043,7 @@ A pack size (an entry of `variants`; the same fields for `POST …/{id}/variants
 
 ### `PATCH /v1/admin/products/{id}`
 
-**Purpose:** Change the product; send only what changes. Translated fields, lists and `food` are replaced as a whole. A new `slug` renames the URLs of every pack size; a new `vatRate` writes a price-history entry for every pack size; a changed `minOrderQuantity` can change the default pack size. The pack sizes themselves (article number, barcode, pack, prices, enabled switch, threshold, stock) have endpoints of their own: `variants` is refused here (`400 VALIDATION_FAILED`).
+**Purpose:** Change the product; send only what changes. Translated fields, lists and `food` are replaced as a whole. A new `slug` renames the URLs of every pack size; a new `vatRate` writes a price-history entry for every pack size; a changed `minOrderQuantity` can change the default pack size. A new `categoryId` moves the product to the last position of that category unless `sortOrder` is sent along. The pack sizes themselves (article number, barcode, pack, prices, enabled switch, threshold, stock) have endpoints of their own: `variants` is refused here (`400 VALIDATION_FAILED`).
 
 **Permission:** `catalog.manage`. **Request Body:** the product fields of create (everything except `variants`), all optional. **Success Response (200):** `{ "product": { … } }`.
 
@@ -1972,7 +2001,7 @@ Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 
 ### 17.3 Error codes by HTTP status (all modules)
 
-- **400**: `VALIDATION_FAILED`, `BAD_REQUEST`, `IDEMPOTENCY_KEY_REQUIRED`, `ADMIN_MFA_SETUP_REQUIRED`, `ROLE_PERMISSION_UNKNOWN`, `ADDRESS_LIMIT_REACHED`, `CATEGORY_PARENT_INVALID`, `CATEGORY_TOO_DEEP`, `CATEGORY_ORDER_INVALID`, `PRODUCT_PRICE_INVALID`, `PRODUCT_QUANTITY_INVALID`, `PRODUCT_VARIANT_INVALID`, `STOCK_CHANGE_INVALID`, `CART_FULL`, `ORDER_QUANTITY_INVALID`, `ORDER_ITEM_NOT_FOUND` (returns), `RETURN_QUANTITY_INVALID` (approve), `REFUND_AMOUNT_INVALID` (more than can be refunded), `REFUND_METHOD_INVALID`, `IMAGE_REQUIRED`, `IMAGE_INVALID`, `IMAGE_FORMAT_NOT_ALLOWED`, `IMAGE_DIMENSIONS_INVALID`, `IMAGE_LIMIT_REACHED`, `IMAGE_ORDER_INVALID`, `BANNER_LIMIT_REACHED`, `BANNER_ORDER_INVALID`, `BANNER_SCHEDULE_INVALID`, `WISHLIST_FULL` (store), `WEBHOOK_SIGNATURE_INVALID`.
+- **400**: `VALIDATION_FAILED`, `BAD_REQUEST`, `IDEMPOTENCY_KEY_REQUIRED`, `ADMIN_MFA_SETUP_REQUIRED`, `ROLE_PERMISSION_UNKNOWN`, `ADDRESS_LIMIT_REACHED`, `CATEGORY_PARENT_INVALID`, `CATEGORY_TOO_DEEP`, `CATEGORY_ORDER_INVALID`, `CATEGORY_PRODUCT_ORDER_INVALID`, `PRODUCT_PRICE_INVALID`, `PRODUCT_QUANTITY_INVALID`, `PRODUCT_VARIANT_INVALID`, `STOCK_CHANGE_INVALID`, `CART_FULL`, `ORDER_QUANTITY_INVALID`, `ORDER_ITEM_NOT_FOUND` (returns), `RETURN_QUANTITY_INVALID` (approve), `REFUND_AMOUNT_INVALID` (more than can be refunded), `REFUND_METHOD_INVALID`, `IMAGE_REQUIRED`, `IMAGE_INVALID`, `IMAGE_FORMAT_NOT_ALLOWED`, `IMAGE_DIMENSIONS_INVALID`, `IMAGE_LIMIT_REACHED`, `IMAGE_ORDER_INVALID`, `BANNER_LIMIT_REACHED`, `BANNER_ORDER_INVALID`, `BANNER_SCHEDULE_INVALID`, `WISHLIST_FULL` (store), `WEBHOOK_SIGNATURE_INVALID`.
 - **401**: `UNAUTHENTICATED` (generic), `AUTH_TOKEN_INVALID`, `AUTH_REFRESH_INVALID`, `AUTH_SESSION_REVOKED`, `ADMIN_CREDENTIALS_INVALID`, `ADMIN_MFA_TOKEN_INVALID`, `ADMIN_MFA_CODE_INVALID`, `CUSTOMER_CREDENTIALS_INVALID` (store).
 - **403**: `FORBIDDEN` (generic), `ADMIN_PERMISSION_DENIED`, `ADMIN_PASSWORD_CHANGE_REQUIRED`, `ADMIN_ACCOUNT_DISABLED`, `ADMIN_SELF_MODIFICATION`, `ROLE_IS_SYSTEM`, `ORIGIN_NOT_ALLOWED`, `CUSTOMER_BLOCKED`, `JOBS_TOKEN_INVALID`.
 - **404**: `NOT_FOUND`, `ADMIN_NOT_FOUND`, `ROLE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `ADDRESS_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `PRODUCT_VARIANT_NOT_FOUND`, `IMAGE_NOT_FOUND`, `BANNER_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND`, `ORDER_ITEM_NOT_FOUND` (orders), `RETURN_NOT_FOUND`, `INVOICE_NOT_FOUND`, `REFUND_NOT_FOUND`, `LEGAL_DOCUMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `ANNOUNCEMENT_NOT_FOUND`.

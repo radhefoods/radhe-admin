@@ -441,6 +441,32 @@ function keepCategory(client: QueryClient, category: Category): void {
   );
 }
 
+/** The products directly in a category, in display order (7). */
+export function useCategoryProducts(id: Id) {
+  return useQuery({
+    queryKey: queryKeys.categories.products(id),
+    queryFn: async ({ signal }) =>
+      (await api.categories.products(id, signal)).items,
+  });
+}
+
+/**
+ * The new order of the products of a category (7). The API answers the
+ * whole list in its new order, which replaces what the page shows; the
+ * product lists are loaded again for their positions.
+ */
+export function useReorderCategoryProducts(id: Id) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (orderedIds: Id[]) =>
+      (await api.categories.reorderProducts(id, { orderedIds })).items,
+    onSuccess: (items) => {
+      client.setQueryData(queryKeys.categories.products(id), items);
+    },
+    meta: { invalidates: [queryKeys.products.all], silent: true },
+  });
+}
+
 export function useCreateCategory() {
   return useMutation({
     mutationFn: async (input: CategoryInput) =>

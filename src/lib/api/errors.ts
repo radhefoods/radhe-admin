@@ -58,6 +58,7 @@ export const API_ERROR_CODES = [
   "CATEGORY_TOO_DEEP",
   "CATEGORY_SLUG_TAKEN",
   "CATEGORY_ORDER_INVALID",
+  "CATEGORY_PRODUCT_ORDER_INVALID",
   "CATEGORY_HAS_CHILDREN",
   "CATEGORY_HAS_PRODUCTS",
   // products, stock and images (8)
@@ -148,6 +149,7 @@ export interface ErrorDetails {
   ADMIN_ACCOUNT_LOCKED: { retryAfterSeconds: number };
   ROLE_PERMISSION_UNKNOWN: { unknown: string[] };
   CATEGORY_ORDER_INVALID: { expected: Id[] };
+  CATEGORY_PRODUCT_ORDER_INVALID: { unknown: Id[]; expected: Id[] };
   PRODUCT_PRICE_INVALID: { regularPrice?: Cents; salePrice?: Cents | null };
   PRODUCT_VARIANT_INVALID:
     { families?: string[]; baseQuantity?: number; sku?: string } | undefined;

@@ -80,6 +80,9 @@ const categoryFields = {
   parentId: zId.nullish(),
   sortOrder: z.number().int().min(0).max(100000).optional(),
   isVisible: z.boolean().optional(),
+  listingView: z
+    .enum(["product", "variants_by_product", "variants_by_size"])
+    .optional(),
   seo: z
     .strictObject({
       title: zTranslatedOptional(300).optional(),
@@ -637,6 +640,21 @@ function matchesSearch(product: ProductRecord, q: string): boolean {
   );
 }
 
+/** The products directly in a category, in display order: position, then newest first. */
+export function categoryProducts(db: Db, categoryId: string): ProductRecord[] {
+  return db.products
+    .filter((product) => product.categoryId === categoryId)
+    .sort((a, b) => a.sortOrder - b.sortOrder || (a.id < b.id ? 1 : -1));
+}
+
+/** The position after the last product of a category (7): `max + 1`. */
+export function nextProductPosition(db: Db, categoryId: string): number {
+  const positions = db.products
+    .filter((product) => product.categoryId === categoryId)
+    .map((product) => product.sortOrder);
+  return positions.length === 0 ? 0 : Math.max(...positions) + 1;
+}
+
 function imageOf(product: ProductRecord, imageId: string): AdminImage {
   const image = product.images.find((entry) => entry.id === imageId);
   if (!image) throw fail(404, "IMAGE_NOT_FOUND", "The image was not found.");
@@ -681,6 +699,7 @@ export function registerCatalog(router: Router): void {
       parentId,
       sortOrder: input.sortOrder ?? lastPosition(ctx.db, parentId),
       isVisible: input.isVisible ?? true,
+      listingView: input.listingView ?? "variants_by_size",
       image: null,
       seo: input.seo
         ? {
@@ -762,6 +781,8 @@ export function registerCatalog(router: Router): void {
         category.description = input.description;
       if (input.sortOrder !== undefined) category.sortOrder = input.sortOrder;
       if (input.isVisible !== undefined) category.isVisible = input.isVisible;
+      if (input.listingView !== undefined)
+        category.listingView = input.listingView;
       if (input.seo !== undefined) {
         category.seo = {
           title: input.seo.title ?? null,
@@ -838,6 +859,62 @@ export function registerCatalog(router: Router): void {
         throw fail(404, "IMAGE_NOT_FOUND", "The category has no image.");
       category.image = null;
       return json({ category: categoryView(ctx.db, category) });
+    },
+  );
+
+  // --- The products of a category, in display order (7) ---------------------
+
+  router.get(
+    `${categories}/:id/products`,
+    { permission: "catalog.read" },
+    (ctx) => {
+      const category = categoryById(ctx.db, ctx.params.id ?? "");
+      return json({
+        items: categoryProducts(ctx.db, category.id).map((product) =>
+          productSummary(ctx.db, product),
+        ),
+      });
+    },
+  );
+
+  router.put(
+    `${categories}/:id/products/order`,
+    { permission: "catalog.manage" },
+    async (ctx) => {
+      const category = categoryById(ctx.db, ctx.params.id ?? "");
+      const input = await ctx.body(
+        z.strictObject({ orderedIds: z.array(zId).min(1).max(1000) }),
+      );
+      if (new Set(input.orderedIds).size !== input.orderedIds.length) {
+        throw validationFailed([
+          { field: "orderedIds", problems: ["must not repeat an id"] },
+        ]);
+      }
+      const current = categoryProducts(ctx.db, category.id);
+      const expected = current.map((product) => product.id);
+      const unknown = input.orderedIds.filter((id) => !expected.includes(id));
+      if (unknown.length > 0) {
+        throw fail(
+          400,
+          "CATEGORY_PRODUCT_ORDER_INVALID",
+          "orderedIds names products that are not in this category.",
+          { unknown, expected },
+        );
+      }
+      // The named products first, then the rest in the order it had.
+      const named = new Set(input.orderedIds);
+      const ordered = [
+        ...input.orderedIds.map(
+          (id) => current.find((product) => product.id === id) as ProductRecord,
+        ),
+        ...current.filter((product) => !named.has(product.id)),
+      ];
+      ordered.forEach((product, index) => {
+        product.sortOrder = index;
+      });
+      return json({
+        items: ordered.map((product) => productSummary(ctx.db, product)),
+      });
     },
   );
 
@@ -938,7 +1015,8 @@ export function registerCatalog(router: Router): void {
       status,
       isAvailable: true,
       isFeatured: false,
-      sortOrder: 0,
+      sortOrder:
+        input.sortOrder ?? nextProductPosition(ctx.db, input.categoryId),
       subtitle: null,
       shortDescription: null,
       description: null,
@@ -1010,7 +1088,15 @@ export function registerCatalog(router: Router): void {
       product.vatRate = vatRate;
       product.minOrderQuantity = min;
       product.maxOrderQuantity = max;
-      if (input.categoryId !== undefined) product.categoryId = input.categoryId;
+      if (
+        input.categoryId !== undefined &&
+        input.categoryId !== product.categoryId
+      ) {
+        // A moved product takes the last position of its new category (7).
+        product.categoryId = input.categoryId;
+        product.sortOrder =
+          input.sortOrder ?? nextProductPosition(ctx.db, input.categoryId);
+      }
       if (input.status !== undefined) {
         product.status = input.status;
         if (input.status === "active") product.publishedAt ??= iso(ctx.now);

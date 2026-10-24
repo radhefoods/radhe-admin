@@ -30,6 +30,8 @@ export const routes = {
   productNew: "/catalogue/products/new" as Route,
   product: (id: Id) => `/catalogue/products/${id}` as Route,
   categories: "/catalogue/categories" as Route,
+  /** The display order of the products of a category. */
+  categoryProducts: (id: Id) => `/catalogue/categories/${id}/products` as Route,
   banners: "/catalogue/banners" as Route,
 
   notifications: "/communication/notifications" as Route,

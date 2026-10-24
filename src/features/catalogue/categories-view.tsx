@@ -8,11 +8,13 @@ import {
   FolderTree,
   ImagePlus,
   Image as ImageIcon,
+  ListOrdered,
   PencilLine,
   Plus,
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
   ActionButton,
@@ -68,6 +70,8 @@ import { DragHandle, SortableList, useSortableEntry } from "./sortable";
 interface Actions {
   manage: boolean;
   edit: (category: Category) => void;
+  /** The display order of the products directly in the category. */
+  order: (category: Category) => void;
   addBelow: (category: Category) => void;
   setVisible: (category: Category, visible: boolean) => void;
   remove: (category: Category) => void;
@@ -226,6 +230,13 @@ function Row({
               <DropdownMenuItem onSelect={() => actions.edit(category)}>
                 <ImageIcon />
                 {category.image ? "Picture" : "Add a picture"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={category.productCount === 0}
+                onSelect={() => actions.order(category)}
+              >
+                <ListOrdered />
+                Product order
               </DropdownMenuItem>
               {category.level < MAX_CATEGORY_LEVEL ? (
                 <DropdownMenuItem onSelect={() => actions.addBelow(category)}>
@@ -408,6 +419,7 @@ export function CategoriesView({
   readSize?: SizeReader;
 } = {}) {
   const manage = useCan()("catalog.manage");
+  const router = useRouter();
   const categories = useCategories();
   const update = useUpdateCategory();
   const remove = useDeleteCategory();
@@ -456,6 +468,7 @@ export function CategoriesView({
   const actions: Actions = {
     manage,
     edit: (category) => setEdit({ mode: "edit", category }),
+    order: (category) => router.push(routes.categoryProducts(category.id)),
     addBelow: (category) => setEdit({ mode: "create", parentId: category.id }),
     setVisible: (category, visible) => void setVisible(category, visible),
     remove: (category) => {

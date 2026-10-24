@@ -290,7 +290,8 @@ const productFields = z.object({
   status: z.enum(PRODUCT_STATUSES),
   isAvailable: z.boolean(),
   isFeatured: z.boolean(),
-  sortOrder: following(zInt({ min: 0, max: LIMITS.sortOrderMax })),
+  /** The position in its category, 0 first; empty on a new product: the last position. */
+  sortOrder: following(zOptionalInt({ min: 0, max: LIMITS.sortOrderMax })),
   minOrderQuantity: following(zInt({ min: 1, max: LIMITS.quantityMax })),
   maxOrderQuantity: following(
     zOptionalInt({ min: 1, max: LIMITS.quantityMax }),
@@ -450,7 +451,7 @@ export function productDefaults(product?: ProductDetail): ProductFormValues {
     status: product?.status ?? "draft",
     isAvailable: product?.isAvailable ?? true,
     isFeatured: product?.isFeatured ?? false,
-    sortOrder: String(product?.sortOrder ?? 0),
+    sortOrder: product ? String(product.sortOrder) : "",
     minOrderQuantity: String(product?.minOrderQuantity ?? 1),
     maxOrderQuantity:
       product?.maxOrderQuantity === null ||
@@ -535,7 +536,7 @@ interface Complete {
   status: ProductStatus;
   isAvailable: boolean;
   isFeatured: boolean;
-  sortOrder: number;
+  sortOrder: number | null;
   minOrderQuantity: number;
   maxOrderQuantity: number | null;
   storageType: StorageType | "";
@@ -579,7 +580,8 @@ function complete(values: ProductFormValues): Complete {
     status: values.status,
     isAvailable: values.isAvailable,
     isFeatured: values.isFeatured,
-    sortOrder: integer(values.sortOrder),
+    sortOrder:
+      values.sortOrder.trim() === "" ? null : integer(values.sortOrder),
     minOrderQuantity: integer(values.minOrderQuantity),
     maxOrderQuantity:
       values.maxOrderQuantity.trim() === ""
@@ -683,9 +685,10 @@ export function toProductInput(values: ProductFormValues): ProductInput {
     status: all.status,
     isAvailable: all.isAvailable,
     isFeatured: all.isFeatured,
-    sortOrder: all.sortOrder,
     minOrderQuantity: all.minOrderQuantity,
   };
+  // Without a position the API puts the product last in its category (7).
+  if (all.sortOrder !== null) input.sortOrder = all.sortOrder;
   if (Object.keys(all.slug).length > 0) input.slug = all.slug;
   for (const key of ["subtitle", "shortDescription", "description"] as const) {
     if (!isEmpty(all[key])) input[key] = all[key];
@@ -759,7 +762,8 @@ export function toProductPatch(
   if (changed("status")) patch.status = next.status;
   if (changed("isAvailable")) patch.isAvailable = next.isAvailable;
   if (changed("isFeatured")) patch.isFeatured = next.isFeatured;
-  if (changed("sortOrder")) patch.sortOrder = next.sortOrder;
+  if (changed("sortOrder") && next.sortOrder !== null)
+    patch.sortOrder = next.sortOrder;
   if (changed("minOrderQuantity"))
     patch.minOrderQuantity = next.minOrderQuantity;
   if (changed("maxOrderQuantity"))

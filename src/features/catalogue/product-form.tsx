@@ -597,9 +597,14 @@ export function ProductForm({
             <UnitField
               form={form}
               name="sortOrder"
-              label="Sort order"
-              required
-              hint="The place among the products: 0 to 1,000,000."
+              label="Position in its category"
+              optional
+              placeholder={product ? undefined : "Last"}
+              hint={
+                product
+                  ? "0 comes first. The order page of the category (Categories, then Product order) is the easier tool."
+                  : "0 comes first; empty puts the product last in its category. The order page of the category (Categories, then Product order) is the easier tool."
+              }
             />
             <SelectField form={form} name="storageType" label="Storage">
               {product && !product.storageType ? (

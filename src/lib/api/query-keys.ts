@@ -51,6 +51,8 @@ export const queryKeys = {
     all: ["categories"] as const,
     list: () => ["categories", "list"] as const,
     detail: (id: Id) => ["categories", "detail", id] as const,
+    /** The products directly in a category, in display order. */
+    products: (id: Id) => ["categories", "products", id] as const,
   },
   banners: {
     all: ["banners"] as const,

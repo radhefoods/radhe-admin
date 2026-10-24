@@ -38,6 +38,7 @@ function category(
     description: null,
     parentId: parent === null ? null : id(parent),
     ancestorIds: [],
+    listingView: "variants_by_size",
     level,
     sortOrder: 0,
     isVisible: true,
