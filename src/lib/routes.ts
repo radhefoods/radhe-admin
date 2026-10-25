@@ -17,6 +17,10 @@ export const routes = {
   returns: "/returns" as Route,
   return: (id: Id) => `/returns/${id}` as Route,
 
+  /** Wholesale quotations (24); the heads-up email links to the detail. */
+  quotations: "/quotations" as Route,
+  quotation: (id: Id) => `/quotations/${id}` as Route,
+
   payments: "/payments" as Route,
   refunds: "/payments/refunds" as Route,
   refund: (id: Id) => `/payments/refunds/${id}` as Route,

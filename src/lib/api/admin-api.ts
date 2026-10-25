@@ -16,6 +16,7 @@ import {
   returnsApi,
 } from "./endpoints/orders";
 import { faqGroupsApi, faqsApi } from "./endpoints/faq";
+import { quotationsApi } from "./endpoints/quotations";
 import { customersApi, legalApi, settingsApi } from "./endpoints/shop";
 import type { SessionTransport } from "./session";
 
@@ -47,6 +48,7 @@ export function createAdminApi(transport: SessionTransport) {
     faqs: faqsApi(transport),
     blogPosts: blogPostsApi(transport),
     blogCategories: blogCategoriesApi(transport),
+    quotations: quotationsApi(transport),
   };
 }
 

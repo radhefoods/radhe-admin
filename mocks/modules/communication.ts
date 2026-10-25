@@ -10,6 +10,7 @@ import type {
   NotificationStatus,
 } from "../../src/lib/api/types/index.ts";
 import type { Db } from "../db.ts";
+import { quotationAttention } from "./quotations.ts";
 import {
   orderNeedsRefund,
   orderSummary,
@@ -178,6 +179,7 @@ export function registerCommunication(router: Router): void {
     const customerId = idParam(ctx.query, "customerId");
     const orderId = idParam(ctx.query, "orderId");
     const announcementId = idParam(ctx.query, "announcementId");
+    const quotationId = idParam(ctx.query, "quotationId");
     const orderNumber = ctx.query.get("orderNumber")?.trim().toUpperCase();
     return ctx.db.notifications.filter(
       (entry) =>
@@ -187,6 +189,7 @@ export function registerCommunication(router: Router): void {
         (!customerId || entry.customerId === customerId) &&
         (!orderId || entry.orderId === orderId) &&
         (!announcementId || entry.announcementId === announcementId) &&
+        (!quotationId || entry.quotationId === quotationId) &&
         (!orderNumber || entry.orderNumber === orderNumber),
     );
   };
@@ -517,6 +520,7 @@ export function registerCommunication(router: Router): void {
           .length,
         items: newest(failedMessages).map(withoutData),
       },
+      quotations: quotationAttention(db),
     });
   });
 }

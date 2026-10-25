@@ -1,10 +1,9 @@
 "use client";
 
-import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
-import { Download, ExternalLink, FileText, ReceiptText, X } from "lucide-react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { FileText, ReceiptText, X } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
 import { DataTable, type Column } from "@/components/data/data-table";
 import {
   FilterBar,
@@ -12,13 +11,13 @@ import {
   SearchField,
 } from "@/components/data/filter-bar";
 import { LoadMore } from "@/components/data/pagination";
+import { PdfDialog, usePdfFile } from "@/components/domain/pdf-viewer";
 import { RequirePermission } from "@/components/domain/permission";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { DateTime, Money, TwoLine } from "@/components/domain/values";
 import { PageBody, PageHeader, gutter } from "@/components/shell/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
 import { ScrollX } from "@/components/ui/scroll-x";
 import {
   Alert,
@@ -56,41 +55,11 @@ const ORDER_NUMBER = /^(?:rf[\s-]?|#)?(\d{3,9})$/i;
 const signed = (document: Pick<InvoiceSummary, "type" | "total">) =>
   document.type === "credit_note" ? -document.total : document.total;
 
-/**
- * The PDF of a document. It is fetched with the session (a plain link
- * would not refresh it) and handed to the browser as a local file.
- */
+/** The PDF of a document, through the shared viewer. */
 export function useInvoicePdf(
   document: { id: Id; number: string } | undefined,
 ) {
-  const [url, setUrl] = useState<string | null>(null);
-  const load = useMutation({
-    mutationFn: async () => {
-      if (!document) throw new Error("No document");
-      return URL.createObjectURL(await api.invoices.pdf(document.id));
-    },
-    onSuccess: (created) => setUrl(created),
-  });
-  // The local file is given back when the viewer closes or the page is left.
-  useEffect(
-    () => () => {
-      if (url) URL.revokeObjectURL(url);
-    },
-    [url],
-  );
-  return {
-    url,
-    open: () => load.mutate(),
-    close: () => setUrl(null),
-    loading: load.isPending,
-    download: () => {
-      if (!url || !document) return;
-      const anchor = window.document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${document.number}.pdf`;
-      anchor.click();
-    },
-  };
+  return usePdfFile(document, (id) => api.invoices.pdf(id));
 }
 
 const columns: Column<InvoiceSummary>[] = [
@@ -570,43 +539,11 @@ export function InvoiceView() {
         </div>
       </PageBody>
 
-      <Dialog
-        open={pdf.url !== null}
-        onOpenChange={(open) => !open && pdf.close()}
-      >
-        <DialogContent
-          size="xl"
-          className="h-[calc(100dvh-2rem)] sm:h-[calc(100dvh-4rem)]"
-        >
-          <DialogHeader
-            title={invoice.number}
-            description="The PDF as the customer received it."
-          />
-          <div className="flex min-h-0 flex-1 flex-col gap-3 px-5 pt-3 pb-5 sm:px-6">
-            {pdf.url ? (
-              <iframe
-                title={`PDF of ${invoice.number}`}
-                src={pdf.url}
-                className="min-h-0 flex-1 rounded-md border border-line bg-sunken"
-              />
-            ) : null}
-            <div className="flex flex-wrap justify-end gap-2">
-              {/* Phones and some browsers show no PDF inside a page. */}
-              {pdf.url ? (
-                <Button asChild variant="ghost">
-                  <a href={pdf.url} target="_blank" rel="noreferrer">
-                    <ExternalLink />
-                    Open in a new tab
-                  </a>
-                </Button>
-              ) : null}
-              <Button icon={<Download />} onClick={pdf.download}>
-                Download
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <PdfDialog
+        pdf={pdf}
+        title={invoice.number}
+        description="The PDF as the customer received it."
+      />
     </RequirePermission>
   );
 }

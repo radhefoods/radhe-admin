@@ -32,6 +32,7 @@ import { missingForInvoicesText } from "@/features/settings/settings-frame";
 import { errorMessage } from "@/lib/api/error-text";
 import type { Attention } from "@/lib/api/types";
 import { useAdmin, useCan } from "@/lib/auth/auth-provider";
+import type { Permission } from "@/lib/auth/permissions";
 import { cn } from "@/lib/cn";
 import { berlinParts } from "@/lib/format/dates";
 import { formatMoney } from "@/lib/format/money";
@@ -89,8 +90,14 @@ interface Group {
   }[];
 }
 
-/** The groups of the attention overview (15), each with where it is handled. */
-function groupsOf(attention: Attention): Group[] {
+/**
+ * The groups of the attention overview (15), each with where it is handled.
+ * The quotation requests (24) are listed only for an admin who may open them.
+ */
+function groupsOf(
+  attention: Attention,
+  can: (permission: Permission) => boolean,
+): Group[] {
   const waitingAmount = attention.refunds.orders.reduce(
     (sum, order) => sum + order.paidAmount,
     0,
@@ -261,12 +268,40 @@ function groupsOf(attention: Attention): Group[] {
         ),
       })),
     },
+    ...(can("quotations.read")
+      ? [
+          {
+            key: "quotations",
+            label: "Quotation requests",
+            count: attention.quotations.new,
+            tone: "attention" as const,
+            href: withQuery(routes.quotations, { status: "new" }),
+            detail:
+              attention.quotations.new > 0
+                ? "Business customers asking for prices per carton. Price the lines, then send the quotation with its PDF."
+                : "No request from the wholesale site waits for prices.",
+            rows: attention.quotations.items.map((quotation) => ({
+              key: quotation.id,
+              href: routes.quotation(quotation.id),
+              title: quotation.number,
+              meta: (
+                <>
+                  {quotation.contact.company} ·{" "}
+                  {plural(quotation.itemCount, "line")},{" "}
+                  {plural(quotation.cartons, "carton")} ·{" "}
+                  <DateTime value={quotation.createdAt} short />
+                </>
+              ),
+            })),
+          },
+        ]
+      : []),
   ];
 }
 
 function AttentionStrip({ groups }: { groups: Group[] }) {
   return (
-    <ul className="grid grid-cols-2 overflow-hidden rounded-lg border border-line sm:grid-cols-3 xl:grid-cols-6">
+    <ul className="grid grid-cols-2 overflow-hidden rounded-lg border border-line sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
       {groups.map((group) => (
         <li
           key={group.key}
@@ -396,7 +431,7 @@ function ShopBlocked() {
 function DecisionsTab() {
   const can = useCan();
   const attention = useAttention();
-  const groups = attention.data ? groupsOf(attention.data) : null;
+  const groups = attention.data ? groupsOf(attention.data, can) : null;
   const waiting = groups?.reduce((sum, group) => sum + group.count, 0) ?? 0;
 
   if (!can("orders.read")) {
@@ -421,7 +456,8 @@ function DecisionsTab() {
               className="rounded-lg border border-line py-10"
             >
               No paid order waits to be prepared, no refund or return waits for
-              a decision, no product runs low and every message went out.
+              a decision, no product runs low, every message went out and no
+              quotation request waits for prices.
             </EmptyState>
           ) : (
             <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
@@ -475,7 +511,7 @@ export function TodayView() {
 
   const time = berlinParts(now);
   const waiting = attention.data
-    ? groupsOf(attention.data).reduce((sum, group) => sum + group.count, 0)
+    ? groupsOf(attention.data, can).reduce((sum, group) => sum + group.count, 0)
     : null;
   const firstName = admin.name.split(" ")[0] ?? admin.name;
 

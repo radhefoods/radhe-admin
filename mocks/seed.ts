@@ -37,6 +37,7 @@ import {
 import { newId } from "./http.ts";
 import { seedBlog } from "./modules/blog.ts";
 import { seedFaq } from "./modules/faq.ts";
+import { seedQuotations } from "./modules/quotations.ts";
 import { completeRefund } from "./modules/payments.ts";
 import {
   recordMovement,
@@ -1986,6 +1987,8 @@ export function seed(options: SeedOptions): Db {
   // --- FAQ (22) and blog (23) -----------------------------------------------
   seedFaq(db, now);
   seedBlog(db, now, owner);
+  // --- Wholesale quotations (24) -------------------------------------------
+  seedQuotations(db, now, owner);
 
   return db;
 }

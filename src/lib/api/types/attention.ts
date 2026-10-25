@@ -4,6 +4,7 @@ import type { ProductSummary } from "./catalog";
 import type { Notification } from "./notifications";
 import type { OrderSummary } from "./orders";
 import type { Refund } from "./payments";
+import type { QuotationSummary } from "./quotations";
 import type { OrderReturn } from "./returns";
 
 /** Each group has a count and the newest five; the lists give the rest. */
@@ -26,4 +27,6 @@ export interface Attention {
    */
   stock: { low: number; items: ProductSummary[] };
   notifications: { failed: number; queued: number; items: Notification[] };
+  /** Wholesale quotation requests nobody has priced yet (24), the newest five. */
+  quotations: { new: number; items: QuotationSummary[] };
 }

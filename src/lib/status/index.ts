@@ -9,6 +9,7 @@ import type {
   OrderStatus,
   PaymentStatus,
   ProductStatus,
+  QuotationStatus,
   RefundStatus,
   ReturnStatus,
 } from "@/lib/api/types";
@@ -132,6 +133,19 @@ export const BLOG_VISIBILITY = table<BlogVisibility>({
   published: "success",
 });
 
+/**
+ * A new request waits for a person to price it; a draft is being priced;
+ * a sent quotation waits for the customer's answer (24).
+ */
+export const QUOTATION_STATUS = table<QuotationStatus>({
+  new: "attention",
+  draft: "moving",
+  sent: "planned",
+  accepted: "success",
+  declined: "neutral",
+  cancelled: "neutral",
+});
+
 export const INVOICE_TYPE = table<InvoiceType>({
   invoice: "planned",
   credit_note: "moving",
@@ -150,6 +164,7 @@ export const STATUS_TABLES = {
   invoiceType: INVOICE_TYPE,
   banner: BANNER_STATUS,
   blogPost: BLOG_VISIBILITY,
+  quotation: QUOTATION_STATUS,
 } as const;
 
 export type StatusKind = keyof typeof STATUS_TABLES;

@@ -18,6 +18,7 @@ import { registerCommunication } from "./modules/communication.ts";
 import { registerFaq } from "./modules/faq.ts";
 import { registerOrders } from "./modules/orders.ts";
 import { registerPayments } from "./modules/payments.ts";
+import { registerQuotations } from "./modules/quotations.ts";
 import { registerShop } from "./modules/shop.ts";
 import { registerStock } from "./modules/stock.ts";
 import { registerTeam } from "./modules/team.ts";
@@ -95,6 +96,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   registerAnalytics(router);
   registerFaq(router);
   registerBlog(router);
+  registerQuotations(router);
 
   const originAllowed = (origin: string) =>
     (options.allowedOrigins ?? []).includes(origin) ||

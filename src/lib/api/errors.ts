@@ -3,6 +3,7 @@ import type {
   CompanyMissingField,
   Id,
   OrderStatus,
+  QuotationStatus,
   Refundable,
   RefundMethod,
   RefundStatus,
@@ -132,6 +133,11 @@ export const API_ERROR_CODES = [
   "BLOG_CATEGORY_HAS_POSTS",
   "BLOG_CATEGORY_ORDER_INVALID",
   "BLOG_POST_INCOMPLETE",
+  // wholesale quotations (24)
+  "QUOTATION_NOT_FOUND",
+  "QUOTATION_ITEM_NOT_FOUND",
+  "QUOTATION_NOT_PRICED",
+  "QUOTATION_STATUS_INVALID",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -200,6 +206,11 @@ export interface ErrorDetails {
   BLOG_CATEGORY_ORDER_INVALID: { expected: Id[] } | undefined;
   /** `missing` names the fields a post needs before it is published: `content.en`. */
   BLOG_POST_INCOMPLETE: { missing: string[] } | undefined;
+  QUOTATION_ITEM_NOT_FOUND: { id: Id } | undefined;
+  /** The lines without a price. */
+  QUOTATION_NOT_PRICED: { unpriced: Id[] } | undefined;
+  QUOTATION_STATUS_INVALID:
+    { status: QuotationStatus; allowed: QuotationStatus[] } | undefined;
   ORDER_TRANSITION_NOT_ALLOWED: {
     from: OrderStatus;
     to: OrderStatus;

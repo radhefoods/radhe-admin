@@ -17,3 +17,4 @@ export * from "./banners";
 export * from "./analytics";
 export * from "./faq";
 export * from "./blog";
+export * from "./quotations";

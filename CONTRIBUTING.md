@@ -15,7 +15,7 @@ src/features/<area>/        the views, dialogs, queries and tests of one area (o
 src/components/ui/          primitives: button, input, dialog, menu, badge, surface (card, alert, empty state), toast, scroll-x
 src/components/data/        data-table, filter-bar, pagination (page-based and "load more"), charts (SVG lines, bars, donut, share bars)
 src/components/form/        form.tsx (Field, useZodForm, useSubmit, FormError, TextField …), fields.tsx (MoneyField, BilingualField, …), reason-field.tsx
-src/components/domain/      status-badge, permission (RequirePermission, ActionButton, Can), values (Money, DateTime, AdminName …), timeline
+src/components/domain/      status-badge, permission (RequirePermission, ActionButton, Can), values (Money, DateTime, AdminName …), timeline, pdf-viewer (a PDF of the API in a dialog)
 src/components/shell/       sidebar, topbar, global search, page header, crash (what a failed page shows)
 src/lib/api/                the typed client: types/, endpoints/, errors, error-text, query-keys, session
 src/lib/format/             money, dates (German time), names

@@ -10,6 +10,7 @@ import type {
   NotificationQuery,
   OrderQuery,
   ProductQuery,
+  QuotationQuery,
   RefundQuery,
   ReturnQuery,
 } from "./types";
@@ -131,6 +132,12 @@ export const queryKeys = {
     tags: () => ["blog", "tags"] as const,
     categories: () => ["blog", "categories"] as const,
   },
+  /** Wholesale quotations (24). */
+  quotations: {
+    all: ["quotations"] as const,
+    list: (query: QuotationQuery) => ["quotations", "list", query] as const,
+    detail: (id: Id) => ["quotations", "detail", id] as const,
+  },
 } as const;
 
 type Key = readonly unknown[];
@@ -173,5 +180,13 @@ export const invalidation = {
     queryKeys.notifications.all,
     queryKeys.announcements.all,
     queryKeys.attention,
+    // The emails of a quotation are shown on its page.
+    queryKeys.quotations.all,
+  ],
+  /** A priced, sent or closed quotation: its list, the start page, its emails. */
+  quotation: [
+    queryKeys.quotations.all,
+    queryKeys.attention,
+    queryKeys.notifications.all,
   ],
 } as const satisfies Record<string, readonly Key[]>;

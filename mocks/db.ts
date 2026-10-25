@@ -25,6 +25,7 @@ import type {
 } from "../src/lib/api/types/index.ts";
 import type { BlogCategoryRecord, BlogPostRecord } from "./modules/blog.ts";
 import type { FaqGroupRecord, FaqRecord } from "./modules/faq.ts";
+import type { QuotationRecord } from "./modules/quotations.ts";
 
 export interface AdminRecord {
   id: string;
@@ -204,6 +205,8 @@ export interface Db {
   /** The blog (23). */
   blogCategories: BlogCategoryRecord[];
   blogPosts: BlogPostRecord[];
+  /** Wholesale quotations (24). */
+  quotations: QuotationRecord[];
   /** Pictures uploaded while the mock runs, by the key in their address. */
   files: Map<string, StoredFile>;
   counters: {
@@ -211,6 +214,8 @@ export interface Db {
     sku: number;
     invoice: number;
     creditNote: number;
+    /** Quotation numbers, per year in the real API; the demo covers one year. */
+    quotation: number;
   };
 }
 
@@ -254,8 +259,9 @@ export function emptyDb(config: MockConfig): Db {
     faqs: [],
     blogCategories: [],
     blogPosts: [],
+    quotations: [],
     files: new Map(),
-    counters: { order: 1000, sku: 0, invoice: 0, creditNote: 0 },
+    counters: { order: 1000, sku: 0, invoice: 0, creditNote: 0, quotation: 0 },
   };
 }
 

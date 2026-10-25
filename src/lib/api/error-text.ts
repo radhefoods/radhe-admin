@@ -176,6 +176,14 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
     "The blog categories changed in the meantime. The list was loaded again.",
   BLOG_POST_INCOMPLETE:
     "The post cannot be published yet: it needs its English text.",
+  // wholesale quotations
+  QUOTATION_NOT_FOUND: "This quotation does not exist (any more).",
+  QUOTATION_ITEM_NOT_FOUND:
+    "One of the lines does not belong to this quotation (any more). The page was loaded again.",
+  QUOTATION_NOT_PRICED:
+    "Every line needs a price per carton before the quotation is sent.",
+  QUOTATION_STATUS_INVALID:
+    "The quotation is not in a status that allows this. The page was loaded again.",
 };
 
 function list(values: readonly string[]): string {

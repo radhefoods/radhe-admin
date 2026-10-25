@@ -3,6 +3,7 @@ import {
   BookOpenText,
   CircleHelp,
   CreditCard,
+  FileText,
   FolderTree,
   GalleryHorizontal,
   HandCoins,
@@ -80,6 +81,19 @@ export const NAVIGATION: NavGroup[] = [
         requires: "orders.read",
         count: (a) => ({ count: a.returns.requested, tone: "attention" }),
         keywords: "send back credit",
+      },
+    ],
+  },
+  {
+    label: "Wholesale",
+    items: [
+      {
+        label: "Quotations",
+        href: routes.quotations,
+        icon: FileText,
+        requires: "quotations.read",
+        count: (a) => ({ count: a.quotations.new, tone: "attention" }),
+        keywords: "b2b wholesale business cartons prices quote request pdf",
       },
     ],
   },

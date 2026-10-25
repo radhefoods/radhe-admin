@@ -67,6 +67,7 @@ const SURFACES = [
 
 const STATUS_TITLES: Record<StatusKind, string> = {
   blogPost: "Blog post",
+  quotation: "Quotation",
   order: "Order",
   payment: "Payment",
   return: "Return",

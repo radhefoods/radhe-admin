@@ -263,7 +263,8 @@ function Related({ message }: { message: NotificationDetail }) {
     !message.returnId &&
     !message.refundId &&
     !message.announcementId &&
-    !message.productId;
+    !message.productId &&
+    !message.quotationId;
 
   return (
     <Card>
@@ -292,6 +293,14 @@ function Related({ message }: { message: NotificationDetail }) {
             {message.orderId ? (
               <RelatedRow label="Order" href={routes.order(message.orderId)}>
                 {message.orderNumber ?? `Order ${shortId(message.orderId)}`}
+              </RelatedRow>
+            ) : null}
+            {message.quotationId ? (
+              <RelatedRow
+                label="Quotation"
+                href={routes.quotation(message.quotationId)}
+              >
+                Open the quotation
               </RelatedRow>
             ) : null}
             {message.returnId ? (
