@@ -16,9 +16,16 @@ export const CHANNEL_LABEL: Record<NotificationChannel, string> = {
   whatsapp: "WhatsApp",
 };
 
+/** The types whose API name does not read well on its own (24). */
+const TYPE_LABELS: Partial<Record<NotificationType, string>> = {
+  quotation_received: "Quotation request received",
+  quotation_request_admin: "New quotation request (to the shop)",
+  quotation_sent: "Quotation sent",
+};
+
 /** `order_dispatched` reads as `Order dispatched`: the API's name, made readable. */
 export function typeLabel(type: string): string {
-  return humanize(type);
+  return TYPE_LABELS[type as NotificationType] ?? humanize(type);
 }
 
 export const TYPE_OPTIONS = NOTIFICATION_TYPES.map((value) => ({

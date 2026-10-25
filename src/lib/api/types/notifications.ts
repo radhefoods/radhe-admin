@@ -24,6 +24,10 @@ export const NOTIFICATION_TYPES = [
   "payment_failed",
   "refund_completed",
   "announcement",
+  // Wholesale quotations (24): to addresses outside the customer base.
+  "quotation_received",
+  "quotation_request_admin",
+  "quotation_sent",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -61,6 +65,8 @@ export interface Notification {
   returnId: Id | null;
   refundId: Id | null;
   announcementId: Id | null;
+  /** The wholesale quotation this email is about (24). */
+  quotationId: Id | null;
   locale: Locale;
   /** Emails only. */
   subject: string | null;
@@ -100,6 +106,7 @@ export interface NotificationQuery extends CursorQuery {
   orderId?: Id;
   orderNumber?: string;
   announcementId?: Id;
+  quotationId?: Id;
   /** Default `createdAt:desc`. */
   sort?: SortParam<NotificationSortField>;
 }

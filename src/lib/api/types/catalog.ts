@@ -182,10 +182,23 @@ export interface ProductStockOverview {
  * URL, prices, enabled switch and stock. `isDefault` marks the one that
  * stands for the product in lists; the API computes it.
  */
+/**
+ * A carton of a pack size, for wholesale quotations (24, `doc/QUOTATIONS.md`):
+ * "20 × 1 kg" holding "20 kg". The API works it out from `unitsPerCarton`.
+ */
+export interface Carton {
+  units: number;
+  label: string;
+  content: { value: number; unit: PackUnit; label: string };
+}
+
 export interface ProductVariant {
   id: Id;
   sku: string;
   gtin: string | null;
+  /** Packs in a carton, 1 to 1000; `null`: not offered on the wholesale site. */
+  unitsPerCarton: number | null;
+  carton: Carton | null;
   packSize: PackSize;
   /** The URL of this pack size in each language: the base slug plus the pack. */
   slug: Translated;
@@ -402,6 +415,8 @@ export interface VariantInput {
   /** Generated (`RF-00001`, …) when left out. */
   sku?: string;
   gtin?: string | null;
+  /** 1 to 1000 packs; `null` removes the carton. */
+  unitsPerCarton?: number | null;
   packSize: { value: number; unit: PackUnit };
   regularPrice: Cents;
   /** Below `regularPrice`; `null` ends a sale. Not together with `discountPercent`. */

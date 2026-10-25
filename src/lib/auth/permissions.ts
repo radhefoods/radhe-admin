@@ -4,6 +4,7 @@
 
 export const RESOURCES = [
   "orders",
+  "quotations",
   "payments",
   "customers",
   "catalog",
@@ -42,6 +43,11 @@ export const RESOURCE_LABELS: Record<
     label: "Orders",
     covers:
       "Orders and their status, actions on chosen orders, returns, the Today overview",
+  },
+  quotations: {
+    label: "Wholesale quotations",
+    covers:
+      "Requests from the wholesale site, the prices per carton, the quotation email with its PDF, the outcome",
   },
   payments: {
     label: "Payments",

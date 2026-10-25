@@ -199,6 +199,7 @@ const variantFields = {
     .string()
     .regex(/^(\d{8}|\d{12,14})$/, "gtin must have 8, 12, 13 or 14 digits")
     .nullish(),
+  unitsPerCarton: z.number().int().min(1).max(1000).nullish(),
   salePrice: zCents(1).nullish(),
   discountPercent: z.number().int().min(1).max(99).nullish(),
   isEnabled: z.boolean().optional(),
@@ -515,6 +516,7 @@ export function createVariant(
     id: newId(now + product.variants.length),
     sku,
     gtin: input.gtin ?? null,
+    unitsPerCarton: input.unitsPerCarton ?? null,
     packSize: {
       ...input.packSize,
       label: packLabel(input.packSize.value, input.packSize.unit),
@@ -580,6 +582,8 @@ export function applyVariantPatch(
   variant.regularPrice = regularPrice;
   variant.salePrice = salePrice;
   if (input.gtin !== undefined) variant.gtin = input.gtin;
+  if (input.unitsPerCarton !== undefined)
+    variant.unitsPerCarton = input.unitsPerCarton;
   if (input.isEnabled !== undefined) variant.isEnabled = input.isEnabled;
   if (input.lowStockThreshold !== undefined)
     variant.stock.lowStockThreshold = input.lowStockThreshold;

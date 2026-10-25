@@ -80,6 +80,7 @@ export interface VariantRecord {
   id: string;
   sku: string;
   gtin: string | null;
+  unitsPerCarton: number | null;
   packSize: { value: number; unit: PackUnit; label: string };
   regularPrice: number;
   salePrice: number | null;

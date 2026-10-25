@@ -109,6 +109,8 @@ Cron job ── POST /v1/jobs/run ─────────────┤
 | `analytics` | The Analytics tab of the start page: revenue, orders, customers, products, payments, returns and stock over a period of Berlin days, compared with the period before. Aggregations over the collections of the other modules through their schemas; owns no data (`doc/ANALYTICS.md`) |
 | `faq` | Questions and answers in both languages under optional headings, ordered by the admin; the shop shows the published ones (`doc/FAQ.md`) |
 | `blog` | Articles in both languages with a featured picture, pictures in the text, categories, tags, dates and SEO fields; drafts, scheduled and published posts (`doc/BLOG.md`) |
+| `quotations` | Wholesale quotations: the request of a business customer from the wholesale site, the admin's prices per carton, the quotation email with its PDF, revisions and the outcome (`doc/QUOTATIONS.md`) |
+| `b2b` | The catalogue as the wholesale site reads it: products by the carton (`unitsPerCarton` on a pack size), without retail prices. Reads only |
 | `settings` | Configurable business rules |
 | `legal` | Versioned `terms` and `privacy` documents |
 | `jobs` | Every scheduled job in one call, for an external timer. Owns no data |
@@ -126,6 +128,8 @@ Rule: dependencies between business modules point one way.
 attention ──► orders, returns, payments, notifications, catalog
 analytics ──► the schemas of orders, payments, returns, customers, catalog, invoices (reads only)
 blog ───────► admin-users (the author's name), media
+quotations ─► catalog, settings, notifications
+b2b ────────► catalog
 payments ───► orders, invoices, cart, settings, notifications
 returns ────► orders, settings, notifications
 orders ─────► cart, catalog, customers, legal, settings, notifications
@@ -175,6 +179,7 @@ MongoDB Atlas with Mongoose. Collections have `createdAt` and `updatedAt` unless
 | `blogCategories` | translated name and slug, description, sort order, SEO fields |
 | `blogPosts` | translated title, slug, summary and Markdown content, featured picture and pictures for the text, author, category, tags, status (`draft`, `published`) and date, SEO fields, word counts, search words |
 | `wishlists` | customer, products with the remembered pack size and the date added |
+| `quotations` | number per year, status (`new`, `draft`, `sent`, `accepted`, `declined`, `cancelled`), contact and consent, the lines copied from the catalogue (SKU, name, pack, carton, VAT rate) with the net price per carton and amount, totals, revision and sending data, closing data, fingerprint for repeats, search words |
 | `products` | one document per product with its pack sizes, see below: translated name, base slug and description, category and category path, `variants[]` (SKU, pack size, URL, prices, enabled switch, stock per size), `defaultVariantId`, `priceFrom`, VAT rate, status (`draft`, `active`, `archived`), `isAvailable`, `minOrderQuantity`, `maxOrderQuantity`, images, food information, SEO fields, search words |
 | `productPriceChanges` | one entry per price change of a pack size: product, pack size (`variantId`), SKU, prices, VAT rate, admin |
 | `stockMovements` | the ledger: product, pack size (`variantId`), SKU, reason (`restock`, `adjustment`, `import`, `order`, `cancel`, `return`, `release`), delta, quantity afterwards, the order or the admin, note. Appended, never edited; `createdAt` only |
@@ -266,6 +271,7 @@ idempotencyKey
 - `faqGroups`: `(sortOrder, _id)`. `faqs`: `(groupId, sortOrder, _id)`. `blogCategories`: unique slug per language, `(sortOrder, _id)`. `blogPosts`: unique slug per language; `(status, publishedAt, _id)`, `(status, categoryId, publishedAt, _id)`, `(status, tags, publishedAt, _id)` for the blog of the shop; `searchTokens`.
 - The dashboard reads records created in a period by the time in their `_id` (refunds, returns, stock movements, checkouts), which the `_id` index serves.
 - `wishlists`: unique `customerId`. `banners`: `(sortOrder, _id)`.
+- `quotations`: unique `number`; `(status, _id)`, `(fingerprint, _id)`, `(contact.email, _id)`, `searchTokens`. `notifications` adds sparse `(quotationId, _id)`.
 - `legalDocuments`: unique `(type, version)`. `categories`: unique slug per language, `(parentId, sortOrder)`, `ancestorIds`.
 - `customerSessions`, `adminSessions`: TTL on the expiry. `passwordResets`: unique `tokenHash`, `(customerId, createdAt)` for the limit per hour, TTL a day after the request.
 - Indexes on optional fields are sparse, not partial with a `$type` filter: MongoDB uses a sparse index for a lookup by value, and does not use such a partial one.
@@ -523,6 +529,7 @@ The foundation (configuration, database, errors, OpenAPI, health), authenticatio
 5. Removal: the cargos module, payment activation, reminders, pay links, cash, waiving, the overdue block and overrides, obsolete notification types and templates, settings and environment keys, the concept documents of the pre-order shop. A script for moving a database of the old shop existed briefly and was removed again, since no database with real data existed.
 6. Hardening and documentation: this document, both API references, the prompts for the shop and the panel, README and the Hostinger guide.
 8. Admin dashboard, FAQ and blog (2026-10-24): the Analytics tab (`analytics` module, `doc/ANALYTICS.md`) with the permission `analytics.read`; the FAQ and the blog (`faq` and `blog` modules, `doc/FAQ.md`, `doc/BLOG.md`) with the permissions `content.read` and `content.manage`; new indexes for the dashboard.
+9. Wholesale quotations (2026-10-25): `unitsPerCarton` on pack sizes and the CSV column; the `b2b` catalogue endpoints for the wholesale site; the `quotations` module (`doc/QUOTATIONS.md`) with the permissions `quotations.read` and `quotations.manage`; the notification queue takes recipients who are not customers and carries `quotationId`; the quotation PDF shares the logo cache with the invoices.
 7. Pack sizes (2026-10-16, commit `feat(catalog): one product with several pack sizes`): one product holds its pack sizes as embedded `variants` with their own SKU, price, stock and URL; the default size, the display name, the product page by base or size URL, the cart, orders, returns, corrections, the attention page and the CSV sheets by pack size; the one-document-per-size model with `variantGroupId`, `isDefaultVariant`, `make-default` and `variant_of_sku` removed. Design and decisions in `PRODUCT_VARIANTS_PLAN.md`.
 
 ## 15. Open items

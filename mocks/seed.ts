@@ -73,6 +73,8 @@ export const ALL_PERMISSIONS = [
   "analytics.read",
   "content.read",
   "content.manage",
+  "quotations.read",
+  "quotations.manage",
 ];
 
 /** The sign-ins of the demo. Every admin also accepts the code 000000. */
@@ -580,6 +582,8 @@ export function seed(options: SeedOptions): Db {
       "customers.read",
       "catalog.read",
       "notifications.read",
+      "quotations.read",
+      "quotations.manage",
     ],
   );
   const catalogueEditor = role(
@@ -849,6 +853,22 @@ export function seed(options: SeedOptions): Db {
         gtin: rng.chance(0.6)
           ? `890${String(1000000000 + db.counters.sku * 7919).slice(0, 10)}`
           : null,
+        // Cartons (24): whole kilos and litres by the carton, small packs by
+        // the dozen; the smallest of a mixed product and pieces stay retail.
+        unitsPerCarton:
+          unit === "kg" || unit === "l"
+            ? value >= 5
+              ? 4
+              : value >= 1
+                ? 10
+                : null
+            : unit === "g" || unit === "ml"
+              ? value >= 500
+                ? 12
+                : value >= 200
+                  ? 24
+                  : null
+              : null,
         packSize: { value, unit, label: packLabel(value, unit) },
         regularPrice,
         salePrice: salePrice ?? null,

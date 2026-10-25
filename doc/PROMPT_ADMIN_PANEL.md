@@ -40,7 +40,8 @@ Unchanged: sign-in with password and authenticator, forced password change, admi
 |---|---|
 | This brief | All of it |
 | `ARCHITECTURE.md` | Sections 1, 2, 4 (modules), 6 (status models), 7 (key flows), 8 (authentication) |
-| `ADMIN_API_DOCUMENTATION.md` | **The authority.** Section 0; sections 4 to 15 completely; section 17 (enums, state machines, permission matrix, error codes); sections 1 to 3 as a check that nothing changed there |
+| `ADMIN_API_DOCUMENTATION.md` | **The authority.** Section 0; sections 4 to 15 and 20 completely; section 17 (enums, state machines, permission matrix, error codes); sections 1 to 3 as a check that nothing changed there |
+| `BANNERS.md` | The homepage banners page: upload, replace, link, switch, period, drag-and-drop order (2026-10-19) |
 | `CSV_IMPORT_EXPORT.md` and `examples/*.csv` | The catalogue sheet: one row per pack size, the rows of a product tied by `slug_en`, the stock columns |
 
 These files come from `radhe-api/doc/` and replace the copies under `doc/` of this repository, which describe the old API. Delete `doc/Radhe_Foods_Preorder.md`, `doc/Radhe_Foods_Preorder_Core_Concept.md` and the old `doc/PROMPT_ADMIN_PANEL.md`; put this brief in their place.

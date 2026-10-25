@@ -43,7 +43,7 @@ All under `/v1/admin/banners`, admin session required. Reading needs `catalog.re
     "id": "66f4…",
     "alt": { "en": "Diwali offer", "de": "Diwali-Angebot" },
     "isPrimary": false,
-    "url": "https://cdn.radhefoods.de/marketing/banners/66f3…/a1b2…/large.webp",
+    "url": "https://cdn.radhefoods.de/catalog/banners/66f3…/a1b2…/large.webp",
     "sizes": {
       "small": { "url": "…/small.webp", "width": 768, "height": 320 },
       "medium": { "url": "…/medium.webp", "width": 1536, "height": 640 },

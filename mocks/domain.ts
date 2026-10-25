@@ -3,6 +3,7 @@
 // become the API's objects.
 
 import type {
+  Carton,
   Category,
   Customer,
   InvoiceDetail,
@@ -185,6 +186,35 @@ export function defaultVariantOf(product: ProductRecord): VariantRecord {
   );
 }
 
+/** A number without trailing zeros: 1.5, 20, 0.25. */
+function plainNumber(value: number): string {
+  return String(Number(value.toFixed(3)));
+}
+
+/**
+ * The carton of a pack size (24): `units` packs, the content in kg or l
+ * from 1000 g or 1000 ml on, in pieces for `pcs`.
+ */
+export function cartonOf(
+  variant: Pick<VariantRecord, "unitsPerCarton" | "packSize">,
+): Carton | null {
+  const units = variant.unitsPerCarton;
+  if (units === null) return null;
+  const pack = variant.packSize;
+  let value = units * pack.value;
+  let unit: PackUnit = pack.unit;
+  if ((unit === "g" || unit === "ml") && value >= 1000) {
+    value /= 1000;
+    unit = unit === "g" ? "kg" : "l";
+  }
+  value = Number(value.toFixed(3));
+  return {
+    units,
+    label: `${units} × ${pack.label}`,
+    content: { value, unit, label: `${plainNumber(value)} ${unit}` },
+  };
+}
+
 export function variantView(
   product: ProductRecord,
   variant: VariantRecord,
@@ -194,6 +224,8 @@ export function variantView(
     id: variant.id,
     sku: variant.sku,
     gtin: variant.gtin,
+    unitsPerCarton: variant.unitsPerCarton,
+    carton: cartonOf(variant),
     packSize: variant.packSize,
     slug: variantSlug(product.slug, variant.packSize),
     displayName: {
@@ -641,7 +673,9 @@ export function orderNeedsRefund(order: OrderRecord): boolean {
 
 const WHATSAPP_TYPES: NotificationType[] = ["order_dispatched", "announcement"];
 
-const SUBJECT: Record<NotificationType, [string, string]> = {
+// The quotation emails (24) are English only and queued by the quotations
+// module with their own subjects; the table needs no line for them.
+const SUBJECT: Partial<Record<NotificationType, [string, string]>> = {
   order_confirmed: [
     "Your order {n} is confirmed",
     "Ihre Bestellung {n} ist bestätigt",
@@ -709,7 +743,7 @@ export interface MessageInput {
 export function queueMessage(db: Db, input: MessageInput, now: number): void {
   const { customer, order } = input;
   const locale = order?.language ?? customer.locale;
-  const pattern = SUBJECT[input.type][locale === "de" ? 1 : 0];
+  const pattern = (SUBJECT[input.type] ?? ["", ""])[locale === "de" ? 1 : 0];
   const announcementSubject =
     (locale === "de" ? input.subject?.de : null) ?? input.subject?.en ?? "";
   const subject = pattern
@@ -749,6 +783,7 @@ export function queueMessage(db: Db, input: MessageInput, now: number): void {
       returnId: input.returnId ?? null,
       refundId: input.refundId ?? null,
       announcementId: input.announcementId ?? null,
+      quotationId: null,
       locale,
       subject: channel === "email" ? subject : null,
       attachments:
