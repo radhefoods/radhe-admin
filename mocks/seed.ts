@@ -38,6 +38,7 @@ import { newId } from "./http.ts";
 import { seedBlog } from "./modules/blog.ts";
 import { seedFaq } from "./modules/faq.ts";
 import { seedQuotations } from "./modules/quotations.ts";
+import { seedWholesale } from "./modules/wholesale.ts";
 import { completeRefund } from "./modules/payments.ts";
 import {
   recordMovement,
@@ -76,6 +77,8 @@ export const ALL_PERMISSIONS = [
   "content.manage",
   "quotations.read",
   "quotations.manage",
+  "wholesale.read",
+  "wholesale.manage",
 ];
 
 /** The sign-ins of the demo. Every admin also accepts the code 000000. */
@@ -590,8 +593,8 @@ export function seed(options: SeedOptions): Db {
   const catalogueEditor = role(
     "catalogue_editor",
     "Catalogue editor",
-    "Keeps products, categories and pictures.",
-    ["catalog.read", "catalog.manage"],
+    "Keeps products, categories and pictures, retail and wholesale.",
+    ["catalog.read", "catalog.manage", "wholesale.read", "wholesale.manage"],
   );
   const viewer = role(
     "viewer",
@@ -854,22 +857,6 @@ export function seed(options: SeedOptions): Db {
         gtin: rng.chance(0.6)
           ? `890${String(1000000000 + db.counters.sku * 7919).slice(0, 10)}`
           : null,
-        // Cartons (24): whole kilos and litres by the carton, small packs by
-        // the dozen; the smallest of a mixed product and pieces stay retail.
-        unitsPerCarton:
-          unit === "kg" || unit === "l"
-            ? value >= 5
-              ? 4
-              : value >= 1
-                ? 10
-                : null
-            : unit === "g" || unit === "ml"
-              ? value >= 500
-                ? 12
-                : value >= 200
-                  ? 24
-                  : null
-              : null,
         packSize: { value, unit, label: packLabel(value, unit) },
         regularPrice,
         salePrice: salePrice ?? null,
@@ -1987,7 +1974,8 @@ export function seed(options: SeedOptions): Db {
   // --- FAQ (22) and blog (23) -----------------------------------------------
   seedFaq(db, now);
   seedBlog(db, now, owner);
-  // --- Wholesale quotations (24) -------------------------------------------
+  // --- The wholesale catalogue (25) and its quotations (24) ------------------
+  seedWholesale(db, now, owner.id);
   seedQuotations(db, now, owner);
 
   return db;

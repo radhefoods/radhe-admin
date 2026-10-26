@@ -5,6 +5,8 @@ import {
   CreditCard,
   FileText,
   FolderTree,
+  Boxes,
+  Warehouse,
   GalleryHorizontal,
   HandCoins,
   KeyRound,
@@ -87,6 +89,21 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: "Wholesale",
     items: [
+      {
+        label: "Products",
+        href: routes.wholesaleProducts,
+        icon: Boxes,
+        requires: "wholesale.read",
+        keywords:
+          "b2b wholesale catalogue sku cartons packs stock shortage copy retail import export",
+      },
+      {
+        label: "Categories",
+        href: routes.wholesaleCategories,
+        icon: Warehouse,
+        requires: "wholesale.read",
+        keywords: "b2b wholesale catalogue groups order visible",
+      },
       {
         label: "Quotations",
         href: routes.quotations,

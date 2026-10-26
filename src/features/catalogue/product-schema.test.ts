@@ -55,12 +55,6 @@ function variant(overrides: Partial<ProductVariant> = {}): ProductVariant {
     id: "66f200000000000000000042",
     sku: "RF-00042",
     gtin: "8901234567890",
-    unitsPerCarton: 4,
-    carton: {
-      units: 4,
-      label: "4 × 5 kg",
-      content: { value: 20, unit: "kg", label: "20 kg" },
-    },
     packSize: { value: 5, unit: "kg", label: "5 kg" },
     slug: { en: "basmati-rice-5kg", de: "basmati-reis-5kg" },
     displayName: { en: "Basmati Rice (5 kg)", de: "Basmati Reis (5 kg)" },
@@ -77,8 +71,6 @@ const SMALL = variant({
   id: "66f200000000000000000041",
   sku: "RF-00041",
   gtin: null,
-  unitsPerCarton: null,
-  carton: null,
   packSize: { value: 1, unit: "kg", label: "1 kg" },
   slug: { en: "basmati-rice-1kg", de: "basmati-reis-1kg" },
   displayName: { en: "Basmati Rice (1 kg)", de: "Basmati Reis (1 kg)" },
@@ -264,19 +256,6 @@ describe("the rules of a product (documentation, 8)", () => {
       "123456789012345",
     ]) {
       expect(gtin(value)).toBeDefined();
-    }
-  });
-
-  it("takes 1 to 1000 packs per carton, or none", () => {
-    const carton = (value: string) =>
-      problems(typedRow({ unitsPerCarton: value }))[
-        "variants.0.unitsPerCarton"
-      ];
-    for (const value of ["", "1", "20", "1000"]) {
-      expect(carton(value)).toBeUndefined();
-    }
-    for (const value of ["0", "1001", "2.5", "twenty"]) {
-      expect(carton(value)).toBeDefined();
     }
   });
 
@@ -528,13 +507,6 @@ describe("what POST /products gets", () => {
     expect("isEnabled" in plain!).toBe(false);
     const [off] = toProductInput(typedRow({ isEnabled: false })).variants;
     expect(off?.isEnabled).toBe(false);
-  });
-
-  it("sends the packs per carton only when they were typed", () => {
-    const [boxed] = toProductInput(typedRow({ unitsPerCarton: "20" })).variants;
-    expect(boxed?.unitsPerCarton).toBe(20);
-    const [plain] = toProductInput(typed()).variants;
-    expect("unitsPerCarton" in plain!).toBe(false);
   });
 
   it("sends a discount as a percentage and then no sale price", () => {
@@ -800,18 +772,6 @@ describe("what PATCH …/variants/{variantId} gets: only what changed on the pac
     expect(toVariantPatch({ ...form(), gtin: "" }, before)).toEqual({
       gtin: null,
     });
-  });
-
-  it("sends the packs per carton when they change, null when the carton is removed", () => {
-    expect(toVariantPatch({ ...form(), unitsPerCarton: "6" }, before)).toEqual({
-      unitsPerCarton: 6,
-    });
-    expect(toVariantPatch({ ...form(), unitsPerCarton: "" }, before)).toEqual({
-      unitsPerCarton: null,
-    });
-    expect(
-      toVariantPatch({ ...variantRow(SMALL), unitsPerCarton: "" }, SMALL),
-    ).toEqual({});
   });
 
   it("sends the switch and the threshold when they change, null when the threshold is removed, never the count", () => {

@@ -75,8 +75,6 @@ export const LIMITS = {
   keywordMax: 60,
   priceMin: 1,
   priceMax: 10_000_000,
-  /** Packs in a carton (24). */
-  cartonMax: 1000,
   packMin: 0.001,
   packMax: 1_000_000,
   sortOrderMax: 1_000_000,
@@ -267,8 +265,6 @@ const variantRowFields = z.object({
       "8, 12, 13 or 14 digits.",
     ),
   packSize: packSizeFields,
-  /** Packs in a carton for wholesale quotations; empty: no carton. */
-  unitsPerCarton: following(zOptionalInt({ min: 1, max: LIMITS.cartonMax })),
   ...saleFields,
   isEnabled: z.boolean(),
   /** Empty: no threshold, never warned. */
@@ -407,8 +403,6 @@ export function variantRow(variant: ProductVariant): VariantRowValues {
     variantId: variant.id,
     sku: variant.sku,
     gtin: variant.gtin ?? "",
-    unitsPerCarton:
-      variant.unitsPerCarton === null ? "" : String(variant.unitsPerCarton),
     packSize: {
       value: String(variant.packSize.value),
       unit: variant.packSize.unit,
@@ -434,7 +428,6 @@ export function emptyVariantRow(unit: PackUnit = "g"): VariantRowValues {
     variantId: "",
     sku: "",
     gtin: "",
-    unitsPerCarton: "",
     packSize: { value: "", unit },
     regularPrice: "",
     saleMode: "none",
@@ -641,8 +634,6 @@ export function toVariantInput(row: VariantRowValues): VariantInput {
   if (sku) input.sku = sku;
   const gtin = row.gtin.trim();
   if (gtin) input.gtin = gtin;
-  const carton = row.unitsPerCarton.trim();
-  if (carton !== "") input.unitsPerCarton = integer(carton);
   if (!row.isEnabled) input.isEnabled = false;
   // The opening stock (default 0) and the threshold, where the API takes them.
   const stock = row.stockQuantity.trim();
@@ -662,9 +653,6 @@ export function toVariantPatch(
   if (sku && sku !== variant.sku) patch.sku = sku;
   const gtin = row.gtin.trim() || null;
   if (gtin !== variant.gtin) patch.gtin = gtin;
-  const carton =
-    row.unitsPerCarton.trim() === "" ? null : integer(row.unitsPerCarton);
-  if (carton !== variant.unitsPerCarton) patch.unitsPerCarton = carton;
   const value = parsePackValue(row.packSize.value) ?? Number.NaN;
   if (
     value !== variant.packSize.value ||
@@ -992,7 +980,6 @@ export function variantFieldAliases(row: number): Record<string, string> {
   for (const field of [
     "sku",
     "gtin",
-    "unitsPerCarton",
     "packSize.value",
     "packSize.unit",
     "regularPrice",

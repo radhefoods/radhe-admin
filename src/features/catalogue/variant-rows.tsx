@@ -213,7 +213,7 @@ function Row({
                 : "."}
             </p>
           ) : null}
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <TextField
               form={form}
               name={name("sku")}
@@ -243,19 +243,6 @@ function Row({
               unit="units"
               optional
               placeholder="No threshold"
-            />
-            <UnitField
-              form={form}
-              name={name("unitsPerCarton")}
-              label="Packs per carton"
-              unit="packs"
-              optional
-              placeholder="No carton"
-              hint={
-                variant?.carton
-                  ? `A carton is ${variant.carton.label}, ${variant.carton.content.label}. Offered on the wholesale site.`
-                  : "For wholesale quotations. Without it, the pack size is not offered by the carton."
-              }
             />
           </div>
           <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-t border-line pt-3">

@@ -15,8 +15,8 @@ import {
 const item = (overrides: Partial<QuotationItem> = {}): QuotationItem => ({
   id: "670100000000000000000001",
   productId: "66f300000000000000000001",
-  variantId: "66f400000000000000000001",
-  sku: "DW-00041",
+  skuId: "66f400000000000000000001",
+  sku: "RFW-00041",
   name: "Daawat Original Basmati Rice",
   brand: "Daawat",
   packSize: { value: 1, unit: "kg", label: "1 kg" },
@@ -29,6 +29,7 @@ const item = (overrides: Partial<QuotationItem> = {}): QuotationItem => ({
   vatRate: 700,
   unitPrice: 8000,
   lineTotal: 24000,
+  stock: { quantity: 10, short: false },
   ...overrides,
 });
 

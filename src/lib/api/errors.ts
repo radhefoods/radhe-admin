@@ -138,6 +138,18 @@ export const API_ERROR_CODES = [
   "QUOTATION_ITEM_NOT_FOUND",
   "QUOTATION_NOT_PRICED",
   "QUOTATION_STATUS_INVALID",
+  // wholesale catalogue (25)
+  "WHOLESALE_CATEGORY_NOT_FOUND",
+  "WHOLESALE_CATEGORY_SLUG_TAKEN",
+  "WHOLESALE_CATEGORY_HAS_PRODUCTS",
+  "WHOLESALE_CATEGORY_ORDER_INVALID",
+  "WHOLESALE_PRODUCT_NOT_FOUND",
+  "WHOLESALE_PRODUCT_SLUG_TAKEN",
+  "WHOLESALE_PRODUCT_ORDER_INVALID",
+  "WHOLESALE_SKU_NOT_FOUND",
+  "WHOLESALE_SKU_TAKEN",
+  "WHOLESALE_SKU_INVALID",
+  "WHOLESALE_SKU_LAST",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -211,6 +223,13 @@ export interface ErrorDetails {
   QUOTATION_NOT_PRICED: { unpriced: Id[] } | undefined;
   QUOTATION_STATUS_INVALID:
     { status: QuotationStatus; allowed: QuotationStatus[] } | undefined;
+  WHOLESALE_CATEGORY_ORDER_INVALID:
+    { unknown?: Id[]; expected?: Id[] } | undefined;
+  WHOLESALE_PRODUCT_ORDER_INVALID:
+    { unknown?: Id[]; expected?: Id[] } | undefined;
+  /** Mixed units, the same pack and carton twice, an article number twice, more than 20. */
+  WHOLESALE_SKU_INVALID:
+    { families?: string[]; sku?: string; baseQuantity?: number } | undefined;
   ORDER_TRANSITION_NOT_ALLOWED: {
     from: OrderStatus;
     to: OrderStatus;

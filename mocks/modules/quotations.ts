@@ -1,4 +1,6 @@
-// Section 24: wholesale quotations. doc/QUOTATIONS.md sections 5 to 7.
+// Section 24: wholesale quotations. doc/QUOTATIONS.md sections 5 to 7. The
+// lines name SKUs of the wholesale catalogue (25); accepting takes their
+// stock through the wholesale ledger.
 
 import { z } from "zod";
 import type {
@@ -9,11 +11,11 @@ import type {
   QuotationDetail,
   QuotationItem,
   QuotationStatus,
+  QuotationStock,
   QuotationSummary,
   QuotationTotals,
 } from "../../src/lib/api/types/index.ts";
-import type { AdminRecord, Db, ProductRecord, VariantRecord } from "../db.ts";
-import { cartonOf } from "../domain.ts";
+import type { AdminRecord, Db } from "../db.ts";
 import {
   enumParam,
   fail,
@@ -27,9 +29,17 @@ import {
 import { textPdf } from "../pdf.ts";
 import type { Router } from "../router.ts";
 import { DAY, HOUR, berlinDay, iso } from "../time.ts";
+import {
+  cartonOf,
+  recordWholesaleMovement,
+  sortedSkus,
+  wholesaleSkuOf,
+  type WholesaleProductRecord,
+  type WholesaleSkuRecord,
+} from "./wholesale.ts";
 
-/** A line as stored: the amount is worked out on reading. */
-export type QuotationItemRecord = Omit<QuotationItem, "lineTotal">;
+/** A line as stored: the amount and the stock of its SKU are worked out on reading. */
+export type QuotationItemRecord = Omit<QuotationItem, "lineTotal" | "stock">;
 
 /** A quotation as stored: counts, totals and amounts are worked out on reading. */
 export interface QuotationRecord {
@@ -50,6 +60,8 @@ export interface QuotationRecord {
   updatedBy: AdminRef | null;
   sentBy: AdminRef | null;
   closedBy: AdminRef | null;
+  /** What accepting took from the wholesale stock; `null` until accepted. */
+  stock: QuotationStock | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -106,26 +118,104 @@ function totalsOf(record: QuotationRecord): QuotationTotals | null {
 }
 
 export function quotationSummary(record: QuotationRecord): QuotationSummary {
-  const { items, message: _m, consent: _c, locale: _l, ...rest } = record;
+  const {
+    items,
+    message: _m,
+    consent: _c,
+    locale: _l,
+    stock,
+    ...rest
+  } = record;
   return {
     ...rest,
     itemCount: items.length,
     cartons: items.reduce((sum, item) => sum + item.cartons, 0),
     pricedLines: items.filter((item) => item.unitPrice !== null).length,
     totals: totalsOf(record),
+    // The summary carries the deduction without its lines.
+    stock: stock
+      ? {
+          deductedAt: stock.deductedAt,
+          short: stock.short,
+          missing: stock.missing,
+        }
+      : null,
   };
 }
 
-function quotationDetail(record: QuotationRecord): QuotationDetail {
+function quotationDetail(db: Db, record: QuotationRecord): QuotationDetail {
   return {
     ...quotationSummary(record),
     message: record.message,
     consent: record.consent,
     locale: record.locale,
-    items: record.items.map((item) => ({
-      ...item,
-      lineTotal: item.unitPrice === null ? null : item.cartons * item.unitPrice,
-    })),
+    items: record.items.map((item) => {
+      // The wholesale stock of the SKU right now, or `null` when it is gone.
+      const found = wholesaleSkuOf(db, item.skuId);
+      return {
+        ...item,
+        lineTotal:
+          item.unitPrice === null ? null : item.cartons * item.unitPrice,
+        stock: found
+          ? { quantity: found.sku.stock, short: found.sku.stock < item.cartons }
+          : null,
+      };
+    }),
+    stock: record.stock,
+  };
+}
+
+/**
+ * Takes the cartons of every line from the wholesale stock, once per
+ * quotation and SKU (the ledger refuses a second entry), below zero
+ * allowed; a SKU that is gone is reported and skipped.
+ */
+export function takeQuotationStock(
+  db: Db,
+  record: QuotationRecord,
+  adminId: string,
+  now: number,
+): QuotationStock {
+  const lines = record.items.map((item) => {
+    const found = wholesaleSkuOf(db, item.skuId);
+    if (!found) {
+      return {
+        skuId: item.skuId,
+        sku: item.sku,
+        cartons: item.cartons,
+        applied: false,
+        quantityBefore: null,
+        quantityAfter: null,
+      };
+    }
+    const earlier = db.wholesaleStockMovements.find(
+      (entry) => entry.quotationId === record.id && entry.skuId === item.skuId,
+    );
+    const movement =
+      earlier ??
+      recordWholesaleMovement(
+        db,
+        found.product,
+        found.sku,
+        "quotation_accepted",
+        -item.cartons,
+        { adminId, quotationId: record.id, quotationNumber: record.number },
+        now,
+      );
+    return {
+      skuId: item.skuId,
+      sku: found.sku.sku,
+      cartons: item.cartons,
+      applied: true,
+      quantityBefore: movement.quantityBefore,
+      quantityAfter: movement.quantityAfter,
+    };
+  });
+  return {
+    deductedAt: iso(now),
+    short: lines.some((line) => line.applied && (line.quantityAfter ?? 0) < 0),
+    missing: lines.some((line) => !line.applied),
+    lines,
   };
 }
 
@@ -138,7 +228,7 @@ function emailsOf(db: Db, id: string) {
 
 function answer(db: Db, record: QuotationRecord) {
   return json({
-    quotation: quotationDetail(record),
+    quotation: quotationDetail(db, record),
     notifications: emailsOf(db, record.id),
   });
 }
@@ -460,6 +550,15 @@ export function registerQuotations(router: Router): void {
         record.closedAt = iso(ctx.now);
         record.closedBy = ref(ctx.admin);
         record.updatedAt = iso(ctx.now);
+        // Accepting takes the cartons of every line from the wholesale stock (25).
+        if (outcome === "accept") {
+          record.stock = takeQuotationStock(
+            ctx.db,
+            record,
+            ctx.admin.id,
+            ctx.now,
+          );
+        }
         return answer(ctx.db, record);
       },
     );
@@ -483,8 +582,8 @@ export function registerQuotations(router: Router): void {
 // --- Seed -------------------------------------------------------------------
 
 interface SeedLine {
-  product: ProductRecord;
-  variant: VariantRecord;
+  product: WholesaleProductRecord;
+  sku: WholesaleSkuRecord;
   cartons: number;
   /** Net cents per carton; `null` while unpriced. */
   unitPrice: number | null;
@@ -493,23 +592,28 @@ interface SeedLine {
 /**
  * Seven requests from the wholesale site, one per stage of the workflow:
  * closed ones from weeks ago, one sent and waiting, one half priced, two
- * new. The lines copy the catalogue as it is at the request.
+ * new. The lines copy the wholesale catalogue as it is at the request
+ * (`seedWholesale` runs first); the accepted one took its cartons from
+ * the stock, one of them below zero.
  */
 export function seedQuotations(db: Db, now: number, admin: AdminRecord): void {
-  const boxed = db.products.flatMap((product) =>
-    product.variants
-      .filter((variant) => variant.unitsPerCarton !== null)
-      .map((variant) => ({ product, variant })),
-  );
-  if (boxed.length < 4) return;
-  const pick = (index: number) => boxed[index % boxed.length]!;
-  // A fair net price per carton: the retail price of the packs, less about a fifth.
-  const netOf = (line: { variant: VariantRecord }) =>
-    Math.round(
-      (line.variant.regularPrice * (line.variant.unitsPerCarton ?? 1)) /
-        1.07 /
-        1.25,
+  // The SKUs the wholesale site offers, product by product, smallest pack first.
+  const offered = db.wholesaleProducts
+    .filter((product) => product.status === "active" && product.isAvailable)
+    .flatMap((product) =>
+      sortedSkus(product)
+        .filter((sku) => sku.isEnabled)
+        .map((sku) => ({ product, sku })),
     );
+  if (offered.length < 10) return;
+  const pick = (index: number) => offered[index % offered.length]!;
+  // A fair net price per carton: about €1.90 per kilo or litre, €2.50 per piece.
+  const netOf = (line: { sku: WholesaleSkuRecord }) => {
+    const content = cartonOf(line.sku).content;
+    return content.unit === "pcs"
+      ? content.value * 250
+      : Math.round(content.value * 190);
+  };
   const line = (index: number, cartons: number, priced: boolean): SeedLine => {
     const entry = pick(index);
     return {
@@ -543,12 +647,12 @@ export function seedQuotations(db: Db, now: number, admin: AdminRecord): void {
       items: lines.map((entry, index) => ({
         id: newId(at + index + 1),
         productId: entry.product.id,
-        variantId: entry.variant.id,
-        sku: entry.variant.sku,
+        skuId: entry.sku.id,
+        sku: entry.sku.sku,
         name: entry.product.name.en,
         brand: entry.product.brand,
-        packSize: entry.variant.packSize,
-        carton: cartonOf(entry.variant)!,
+        packSize: entry.sku.packSize,
+        carton: cartonOf(entry.sku),
         cartons: entry.cartons,
         vatRate: entry.product.vatRate,
         unitPrice: entry.unitPrice,
@@ -562,6 +666,7 @@ export function seedQuotations(db: Db, now: number, admin: AdminRecord): void {
       updatedBy: null,
       sentBy: null,
       closedBy: null,
+      stock: null,
       createdAt: iso(at),
       updatedAt: iso(at),
     };
@@ -594,9 +699,12 @@ export function seedQuotations(db: Db, now: number, admin: AdminRecord): void {
     record.closedAt = iso(at);
     record.closedBy = ref(admin);
     record.updatedAt = iso(at);
+    if (status === "accepted")
+      record.stock = takeQuotationStock(db, record, admin.id, at);
   };
 
-  // Accepted: two lines, priced and sent three weeks ago, ordered a week later.
+  // Accepted: two lines, priced and sent three weeks ago, ordered a week
+  // later; the second line took a SKU that had nothing on hand below zero.
   let at = now - 24 * DAY;
   let record = create(
     at,
@@ -607,7 +715,7 @@ export function seedQuotations(db: Db, now: number, admin: AdminRecord): void {
       phone: "+49 69 1234567",
       city: "Frankfurt am Main",
     },
-    [line(0, 3, true), line(1, 2, true)],
+    [line(0, 3, true), line(4, 2, true)],
     "Delivery on Tuesdays please.",
   );
   quotationEmail(db, record, "quotation_request_admin", at + 3000);
@@ -654,7 +762,8 @@ export function seedQuotations(db: Db, now: number, admin: AdminRecord): void {
   quotationEmail(db, record, "quotation_request_admin", at + 3000);
   closed(record, "cancelled", at + 2 * HOUR);
 
-  // Sent and waiting for the answer: three lines, revision 1, two days ago.
+  // Sent and waiting for the answer: three lines, revision 1, two days ago;
+  // the second asks for more cartons than are on hand.
   at = now - 4 * DAY;
   record = create(
     at,
@@ -665,7 +774,7 @@ export function seedQuotations(db: Db, now: number, admin: AdminRecord): void {
       phone: "+49 6151 445566",
       city: "Darmstadt",
     },
-    [line(5, 4, true), line(6, 2, true), line(0, 1, true)],
+    [line(5, 4, true), line(8, 4, true), line(0, 1, true)],
     "We open a second shop in November and need a first stock.",
   );
   quotationEmail(db, record, "quotation_request_admin", at + 3000);

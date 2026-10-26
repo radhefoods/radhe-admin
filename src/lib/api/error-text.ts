@@ -182,6 +182,27 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
     "One of the lines does not belong to this quotation (any more). The page was loaded again.",
   QUOTATION_NOT_PRICED:
     "Every line needs a price per carton before the quotation is sent.",
+  // wholesale catalogue (25)
+  WHOLESALE_CATEGORY_NOT_FOUND:
+    "This wholesale category does not exist (any more).",
+  WHOLESALE_CATEGORY_SLUG_TAKEN:
+    "Another wholesale category uses this address (slug).",
+  WHOLESALE_CATEGORY_HAS_PRODUCTS:
+    "The category still holds products. Move them to another wholesale category first.",
+  WHOLESALE_CATEGORY_ORDER_INVALID:
+    "The list of categories changed in the meantime. It was loaded again.",
+  WHOLESALE_PRODUCT_NOT_FOUND:
+    "This wholesale product does not exist (any more).",
+  WHOLESALE_PRODUCT_SLUG_TAKEN:
+    "Another wholesale product uses this address (slug).",
+  WHOLESALE_PRODUCT_ORDER_INVALID:
+    "A product in the list is no longer in this category. The list was loaded again.",
+  WHOLESALE_SKU_NOT_FOUND: "This SKU does not exist (any more).",
+  WHOLESALE_SKU_TAKEN: "Another wholesale product has this article number.",
+  WHOLESALE_SKU_INVALID:
+    "The SKUs do not fit together: one unit family per product, no pack size with the same carton twice, no article number twice, 20 at most.",
+  WHOLESALE_SKU_LAST:
+    "A product needs at least one SKU. Disable it, or delete the product.",
   QUOTATION_STATUS_INVALID:
     "The quotation is not in a status that allows this. The page was loaded again.",
 };

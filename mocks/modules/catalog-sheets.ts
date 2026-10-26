@@ -56,7 +56,6 @@ export const CATEGORY_COLUMNS = [
 export const PRODUCT_COLUMNS = [
   "sku",
   "gtin",
-  "units_per_carton",
   "name_en",
   "name_de",
   "slug_en",
@@ -140,7 +139,7 @@ const NO = ["no", "false", "nein", "0"];
 // --- Reading cells ------------------------------------------------------------
 
 /** The cell as text: trimmed; numbers and booleans in the import's writing. */
-function text(row: Row, column: string): string {
+export function text(row: Row, column: string): string {
   const value = row[column];
   if (value === undefined || value === null) return "";
   if (typeof value === "boolean") return value ? "yes" : "no";
@@ -148,7 +147,7 @@ function text(row: Row, column: string): string {
 }
 
 /** Reads the typed cells of one row, collecting what is wrong with them. */
-class Cells {
+export class Cells {
   readonly problems: string[] = [];
   private readonly row: Row;
   // Node strips types only: no parameter properties here.
@@ -264,7 +263,10 @@ class Cells {
   }
 }
 
-function unknownColumns(rows: Row[], known: readonly string[]): string[] {
+export function unknownColumns(
+  rows: Row[],
+  known: readonly string[],
+): string[] {
   const seen = new Set<string>();
   for (const row of rows)
     for (const column of Object.keys(row))
@@ -272,7 +274,7 @@ function unknownColumns(rows: Row[], known: readonly string[]): string[] {
   return [...seen].sort();
 }
 
-function summaryOf(rows: RowResult[]) {
+export function summaryOf(rows: { action: Action }[]) {
   const count = (action: Action) =>
     rows.filter((entry) => entry.action === action).length;
   return {
@@ -640,8 +642,6 @@ interface ProductPlan {
     slugEn?: string;
     slugDe?: string;
     gtin?: string;
-    /** `null`: the carton is removed (the cell held 0). */
-    unitsPerCarton?: number | null;
     subtitle?: { en?: string; de?: string };
     shortDescription?: { en?: string; de?: string };
     description?: { en?: string; de?: string };
@@ -784,13 +784,6 @@ function planProducts(
     const gtin = cells.text("gtin", 14);
     if (gtin !== undefined && !/^(\d{8}|\d{12,14})$/.test(gtin))
       cells.problems.push(`gtin: "${gtin}" must have 8, 12, 13 or 14 digits`);
-    const cartonCell = cells.int("units_per_carton", 0, 1000);
-    const unitsPerCarton =
-      cartonCell === undefined
-        ? undefined
-        : cartonCell === 0
-          ? null
-          : cartonCell;
     const vatPercent = cells.decimal("vat_rate", 2);
     if (vatPercent !== undefined && vatPercent > 100)
       cells.problems.push("vat_rate: a percentage up to 100");
@@ -818,7 +811,6 @@ function planProducts(
       slugEn,
       slugDe: cells.slug("slug_de"),
       gtin,
-      unitsPerCarton,
       subtitle: cells.translated("subtitle", 300),
       shortDescription: cells.translated("short_description", 300),
       description: cells.translated("description", 20000),
@@ -986,11 +978,6 @@ function planProducts(
     // The pack size's own columns, read from every row.
     if (input.gtin !== undefined && input.gtin !== variant.gtin)
       changes.push("gtin");
-    if (
-      input.unitsPerCarton !== undefined &&
-      input.unitsPerCarton !== variant.unitsPerCarton
-    )
-      changes.push("unitsPerCarton");
     if (plan.pack && baseQuantity(plan.pack) !== baseQuantity(variant.packSize))
       changes.push("packSize");
     if (input.isEnabled !== undefined && input.isEnabled !== variant.isEnabled)
@@ -1191,7 +1178,6 @@ function variantInputOf(plan: ProductPlan) {
   return {
     sku: plan.sku,
     gtin: input.gtin,
-    unitsPerCarton: input.unitsPerCarton,
     packSize: plan.pack!,
     regularPrice: input.regularPrice!,
     salePrice: input.salePrice,
@@ -1381,7 +1367,6 @@ function writeProduct(
     variant,
     {
       gtin: input.gtin,
-      unitsPerCarton: input.unitsPerCarton,
       packSize: plan.pack,
       regularPrice: input.regularPrice,
       salePrice: input.salePrice,
@@ -1554,7 +1539,6 @@ function exportProducts(db: Db) {
       return sortedVariants(product).map((variant) => ({
         sku: variant.sku,
         gtin: variant.gtin ?? "",
-        units_per_carton: variant.unitsPerCarton ?? "",
         name_en: product.name.en,
         name_de: product.name.de ?? "",
         slug_en: product.slug.en,
@@ -1644,3 +1628,5 @@ export function registerCatalogSheets(router: Router): void {
     ]);
   });
 }
+
+export { text as textOf };

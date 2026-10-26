@@ -13,6 +13,8 @@ import type {
   QuotationQuery,
   RefundQuery,
   ReturnQuery,
+  WholesaleProductQuery,
+  WholesaleStockMovementQuery,
 } from "./types";
 
 /**
@@ -138,6 +140,20 @@ export const queryKeys = {
     list: (query: QuotationQuery) => ["quotations", "list", query] as const,
     detail: (id: Id) => ["quotations", "detail", id] as const,
   },
+  /** The wholesale catalogue (25). */
+  wholesale: {
+    all: ["wholesale"] as const,
+    categories: () => ["wholesale", "categories"] as const,
+    /** The products of a wholesale category, in display order. */
+    categoryProducts: (id: Id) =>
+      ["wholesale", "category-products", id] as const,
+    products: (query: WholesaleProductQuery) =>
+      ["wholesale", "products", query] as const,
+    product: (id: Id) => ["wholesale", "product", id] as const,
+    /** The stock ledger of a wholesale product, by page. */
+    stockMovements: (id: Id, query: WholesaleStockMovementQuery) =>
+      ["wholesale", "stock-movements", id, query] as const,
+  },
 } as const;
 
 type Key = readonly unknown[];
@@ -183,10 +199,13 @@ export const invalidation = {
     // The emails of a quotation are shown on its page.
     queryKeys.quotations.all,
   ],
-  /** A priced, sent or closed quotation: its list, the start page, its emails. */
+  /** A priced, sent or closed quotation: its list, the start page, its emails; accepting takes wholesale stock. */
   quotation: [
     queryKeys.quotations.all,
     queryKeys.attention,
     queryKeys.notifications.all,
+    queryKeys.wholesale.all,
   ],
+  /** A wholesale category or product: the lists, the details, the ledgers; the quotation lines show the stock. */
+  wholesale: [queryKeys.wholesale.all, queryKeys.quotations.all],
 } as const satisfies Record<string, readonly Key[]>;

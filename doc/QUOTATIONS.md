@@ -7,7 +7,7 @@ Base URL and conventions (errors, validation, pagination) are the ones of `doc/A
 ## Contents
 
 1. The workflow
-2. Cartons on pack sizes (admin catalogue)
+2. The wholesale catalogue (admin)
 3. The wholesale site: catalogue API (`/v1/b2b/categories`, `/v1/b2b/products`)
 4. The wholesale site: submitting a request (`POST /v1/b2b/quotations`)
 5. The admin panel: quotation management (`/v1/admin/quotations`)
@@ -42,86 +42,45 @@ POST /v1/b2b/quotations ──────────► quotation  status: new
 
 ---
 
-## 2. Cartons on pack sizes (admin catalogue)
+## 2. The wholesale catalogue (admin)
 
-A pack size (variant) of a product gets an optional **`unitsPerCarton`**: how many packs make a carton (20 packs of 1 kg = a carton of 20 kg). Only pack sizes with a carton are offered on the wholesale site; a product with no such pack size is not listed there. Everything else about products (name, images, category, VAT rate) is shared with the retail shop.
+The products of the wholesale site live in a catalogue of their own: **wholesale categories** and **wholesale products with SKUs**, each SKU a pack size and the carton it comes in (1 kg × 20, 5 kg × 4, 20 kg × 1). `doc/WHOLESALE_CATALOG.md` has the data model, every admin endpoint (`/v1/admin/wholesale/…`), the images, "Copy from retail" and the CSV import. What matters for quotations:
 
-- `POST /v1/admin/products`, `POST /v1/admin/products/{id}/variants`, `PATCH /v1/admin/products/{id}/variants/{variantId}`: field `unitsPerCarton` (integer 1–1000; `null` removes it).
-- Every admin product answer shows per variant: `unitsPerCarton` (number or `null`) and `carton` (`{ units, label, content }` or `null`), for example `{ "units": 20, "label": "20 × 1 kg", "content": { "value": 20, "unit": "kg", "label": "20 kg" } }`. The content is in kg or l from 1000 g / 1000 ml on, in pieces for `pcs`.
-- CSV import/export: column `units_per_carton` (pack-size column; empty leaves it, `0` removes it). See `doc/CSV_IMPORT_EXPORT.md`.
-- The retail shop's answers do not change.
+- A SKU can be asked for when its product is `active` and `isAvailable` and the SKU is `isEnabled`. Anything else answers `not_offered` at the request.
+- Every SKU answer shows `packSize { value, unit, label }` and `carton { units, label, content }`, for example `{ "units": 20, "label": "20 × 1 kg", "content": { "value": 20, "unit": "kg", "label": "20 kg" } }`. The content is in kg or l from 1000 g / 1000 ml on, in pieces for `pcs`.
+- The product's `vatRate` (hundredths of a percent) is copied into every quotation line.
+- Every SKU has a **stock in cartons** with a ledger (`doc/WHOLESALE_CATALOG.md` section 8). A request and a quotation sent never touch it; **accepting** a quotation takes the cartons of every line, once, and may drive the count below zero (a shortage the admin resolves). The site never sees the stock.
+- The retail catalogue and the retail shop are not involved and do not change.
 
 ---
 
 ## 3. The wholesale site: catalogue API
 
-Public, no authentication. English by default; `?locale=de` or `Accept-Language` chooses German where the texts exist. Answers are cacheable for a minute (categories: five).
+Public, no authentication; described in full in `doc/WHOLESALE_CATALOG.md` section 9. English by default; `?locale=de` or `Accept-Language` chooses German where the texts exist.
 
-### `GET /v1/b2b/categories`
-
-Categories that have at least one product by the carton, in display order, with counts (sub-categories count toward their parents).
-
-```json
-{
-  "items": [
-    { "id": "66f1…", "slug": "rice", "name": "Rice", "parentId": null, "level": 1, "productCount": 12 },
-    { "id": "66f2…", "slug": "basmati", "name": "Basmati", "parentId": "66f1…", "level": 2, "productCount": 7 }
-  ]
-}
-```
-
-### `GET /v1/b2b/products`
-
-| Query | Meaning |
+| Endpoint | Meaning |
 |---|---|
-| `q` | Words of the name, article number or search keywords |
-| `category` | Slug of a category; its sub-categories are included. Unknown: `404 CATEGORY_NOT_FOUND` |
-| `brand` | One or more brands (`brand=Daawat&brand=India%20Gate`), exactly as the products name them |
-| `sort` | `name` (default) or `newest` |
-| `page`, `limit` | Pages; `limit` 1–100, default 24 |
-| `locale` | `en` (default) or `de` |
+| `GET /v1/b2b/categories` | The visible wholesale categories that have products, in the admin's order, with `productCount` |
+| `GET /v1/b2b/brands` | The brands of the offered products |
+| `GET /v1/b2b/products?q=&category=&brand=&sort=&page=&limit=` | Offered products with their `cartons[]`; `sort` `recommended` (default, the admin's order) \| `name` \| `newest` |
+| `GET /v1/b2b/products/{slug}` | One product with all details |
+
+Each product lists its SKUs in `cartons`, smallest pack first:
 
 ```json
 {
-  "items": [
-    {
-      "id": "66f3…",
-      "slug": "daawat-original-basmati-rice",
-      "slugs": { "en": "daawat-original-basmati-rice", "de": "daawat-original-basmati-reis" },
-      "name": "Daawat Original Basmati Rice",
-      "subtitle": "Classic Aged Basmati",
-      "shortDescription": "Aged for two years.",
-      "brand": "Daawat",
-      "category": { "id": "66f1…", "slug": "rice", "name": "Rice" },
-      "storageType": "ambient",
-      "tags": ["vegan"],
-      "isAvailable": true,
-      "image": { "id": "…", "alt": "…", "isPrimary": true, "small": "https://cdn.…/small.webp", "medium": "…", "large": "…" },
-      "cartons": [
-        {
-          "variantId": "66f4…",
-          "sku": "DW-00041",
-          "packSize": { "value": 1, "unit": "kg", "label": "1 kg" },
-          "units": 20,
-          "label": "20 × 1 kg",
-          "content": { "value": 20, "unit": "kg", "label": "20 kg" }
-        },
-        { "variantId": "66f5…", "sku": "DW-00042", "packSize": { "value": 5, "unit": "kg", "label": "5 kg" }, "units": 4, "label": "4 × 5 kg", "content": { "value": 20, "unit": "kg", "label": "20 kg" } }
-      ],
-      "cartonCount": 2
-    }
-  ],
-  "page": 1, "limit": 24, "total": 37, "totalPages": 2
+  "skuId": "6712…",
+  "sku": "RFW-00001",
+  "packSize": { "value": 1, "unit": "kg", "label": "1 kg" },
+  "units": 20,
+  "label": "20 × 1 kg",
+  "content": { "value": 20, "unit": "kg", "label": "20 kg" }
 }
 ```
 
-- `cartons` lists the pack sizes sold by the carton, smallest pack first. **`variantId` is what a request names.**
-- `isAvailable: false` means the product is switched off in the catalogue; show it as "currently not available" and do not let it be added.
-- No prices anywhere. The `image` is the main picture of the product in three widths (same shape as the retail shop, `doc/CUSTOMER_WEB_API_DOCUMENTATION.md`).
-
-### `GET /v1/b2b/products/{slug}`
-
-One product by its slug (or the slug of one of its pack sizes). The list item plus `description`, `highlights[]`, `uses[]`, `images[]` (main picture first), `food { ingredients, allergens, nutrition, storageInstructions, origin, manufacturer }`, `seo { title, description }`. `404 PRODUCT_NOT_FOUND` when the product does not exist, is not active, or has no pack size by the carton.
+- **`skuId` is what a request names.**
+- `isAvailable: false` on the product means "currently not available": show it, do not let it be added.
+- No prices anywhere.
 
 ---
 
@@ -144,8 +103,8 @@ Public. **At most 5 requests per hour per IP address** (`429 RATE_LIMITED` beyon
   },
   "message": "Delivery on Tuesdays please.",
   "items": [
-    { "variantId": "66f4…", "cartons": 3 },
-    { "variantId": "66f5…", "cartons": 2 }
+    { "skuId": "6712…", "cartons": 3 },
+    { "skuId": "6713…", "cartons": 2 }
   ],
   "privacyAccepted": true,
   "website": ""
@@ -160,14 +119,14 @@ Public. **At most 5 requests per hour per IP address** (`429 RATE_LIMITED` beyon
 | `contact.phone` | 5–40 characters |
 | `contact.city` | 2–120 characters |
 | `message` | Optional, up to 2000 characters |
-| `items[]` | 1–50 lines; `variantId` from the catalogue, `cartons` 1–10000; a `variantId` at most once |
+| `items[]` | 1–50 lines; `skuId` from the catalogue, `cartons` 1–10000; a `skuId` at most once |
 | `privacyAccepted` | Must be `true` (the privacy checkbox) |
 | `website` | **Honeypot.** Render it hidden (CSS, not `type=hidden`) and never fill it. Any value makes the API drop the request with `400` |
 
 **Answers**
 
 - `201` with the request as saved, `duplicate: false`. The confirmation email to the requester and the heads-up to the company are queued.
-- `200` with `duplicate: true` and the request created earlier: the **same email with the same pack sizes and cartons within ten minutes**. No second email goes out. Show the same thank-you page.
+- `200` with `duplicate: true` and the request created earlier: the **same email with the same SKUs and cartons within ten minutes**. No second email goes out. Show the same thank-you page.
 
 ```json
 {
@@ -181,7 +140,7 @@ Public. **At most 5 requests per hour per IP address** (`429 RATE_LIMITED` beyon
       {
         "id": "6701…",
         "productId": "66f3…",
-        "variantId": "66f4…",
+        "skuId": "6712…",
         "sku": "DW-00041",
         "name": "Daawat Original Basmati Rice",
         "brand": "Daawat",
@@ -202,7 +161,7 @@ Public. **At most 5 requests per hour per IP address** (`429 RATE_LIMITED` beyon
 | Status | Code | When | `details` |
 |---|---|---|---|
 | 400 | `VALIDATION_FAILED` | A field is missing or malformed, `privacyAccepted` is not `true` | `errors[]` |
-| 400 | `QUOTATION_ITEMS_INVALID` | A pack size is unknown or not sold by the carton (or the product is inactive), a `variantId` repeats, or the honeypot was filled | `items: [{ variantId, reason: "not_found" \| "not_offered" }]` or `repeated: [variantId]` |
+| 400 | `QUOTATION_ITEMS_INVALID` | A SKU is unknown, or not offered (product not active, not available, or the SKU disabled), a `skuId` repeats, or the honeypot was filled | `items: [{ skuId, reason: "not_found" \| "not_offered" }]` or `repeated: [skuId]` |
 | 403 | `ORIGIN_NOT_ALLOWED` | The request came from a browser origin not in `CORS_ORIGINS` | |
 | 429 | `RATE_LIMITED` | More than 5 requests in an hour from one address | |
 
@@ -264,7 +223,7 @@ Answer: `{ items: [summary], page, limit, total, totalPages }`. **Summary:**
       {
         "id": "6701…",
         "productId": "66f3…",
-        "variantId": "66f4…",
+        "skuId": "6712…",
         "sku": "DW-00041",
         "name": "Daawat Original Basmati Rice",
         "brand": "Daawat",
@@ -273,9 +232,11 @@ Answer: `{ items: [summary], page, limit, total, totalPages }`. **Summary:**
         "cartons": 3,
         "vatRate": 700,
         "unitPrice": 8000,
-        "lineTotal": 24000
+        "lineTotal": 24000,
+        "stock": { "quantity": 10, "short": false }
       }
-    ]
+    ],
+    "stock": null
   },
   "notifications": [
     { "id": "…", "type": "quotation_sent", "channel": "email", "to": "priya@sharma-markt.de", "status": "sent", "subject": "Your quotation Q-2026-0001 from Radhe Foods", "attachments": [{ "kind": "quotation_pdf", "id": "6700…" }], "sentAt": "…", "attempts": 1, "lastError": null, "quotationId": "6700…" },
@@ -286,6 +247,22 @@ Answer: `{ items: [summary], page, limit, total, totalPages }`. **Summary:**
 ```
 
 `notifications` are the emails about this quotation, newest first, in the shape of section 13 of the admin reference (`status` `queued`, `sending`, `sent`, `failed`, `skipped`; `lastError`; `history`). A `failed` email can be retried with `POST /v1/admin/notifications/{id}/retry` as any other.
+
+**Stock in the detail.** Every line carries `stock`: the wholesale stock of its SKU right now, `{ quantity, short }`, or `null` when the SKU no longer exists. Before acceptance `short` means the cartons asked for exceed the count: the warning to show the admin. `quotation.stock` is `null` until accepted; afterwards it says what accepting did:
+
+```json
+"stock": {
+  "deductedAt": "2026-10-26T10:00:00.000Z",
+  "short": true,
+  "missing": false,
+  "lines": [
+    { "skuId": "6712…", "sku": "RFW-00012", "cartons": 3, "applied": true, "quantityBefore": 10, "quantityAfter": 7 },
+    { "skuId": "6713…", "sku": "RFW-00013", "cartons": 2, "applied": true, "quantityBefore": 1, "quantityAfter": -1 }
+  ]
+}
+```
+
+`short`: a line went below zero. `missing`: a SKU no longer existed, nothing was taken for it (`applied: false`). The summary in the list carries `stock` without `lines`.
 
 ### `GET /v1/admin/quotations/{id}/pdf`
 
@@ -323,6 +300,8 @@ From `sent`: the same revision once more (a customer lost the email). `sentCount
 
 From `sent`: records that the customer ordered, or did not. `closedAt`, `closedBy`. No email. `409 QUOTATION_STATUS_INVALID` otherwise.
 
+**Accepting takes the wholesale stock.** Right after the status becomes `accepted`, the cartons of every line are taken from the stock of their SKU, once, and the answer carries `stock` (above) with the count before and after per line and `short: true` when a SKU went below zero. The acceptance is never refused for want of stock; the shortage is the admin's to resolve (set the count, order more). The deduction is atomic per SKU and idempotent per quotation: the status change lets only one of two concurrent calls through, and the stock ledger refuses a second entry for the same quotation and SKU. Declining and cancelling never touch the stock, and an accepted quotation stays accepted: nothing is put back automatically.
+
 ### `POST /v1/admin/quotations/{id}/cancel`
 
 From `new`, `draft` or `sent`: withdrawn, spam, no longer wanted. No email. Closed quotations cannot be cancelled (`409`).
@@ -358,24 +337,25 @@ If the company email is empty in the settings, the heads-up is skipped and a war
 | `new` | Arrived; no price yet | `draft` (first price), `cancelled` |
 | `draft` | Being priced; may be fully priced and ready | `sent`, `cancelled` |
 | `sent` | Quotation emailed (revision ≥ 1) | `draft` (price changed), `sent` (resend), `accepted`, `declined`, `cancelled` |
-| `accepted` | The customer ordered | final |
+| `accepted` | The customer ordered; the stock of every SKU was taken | final |
 | `declined` | The customer did not order | final |
 | `cancelled` | Withdrawn, spam, not wanted | final |
 
 **Rules**
 
 - Numbers: `Q-<year>-<0001>`, per year, in the business time zone (`BUSINESS_TIMEZONE`).
-- The lines copy the product's name, brand, pack size, carton and VAT rate at the request; later catalogue changes do not alter a quotation.
+- The lines copy the wholesale product's name, brand, pack size, carton and VAT rate at the request (`productId`, `skuId` point at the wholesale catalogue); later catalogue changes, even deleting the product, do not alter a quotation.
 - Line amount = cartons × net price per carton. VAT is added per rate on the net sum of that rate, rounded once per rate (as on invoices). Gross = net + VAT.
 - Duplicate protection: same email + same lines within 10 minutes → the existing request. Honeypot field `website`. 5 submissions per hour per IP. Consent required and recorded with IP and user agent.
 - Sending: `send` only from `new`/`draft` with all lines priced; a `sent` quotation needs a price change (revision) or `resend`. Each send is one notification with its own dedupe key; the queue never sends one twice.
 - The PDF is rendered from the stored quotation at sending time, so a retry attaches the same document.
+- Stock: only `accept` changes it, once per quotation and SKU, below zero allowed; the entries are in `wholesaleStockMovements` with the quotation's number (`doc/WHOLESALE_CATALOG.md` section 8).
 
 **Error codes** (added to the admin reference 17.3): `400 QUOTATION_ITEMS_INVALID`, `400 QUOTATION_NOT_PRICED`, `404 QUOTATION_NOT_FOUND`, `404 QUOTATION_ITEM_NOT_FOUND`, `409 QUOTATION_STATUS_INVALID` (`details.status`, `details.allowed`).
 
 **Permissions:** `quotations.read`, `quotations.manage`. The super admin has both through the wildcard; grant them to other roles under Roles.
 
-**Data:** collection `quotations` (number, status, contact, consent, items with prices, totals, revision and send data, closed data, fingerprint, search words). Notifications about a quotation carry `quotationId`. Indexes: unique `number`; `(status, _id)`; `(fingerprint, _id)`; `(contact.email, _id)`; `searchTokens`; on `notifications`, sparse `(quotationId, _id)`. Run `npm run db:indexes` after deploying.
+**Data:** collection `quotations` (number, status, contact, consent, items with prices, totals, revision and send data, closed data, `stock` once accepted, fingerprint, search words). Notifications about a quotation carry `quotationId`. Indexes: unique `number`; `(status, _id)`; `(fingerprint, _id)`; `(contact.email, _id)`; `searchTokens`; on `notifications`, sparse `(quotationId, _id)`. Run `npm run db:indexes` after deploying.
 
 ---
 
@@ -383,14 +363,14 @@ If the company email is empty in the settings, the heads-up is skipped and a war
 
 **Wholesale site (radhefoods.de)**
 
-- Read `GET /v1/b2b/categories` and `GET /v1/b2b/products` for the product grid, the category chips, the search box and the "cartons per pack size" modal; `GET /v1/b2b/products/{slug}` for "View product details".
-- Keep the quotation basket in the browser: `{ variantId, cartons }` per line, plus the product name, SKU, carton label and content for display. Weight shown on the site = sum of `cartons × content.value` per line (in kg/l/pcs, from `content.unit`).
+- Read `GET /v1/b2b/categories` and `GET /v1/b2b/products` for the product grid, the category chips, the search box and the "cartons per pack size" modal; `GET /v1/b2b/products/{slug}` for "View product details" (`doc/WHOLESALE_CATALOG.md` section 9).
+- Keep the quotation basket in the browser: `{ skuId, cartons }` per line, plus the product name, SKU, carton label and content for display. Weight shown on the site = sum of `cartons × content.value` per line (in kg/l/pcs, from `content.unit`).
 - "Request quotation" posts `POST /v1/b2b/quotations` with the contact form, the message, the lines, `privacyAccepted: true` and the hidden honeypot `website` left empty. On `201` or `200 duplicate: true`: thank-you page with the `number`, clear the basket. On `400 QUOTATION_ITEMS_INVALID`: mark the named lines and ask to remove them. On `429`: ask to try again later.
 - The API answers in English by default. Nothing else is needed: no account, no key.
 
 **Admin panel**
 
-- A "Quotations" section: list with status filter and search; detail with the contact, the message, the lines with editable price per carton and cartons, the totals, the status actions (Save prices, Send, Resend, Accept, Decline, Cancel), the PDF button and the email history. Decisions tab: a "Quotation requests" card from `attention.quotations`. Catalogue: an "Packs per carton" field on each pack size.
+- A "Quotations" page under the "Wholesale" sidebar group: list with status filter and search; detail with the contact, the message, the lines with editable price per carton and cartons, the current stock per line with a shortage warning, the totals, the status actions (Save prices, Send, Resend, Accept, Decline, Cancel), the stock taken once accepted, the PDF button and the email history. Decisions tab: a "Quotation requests" card from `attention.quotations`. The wholesale catalogue itself (categories, products, SKUs with cartons and stock) is described in `doc/WHOLESALE_CATALOG.md`.
 - Permissions `quotations.read` / `quotations.manage` in the roles form.
 
 **Server**
@@ -398,4 +378,5 @@ If the company email is empty in the settings, the heads-up is skipped and a war
 - No new environment variables. `ADMIN_URL` (already present) gives the button in the heads-up email its link; the route is `<ADMIN_URL>/quotations/{id}`.
 - The company email, address, VAT id and logo come from Settings → Company (`PUT /v1/admin/settings/company`); the heads-up goes to that email, and the PDF prints those details.
 - `CORS_ORIGINS` must contain the wholesale site's origin (it does).
-- Run `npm run db:indexes` after deploying (new collection and index).
+- Run `npm run db:indexes` after deploying (new collections and indexes).
+- The wholesale site is empty until wholesale products exist (`doc/WHOLESALE_CATALOG.md`).

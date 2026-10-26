@@ -20,6 +20,13 @@ export const routes = {
   /** Wholesale quotations (24); the heads-up email links to the detail. */
   quotations: "/quotations" as Route,
   quotation: (id: Id) => `/quotations/${id}` as Route,
+  /** The wholesale catalogue (25), apart from the retail one. */
+  wholesaleProducts: "/wholesale/products" as Route,
+  wholesaleProductNew: "/wholesale/products/new" as Route,
+  wholesaleProduct: (id: Id) => `/wholesale/products/${id}` as Route,
+  wholesaleCategories: "/wholesale/categories" as Route,
+  wholesaleCategoryNew: "/wholesale/categories/new" as Route,
+  wholesaleCategory: (id: Id) => `/wholesale/categories/${id}` as Route,
 
   payments: "/payments" as Route,
   refunds: "/payments/refunds" as Route,

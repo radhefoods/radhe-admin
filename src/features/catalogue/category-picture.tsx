@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Alert } from "@/components/ui/surface";
 import { notify } from "@/components/ui/toast";
 import { isSessionError } from "@/lib/api/errors";
-import type { Category } from "@/lib/api/types";
+import type { AdminImage } from "@/lib/api/types";
 import { formatDate } from "@/lib/format/dates";
 import { ImageDrop, UploadProgress } from "./image-drop";
 import {
@@ -17,7 +17,6 @@ import {
   uploadFailure,
   type SizeReader,
 } from "./image-rules";
-import { usePutCategoryImage, useRemoveCategoryImage } from "./queries";
 
 /**
  * The picture of a category, inside its form (documentation, 7): one
@@ -26,24 +25,35 @@ import { usePutCategoryImage, useRemoveCategoryImage } from "./queries";
  * category the API takes no picture yet, so the file is kept here and the
  * form uploads it right after the category is created.
  */
+/** A record with one picture, as the API has it now, and the calls that change it. */
+export interface PictureSubject {
+  /** What the record is called: "Rice". */
+  name: string;
+  image: AdminImage | null;
+  put: (input: {
+    file: File;
+    onProgress?: (fraction: number) => void;
+    signal?: AbortSignal;
+  }) => Promise<unknown>;
+  remove: () => Promise<unknown>;
+}
+
 export function CategoryPicture({
-  category,
+  subject: category,
   file,
   onFile,
   disabled = false,
   readSize,
 }: {
-  /** Set when an existing category is changed. */
-  category?: Category;
-  /** For a new category: the file chosen for it, if any. */
+  /** Set when an existing record is changed. */
+  subject?: PictureSubject;
+  /** For a new record: the file chosen for it, if any. */
   file: File | null;
   onFile: (file: File | null) => void;
   disabled?: boolean;
   /** How the size of a file is read; tests have no decoder. */
   readSize?: SizeReader;
 }) {
-  const put = usePutCategoryImage(category?.id ?? "");
-  const remove = useRemoveCategoryImage(category?.id ?? "");
   const [fraction, setFraction] = useState<number | null>(null);
   const [failure, setFailure] = useState<{
     title: string;
@@ -87,7 +97,7 @@ export function CategoryPicture({
     abort.current = controller;
     setFraction(0);
     try {
-      await put.mutateAsync({
+      await category.put({
         file: chosen,
         onProgress: setFraction,
         signal: controller.signal,
@@ -188,8 +198,8 @@ export function CategoryPicture({
           </span>
           <p>
             {category
-              ? `${category.name.en} has no picture yet.`
-              : "No picture yet. The shop shows the category without one."}
+              ? `${category.name} has no picture yet.`
+              : "No picture yet. The site shows the category without one."}
           </p>
         </div>
       )}
@@ -255,13 +265,13 @@ export function CategoryPicture({
         <ConfirmDialog
           open={deleting}
           onOpenChange={setDeleting}
-          title={`Delete the picture of ${category.name.en}?`}
-          description="The picture is removed for good; the file is not kept. The shop shows the category without a picture."
+          title={`Delete the picture of ${category.name}?`}
+          description="The picture is removed for good; the file is not kept. The site shows the category without a picture."
           confirmLabel="Delete the picture"
           cancelLabel="Keep it"
           tone="danger"
           onConfirm={async () => {
-            await remove.mutateAsync();
+            await category.remove();
             notify.success("Picture deleted");
           }}
         />

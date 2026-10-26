@@ -26,6 +26,11 @@ import type {
 import type { BlogCategoryRecord, BlogPostRecord } from "./modules/blog.ts";
 import type { FaqGroupRecord, FaqRecord } from "./modules/faq.ts";
 import type { QuotationRecord } from "./modules/quotations.ts";
+import type {
+  WholesaleCategoryRecord,
+  WholesaleProductRecord,
+  WholesaleStockMovementRecord,
+} from "./modules/wholesale.ts";
 
 export interface AdminRecord {
   id: string;
@@ -81,7 +86,6 @@ export interface VariantRecord {
   id: string;
   sku: string;
   gtin: string | null;
-  unitsPerCarton: number | null;
   packSize: { value: number; unit: PackUnit; label: string };
   regularPrice: number;
   salePrice: number | null;
@@ -207,6 +211,10 @@ export interface Db {
   blogPosts: BlogPostRecord[];
   /** Wholesale quotations (24). */
   quotations: QuotationRecord[];
+  /** The wholesale catalogue (25): categories, products with SKUs, the stock ledger. */
+  wholesaleCategories: WholesaleCategoryRecord[];
+  wholesaleProducts: WholesaleProductRecord[];
+  wholesaleStockMovements: WholesaleStockMovementRecord[];
   /** Pictures uploaded while the mock runs, by the key in their address. */
   files: Map<string, StoredFile>;
   counters: {
@@ -216,6 +224,8 @@ export interface Db {
     creditNote: number;
     /** Quotation numbers, per year in the real API; the demo covers one year. */
     quotation: number;
+    /** Generated wholesale article numbers, `RFW-00001…`. */
+    wholesaleSku: number;
   };
 }
 
@@ -260,8 +270,18 @@ export function emptyDb(config: MockConfig): Db {
     blogCategories: [],
     blogPosts: [],
     quotations: [],
+    wholesaleCategories: [],
+    wholesaleProducts: [],
+    wholesaleStockMovements: [],
     files: new Map(),
-    counters: { order: 1000, sku: 0, invoice: 0, creditNote: 0, quotation: 0 },
+    counters: {
+      order: 1000,
+      sku: 0,
+      invoice: 0,
+      creditNote: 0,
+      quotation: 0,
+      wholesaleSku: 0,
+    },
   };
 }
 

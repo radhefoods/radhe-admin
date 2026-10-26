@@ -46,6 +46,7 @@ import {
   useCreateCategory,
   usePatchCategoryImage,
   usePutCategoryImage,
+  useRemoveCategoryImage,
   useUpdateCategory,
 } from "./queries";
 
@@ -75,6 +76,9 @@ function CategoryForm({
     edit.mode === "edit" ? edit.category.id : "",
   );
   const patchImage = usePatchCategoryImage(
+    edit.mode === "edit" ? edit.category.id : "",
+  );
+  const removeImage = useRemoveCategoryImage(
     edit.mode === "edit" ? edit.category.id : "",
   );
   const category = edit.mode === "edit" ? edit.category : undefined;
@@ -240,7 +244,16 @@ function CategoryForm({
         >
           <h3 className="text-13 font-semibold text-ink">Picture</h3>
           <CategoryPicture
-            category={category}
+            subject={
+              category
+                ? {
+                    name: category.name.en,
+                    image: category.image,
+                    put: (input) => putImage.mutateAsync(input),
+                    remove: () => removeImage.mutateAsync(),
+                  }
+                : undefined
+            }
             file={file}
             onFile={setFile}
             disabled={!manage || pending}

@@ -1,0 +1,5 @@
+slug_en,slug_de,name_en,name_de,description_en,description_de,sort_order,is_visible
+rice,reis,Rice,Reis,"Basmati, sona masoori and idli rice by the carton.","Basmati, Sona Masoori und Idli-Reis kartonweise.",0,yes
+flour-and-atta,mehl-und-atta,Flour & Atta,Mehl & Atta,"Wheat, gram and millet flours.","Weizen-, Kichererbsen- und Hirsemehle.",1,yes
+spices,gewuerze,Spices,Gewürze,,,2,yes
+coming-soon,demnaechst,Coming soon,Demnächst,,,3,no

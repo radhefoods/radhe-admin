@@ -270,7 +270,7 @@ describe("exporting", () => {
       ),
     );
     await waitFor(() => expect(clicks).toHaveBeenCalled());
-    await waitFor(() => expect(saved[0]?.text).toContain("sku,gtin,units_per_carton,name_en"));
+    await waitFor(() => expect(saved[0]?.text).toContain("sku,gtin,name_en"));
     expect(
       (
         await screen.findAllByText(

@@ -3,7 +3,6 @@
 // become the API's objects.
 
 import type {
-  Carton,
   Category,
   Customer,
   InvoiceDetail,
@@ -186,35 +185,6 @@ export function defaultVariantOf(product: ProductRecord): VariantRecord {
   );
 }
 
-/** A number without trailing zeros: 1.5, 20, 0.25. */
-function plainNumber(value: number): string {
-  return String(Number(value.toFixed(3)));
-}
-
-/**
- * The carton of a pack size (24): `units` packs, the content in kg or l
- * from 1000 g or 1000 ml on, in pieces for `pcs`.
- */
-export function cartonOf(
-  variant: Pick<VariantRecord, "unitsPerCarton" | "packSize">,
-): Carton | null {
-  const units = variant.unitsPerCarton;
-  if (units === null) return null;
-  const pack = variant.packSize;
-  let value = units * pack.value;
-  let unit: PackUnit = pack.unit;
-  if ((unit === "g" || unit === "ml") && value >= 1000) {
-    value /= 1000;
-    unit = unit === "g" ? "kg" : "l";
-  }
-  value = Number(value.toFixed(3));
-  return {
-    units,
-    label: `${units} × ${pack.label}`,
-    content: { value, unit, label: `${plainNumber(value)} ${unit}` },
-  };
-}
-
 export function variantView(
   product: ProductRecord,
   variant: VariantRecord,
@@ -224,8 +194,6 @@ export function variantView(
     id: variant.id,
     sku: variant.sku,
     gtin: variant.gtin,
-    unitsPerCarton: variant.unitsPerCarton,
-    carton: cartonOf(variant),
     packSize: variant.packSize,
     slug: variantSlug(product.slug, variant.packSize),
     displayName: {

@@ -39,6 +39,7 @@ import {
   type ImportSheetType,
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
+import type { Permission } from "@/lib/auth/permissions";
 import { cn } from "@/lib/cn";
 import { plural } from "@/lib/format/names";
 import type { Tone } from "@/lib/status";
@@ -48,13 +49,31 @@ import { readSheetFile, saveCsv, saveXlsx, type Sheet } from "./sheets";
 // dialog opened where the records are listed. The panel reads the file and
 // writes the export; the API checks the rows, previews, and writes.
 
-interface SheetKind {
+export interface SheetKind {
   label: string;
   one: string;
   template: string;
   key: string;
   included: string;
   rules: string[];
+}
+
+/**
+ * The catalogue a sheet belongs to: its two kinds of record with their
+ * columns and rules, the endpoints, who may import, and what to load
+ * again. The retail and the wholesale catalogue share the dialog.
+ */
+export interface SheetCatalogue {
+  kinds: Record<ImportSheetType, SheetKind>;
+  sheets: {
+    preview: typeof api.catalogSheets.preview;
+    run: typeof api.catalogSheets.run;
+    export: typeof api.catalogSheets.export;
+  };
+  permission: Permission;
+  invalidates: readonly (readonly unknown[])[];
+  /** The start of the name of an exported file: `radhe-products-….xlsx`. */
+  filePrefix: string;
 }
 
 const KINDS: Record<ImportSheetType, SheetKind> = {
@@ -91,6 +110,15 @@ const KINDS: Record<ImportSheetType, SheetKind> = {
       "An empty cell leaves a field as it is. The picture of a category is never part of a sheet.",
     ],
   },
+};
+
+/** The retail catalogue (8.2). */
+export const RETAIL_SHEETS: SheetCatalogue = {
+  kinds: KINDS,
+  sheets: api.catalogSheets,
+  permission: "catalog.manage",
+  invalidates: invalidation.catalog,
+  filePrefix: "radhe",
 };
 
 const ACTION: Record<ImportAction, { label: string; tone: Tone }> = {
@@ -386,13 +414,15 @@ function Outcome({
 
 function ImportPanel({
   type,
+  catalogue,
   onDone,
 }: {
   type: ImportSheetType;
+  catalogue: SheetCatalogue;
   /** Something was written: the lists behind the dialog are stale. */
   onDone: () => void;
 }) {
-  const kind = KINDS[type];
+  const kind = catalogue.kinds[type];
   const [chosen, setChosen] = useState<Chosen | null>(null);
   const [readProblem, setReadProblem] = useState<string | null>(null);
   const [existing, setExisting] = useState<ImportExisting>("skip");
@@ -403,13 +433,13 @@ function ImportPanel({
 
   const previewing = useMutation({
     mutationFn: ({ sheet, mode }: { sheet: Sheet; mode: ImportExisting }) =>
-      api.catalogSheets.preview({ [type]: sheet.rows, existing: mode }),
+      catalogue.sheets.preview({ [type]: sheet.rows, existing: mode }),
     onSuccess: (outcome) => setPreview(outcome),
     onError: (error) => notify.error(error, "The rows could not be checked"),
   });
   const importing = useMutation({
     mutationFn: ({ sheet, mode }: { sheet: Sheet; mode: ImportExisting }) =>
-      api.catalogSheets.run({ [type]: sheet.rows, existing: mode }),
+      catalogue.sheets.run({ [type]: sheet.rows, existing: mode }),
     onSuccess: (outcome) => {
       setResult(outcome);
       setPreview(null);
@@ -427,7 +457,7 @@ function ImportPanel({
         );
       }
     },
-    meta: { invalidates: invalidation.catalog, silent: true },
+    meta: { invalidates: catalogue.invalidates, silent: true },
   });
 
   const tooMany = chosen !== null && chosen.sheet.rows.length > IMPORT_MAX_ROWS;
@@ -684,15 +714,21 @@ function ImportPanel({
 
 // --- Export ---------------------------------------------------------------------
 
-function ExportPanel({ type }: { type: ImportSheetType }) {
-  const kind = KINDS[type];
+function ExportPanel({
+  type,
+  catalogue,
+}: {
+  type: ImportSheetType;
+  catalogue: SheetCatalogue;
+}) {
+  const kind = catalogue.kinds[type];
   const [format, setFormat] = useState<"xlsx" | "csv">("xlsx");
   const formatId = useId();
   const save = useMutation({
     mutationFn: async (chosen: "xlsx" | "csv") => {
-      const sheet = await api.catalogSheets.export(type);
+      const sheet = await catalogue.sheets.export(type);
       const day = new Date().toISOString().slice(0, 10);
-      const name = `radhe-${type}-${day}.${chosen}`;
+      const name = `${catalogue.filePrefix}-${type}-${day}.${chosen}`;
       if (chosen === "csv") saveCsv(name, sheet.columns, sheet.rows);
       else await saveXlsx(name, sheet.columns, sheet.rows);
       return { name, rows: sheet.rows.length };
@@ -781,17 +817,20 @@ const tabClass =
 
 export function ImportExportDialog({
   type,
+  catalogue = RETAIL_SHEETS,
   open,
   onOpenChange,
   initialTab = "import",
 }: {
   type: ImportSheetType;
+  /** The retail catalogue unless another is given. */
+  catalogue?: SheetCatalogue;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialTab?: "import" | "export";
 }) {
-  const kind = KINDS[type];
-  const manage = useCan()("catalog.manage");
+  const kind = catalogue.kinds[type];
+  const manage = useCan()(catalogue.permission);
   const [tab, setTab] = useState<"import" | "export">(
     manage ? initialTab : "export",
   );
@@ -837,14 +876,18 @@ export function ImportExportDialog({
             className="flex min-h-0 flex-1 flex-col outline-none"
           >
             {manage ? (
-              <ImportPanel type={type} onDone={() => setImported(true)} />
+              <ImportPanel
+                type={type}
+                catalogue={catalogue}
+                onDone={() => setImported(true)}
+              />
             ) : null}
           </Tabs.Content>
           <Tabs.Content
             value="export"
             className="flex min-h-0 flex-1 flex-col outline-none"
           >
-            <ExportPanel type={type} />
+            <ExportPanel type={type} catalogue={catalogue} />
           </Tabs.Content>
         </Tabs.Root>
       </DialogContent>
@@ -853,7 +896,13 @@ export function ImportExportDialog({
 }
 
 /** The button next to "New …" on a list page; it owns the dialog. */
-export function ImportExportButton({ type }: { type: ImportSheetType }) {
+export function ImportExportButton({
+  type,
+  catalogue,
+}: {
+  type: ImportSheetType;
+  catalogue?: SheetCatalogue;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -861,7 +910,12 @@ export function ImportExportButton({ type }: { type: ImportSheetType }) {
         Import & export
       </Button>
       {open ? (
-        <ImportExportDialog type={type} open onOpenChange={setOpen} />
+        <ImportExportDialog
+          type={type}
+          catalogue={catalogue}
+          open
+          onOpenChange={setOpen}
+        />
       ) : null}
     </>
   );

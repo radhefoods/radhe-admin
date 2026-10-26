@@ -15,9 +15,9 @@ How categories and products get into Radhe Foods from a spreadsheet, and out aga
 
 The panel never writes a category or product itself during an import, and the API never sees a file: the panel sends the rows of the CSV as JSON, one object per row, the column names as keys, the cells as text. Numbers and booleans are accepted too, so rows from an Excel sheet can be sent as read.
 
-Files: `doc/examples/categories-example.csv` and `doc/examples/products-example.csv` hold every column with realistic rows. UTF-8, comma separated, a header line, quotes around cells that contain commas or line breaks (what every spreadsheet writes).
+Files: `doc/examples/categories-example.csv` and `doc/examples/products-example.csv` hold every column with realistic rows. The wholesale catalogue has sheets of its own with the same flow under `/v1/admin/wholesale/import` and `…/export`: columns and examples in `doc/WHOLESALE_CATALOG.md` section 7 (its `stock` column sets the cartons on hand through the wholesale stock ledger; a blank cell leaves the stock alone). UTF-8, comma separated, a header line, quotes around cells that contain commas or line breaks (what every spreadsheet writes).
 
-A product row is one pack size. A product with several sizes takes several rows, one per size, tied together by the same `slug_en` (Basmati Rice in 1 kg and 5 kg are two rows with `slug_en` `basmati-rice` in the example sheet); a product with one size is one row, as before. The columns that belong to the pack size are `sku`, `gtin`, `pack_value`, `pack_unit`, `units_per_carton`, `variant_enabled`, `regular_price`, `sale_price`, `discount_percent`, `stock_quantity` and `low_stock_threshold`; every other column belongs to the product and is read from the first row of the product in the file. The later rows of a product need only their pack-size columns and the `slug_en` (or `name_en`) that ties them to it.
+A product row is one pack size. A product with several sizes takes several rows, one per size, tied together by the same `slug_en` (Basmati Rice in 1 kg and 5 kg are two rows with `slug_en` `basmati-rice` in the example sheet); a product with one size is one row, as before. The columns that belong to the pack size are `sku`, `gtin`, `pack_value`, `pack_unit`, `variant_enabled`, `regular_price`, `sale_price`, `discount_percent`, `stock_quantity` and `low_stock_threshold`; every other column belongs to the product and is read from the first row of the product in the file. The later rows of a product need only their pack-size columns and the `slug_en` (or `name_en`) that ties them to it.
 
 ## 2. The rules
 
@@ -60,7 +60,6 @@ One row per pack size. "Pack size" in the table marks the columns that are read 
 | --- | --- | --- |
 | `sku` | for updates, and for every further pack size of a new product | Pack size. The key, 2–40 characters (letters, digits, `.`, `_`, `-`), stored upper-case. Generated (`RF-00001`, …) when empty on the first row of a new product; a further row of a new product needs one, since nothing else tells the rows apart. |
 | `gtin` | no | Pack size. Barcode, 8, 12, 13 or 14 digits. |
-| `units_per_carton` | no | Pack size. Packs in a carton (1–1000) for wholesale quotations (`doc/QUOTATIONS.md`); only pack sizes with it are offered on the wholesale site. Empty leaves it as it is, `0` removes it. |
 | `name_en` | for creates | |
 | `name_de` | no | |
 | `slug_en`, `slug_de` | no | The base of the URLs of the product, `basmati-rice`; every pack size adds its pack to it (`basmati-rice-1kg`, `basmati-rice-5kg`, German `basmati-reis-1kg`). Generated from the name when empty. `slug_en` ties the rows of one product together; without it, `name_en` does. On an update a new `slug_en` renames the URLs of every pack size. Lower-case letters, digits, single hyphens. |

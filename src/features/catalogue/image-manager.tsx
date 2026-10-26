@@ -36,11 +36,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { Alert, Card, CardBody, CardHeader } from "@/components/ui/surface";
 import { notify } from "@/components/ui/toast";
 import { hasErrorCode, isSessionError } from "@/lib/api/errors";
-import { queryKeys } from "@/lib/api/query-keys";
 import {
   IMAGE_RULES,
   type AdminImage,
-  type ProductDetail,
   type TranslatedOptional,
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
@@ -61,11 +59,14 @@ import {
   type SizeReader,
 } from "./image-rules";
 import {
+  retailImages,
   usePatchImage,
   useRemoveImage,
   useReorderImages,
   useReplaceImage,
   useUploadImages,
+  type ImageOwner,
+  type ImageTarget,
 } from "./queries";
 import { DragHandle, SortableList, useSortableEntry } from "./sortable";
 
@@ -444,25 +445,31 @@ function Tile({
 // --- The pictures of a product ---------------------------------------------------
 
 /**
- * The pictures of a product: upload (dropped or chosen, several at once),
- * order, main picture, descriptions, a new file for a picture, deletion.
- * Files are checked against the rules of the API before anything is sent.
+ * The pictures of a product, retail or wholesale: upload (dropped or
+ * chosen, several at once), order, main picture, descriptions, a new file
+ * for a picture, deletion. Files are checked against the rules of the API
+ * before anything is sent.
  */
-export function ImageManager({
+export function ImageManager<P extends ImageOwner>({
   product,
+  target: given,
   readSize,
 }: {
-  product: ProductDetail;
+  product: P;
+  /** The endpoints and the query of the record; the retail product by default. */
+  target?: ImageTarget<P>;
   /** How the size of a file is read; tests have no decoder. */
   readSize?: SizeReader;
 }) {
-  const manage = useCan()("catalog.manage");
+  const target =
+    given ?? (retailImages(product.id) as unknown as ImageTarget<P>);
+  const manage = useCan()(target.permission);
   const client = useQueryClient();
-  const upload = useUploadImages(product.id);
-  const replace = useReplaceImage(product.id);
-  const patch = usePatchImage(product.id);
-  const remove = useRemoveImage(product.id);
-  const reorder = useReorderImages(product.id);
+  const upload = useUploadImages(target);
+  const replace = useReplaceImage(target);
+  const patch = usePatchImage(target);
+  const remove = useRemoveImage(target);
+  const reorder = useReorderImages(target);
 
   const [sending, setSending] = useState<{
     count: number;
@@ -488,9 +495,7 @@ export function ImageManager({
   const busy = sending !== null || replacing !== null || checking;
 
   function reload(): void {
-    void client.invalidateQueries({
-      queryKey: queryKeys.products.detail(product.id),
-    });
+    void client.invalidateQueries({ queryKey: target.detailKey });
   }
 
   async function send(files: File[]): Promise<void> {
@@ -512,8 +517,7 @@ export function ImageManager({
       if (isSessionError(error)) return;
       setFailure(uploadFailure(error, files.length));
       // The product is not what the panel thought: look again.
-      if (hasErrorCode(error, "IMAGE_LIMIT_REACHED", "PRODUCT_NOT_FOUND"))
-        reload();
+      if (hasErrorCode(error, "IMAGE_LIMIT_REACHED", target.notFound)) reload();
     } finally {
       abort.current = null;
       setSending(null);
@@ -612,7 +616,7 @@ export function ImageManager({
         description={
           images.length === 0
             ? "None yet"
-            : `${images.length} of ${IMAGE_RULES.maxImagesPerProduct}. The order here is the order in the shop.`
+            : `${images.length} of ${IMAGE_RULES.maxImagesPerProduct}. The order here is the order on ${target.site}.`
         }
       />
       <CardBody className="flex flex-col gap-4">
@@ -661,8 +665,9 @@ export function ImageManager({
               <ImageOff className="size-4.5" />
             </span>
             <p>
-              The shop shows the product without a picture. The first picture
-              you upload becomes the main picture.
+              {target.site === "the shop" ? "The shop" : "The wholesale site"}{" "}
+              shows the product without a picture. The first picture you upload
+              becomes the main picture.
             </p>
           </div>
         )}

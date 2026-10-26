@@ -33,6 +33,7 @@ For the Next.js Admin Panel. Generated from the implemented NestJS backend (`rad
 22. FAQ
 23. Blog
 24. Wholesale quotations (B2B)
+25. Wholesale catalogue (B2B)
 
 ---
 
@@ -46,7 +47,7 @@ For the Next.js Admin Panel. Generated from the implemented NestJS backend (`rad
 ### 0.2 Requests and responses
 
 - JSON bodies (`Content-Type: application/json`), except image uploads (`multipart/form-data`).
-- Validation is strict: **unknown fields are rejected** (`400 VALIDATION_FAILED`, "property X should not exist"). Strings are trimmed; an empty optional string counts as not provided. `null` is only accepted where documented (it clears the field: `description` of a role, `note` of a legal text, `parentId` of a category, `salePrice`, `discountPercent`, `lowStockThreshold`, `gtin` and `unitsPerCarton` of a pack size, `brand` and `maxOrderQuantity` of a product, `trackingNumber` of an order).
+- Validation is strict: **unknown fields are rejected** (`400 VALIDATION_FAILED`, "property X should not exist"). Strings are trimmed; an empty optional string counts as not provided. `null` is only accepted where documented (it clears the field: `description` of a role, `note` of a legal text, `parentId` of a category, `salePrice`, `discountPercent`, `lowStockThreshold` and `gtin` of a pack size, `brand` and `maxOrderQuantity` of a product, `trackingNumber` of an order).
 - No response envelope: each endpoint returns the documented object (`{ product }`, `{ items, page, … }`, …). `204` = empty body.
 - Optional header `X-Request-Id` (8–64 chars `[A-Za-z0-9_-]`); every response carries `x-request-id`. Show it on unexpected errors.
 - `POST` answers `201` when something was created, `200` otherwise (documented per endpoint).
@@ -1029,7 +1030,6 @@ A pack size (an entry of `variants`; the same fields for `POST …/{id}/variants
 | ----- | ---- | -------- | -------------------- |
 | `sku` | string | no | `^[A-Z0-9][A-Z0-9._-]{1,39}$` (upper-cased); generated `RF-00001…` when left out |
 | `gtin` | string or `null` | no | 8, 12, 13 or 14 digits |
-| `unitsPerCarton` | int or `null` | no | 1–1000: packs in a carton, for wholesale quotations (section 24, `doc/QUOTATIONS.md`); the answer shows `carton { units, label, content }`. `null` removes it |
 | `packSize` | `{ value: 0.001–1000000 (≤3 decimals), unit: g\|kg\|ml\|l\|pcs }` | yes | decides the URL and the order of the pack sizes |
 | `regularPrice` | int cents | yes | 1–10 000 000 |
 | `salePrice` | int cents or `null` | no | 1–10 000 000, must be below `regularPrice`; `null` ends a sale |
@@ -1076,7 +1076,7 @@ A pack size (an entry of `variants`; the same fields for `POST …/{id}/variants
 
 **Permission:** `catalog.manage`.
 
-**Request Body:** one pack size as in create: `{ "sku"?, "gtin"?, "unitsPerCarton"?, "packSize": { "value", "unit" }, "regularPrice", "salePrice"? | "discountPercent"?, "isEnabled"?, "stockQuantity"?, "lowStockThreshold"? }`.
+**Request Body:** one pack size as in create: `{ "sku"?, "gtin"?, "packSize": { "value", "unit" }, "regularPrice", "salePrice"? | "discountPercent"?, "isEnabled"?, "stockQuantity"?, "lowStockThreshold"? }`.
 
 **Success Response (201):** `{ "product": { …detail with the new pack size… } }`
 
@@ -1983,6 +1983,7 @@ Stripe's webhook (header `stripe-signature`, verified with the webhook secret; t
 | Analytics (dashboard tab) | `analytics.read` | – |
 | FAQ, blog | `content.read` | `content.manage` |
 | Wholesale quotations | `quotations.read` | `quotations.manage` |
+| Wholesale catalogue (categories, products, SKUs, stock, import/export) | `wholesale.read` | `wholesale.manage` |
 
 Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 
@@ -2015,11 +2016,11 @@ Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 
 ### 17.3 Error codes by HTTP status (all modules)
 
-- **400**: `VALIDATION_FAILED`, `BAD_REQUEST`, `IDEMPOTENCY_KEY_REQUIRED`, `ADMIN_MFA_SETUP_REQUIRED`, `ROLE_PERMISSION_UNKNOWN`, `ADDRESS_LIMIT_REACHED`, `CATEGORY_PARENT_INVALID`, `CATEGORY_TOO_DEEP`, `CATEGORY_ORDER_INVALID`, `CATEGORY_PRODUCT_ORDER_INVALID`, `PRODUCT_PRICE_INVALID`, `PRODUCT_QUANTITY_INVALID`, `PRODUCT_VARIANT_INVALID`, `STOCK_CHANGE_INVALID`, `CART_FULL`, `ORDER_QUANTITY_INVALID`, `ORDER_ITEM_NOT_FOUND` (returns), `RETURN_QUANTITY_INVALID` (approve), `REFUND_AMOUNT_INVALID` (more than can be refunded), `REFUND_METHOD_INVALID`, `IMAGE_REQUIRED`, `IMAGE_INVALID`, `IMAGE_FORMAT_NOT_ALLOWED`, `IMAGE_DIMENSIONS_INVALID`, `IMAGE_LIMIT_REACHED`, `IMAGE_ORDER_INVALID`, `BANNER_LIMIT_REACHED`, `BANNER_ORDER_INVALID`, `BANNER_SCHEDULE_INVALID`, `WISHLIST_FULL` (store), `WEBHOOK_SIGNATURE_INVALID`, `ANALYTICS_RANGE_INVALID`, `FAQ_ORDER_INVALID`, `FAQ_GROUP_ORDER_INVALID`, `BLOG_CATEGORY_ORDER_INVALID`, `BLOG_POST_INCOMPLETE`, `QUOTATION_ITEMS_INVALID` (B2B), `QUOTATION_NOT_PRICED`.
+- **400**: `VALIDATION_FAILED`, `BAD_REQUEST`, `IDEMPOTENCY_KEY_REQUIRED`, `ADMIN_MFA_SETUP_REQUIRED`, `ROLE_PERMISSION_UNKNOWN`, `ADDRESS_LIMIT_REACHED`, `CATEGORY_PARENT_INVALID`, `CATEGORY_TOO_DEEP`, `CATEGORY_ORDER_INVALID`, `CATEGORY_PRODUCT_ORDER_INVALID`, `PRODUCT_PRICE_INVALID`, `PRODUCT_QUANTITY_INVALID`, `PRODUCT_VARIANT_INVALID`, `STOCK_CHANGE_INVALID`, `CART_FULL`, `ORDER_QUANTITY_INVALID`, `ORDER_ITEM_NOT_FOUND` (returns), `RETURN_QUANTITY_INVALID` (approve), `REFUND_AMOUNT_INVALID` (more than can be refunded), `REFUND_METHOD_INVALID`, `IMAGE_REQUIRED`, `IMAGE_INVALID`, `IMAGE_FORMAT_NOT_ALLOWED`, `IMAGE_DIMENSIONS_INVALID`, `IMAGE_LIMIT_REACHED`, `IMAGE_ORDER_INVALID`, `BANNER_LIMIT_REACHED`, `BANNER_ORDER_INVALID`, `BANNER_SCHEDULE_INVALID`, `WISHLIST_FULL` (store), `WEBHOOK_SIGNATURE_INVALID`, `ANALYTICS_RANGE_INVALID`, `FAQ_ORDER_INVALID`, `FAQ_GROUP_ORDER_INVALID`, `BLOG_CATEGORY_ORDER_INVALID`, `BLOG_POST_INCOMPLETE`, `QUOTATION_ITEMS_INVALID` (B2B), `QUOTATION_NOT_PRICED`, `WHOLESALE_SKU_INVALID`, `WHOLESALE_CATEGORY_ORDER_INVALID`, `WHOLESALE_PRODUCT_ORDER_INVALID`.
 - **401**: `UNAUTHENTICATED` (generic), `AUTH_TOKEN_INVALID`, `AUTH_REFRESH_INVALID`, `AUTH_SESSION_REVOKED`, `ADMIN_CREDENTIALS_INVALID`, `ADMIN_MFA_TOKEN_INVALID`, `ADMIN_MFA_CODE_INVALID`, `CUSTOMER_CREDENTIALS_INVALID` (store).
 - **403**: `FORBIDDEN` (generic), `ADMIN_PERMISSION_DENIED`, `ADMIN_PASSWORD_CHANGE_REQUIRED`, `ADMIN_ACCOUNT_DISABLED`, `ADMIN_SELF_MODIFICATION`, `ROLE_IS_SYSTEM`, `ORIGIN_NOT_ALLOWED`, `CUSTOMER_BLOCKED`, `JOBS_TOKEN_INVALID`.
-- **404**: `NOT_FOUND`, `ADMIN_NOT_FOUND`, `ROLE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `ADDRESS_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `PRODUCT_VARIANT_NOT_FOUND`, `IMAGE_NOT_FOUND`, `BANNER_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND`, `ORDER_ITEM_NOT_FOUND` (orders), `RETURN_NOT_FOUND`, `INVOICE_NOT_FOUND`, `REFUND_NOT_FOUND`, `LEGAL_DOCUMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `ANNOUNCEMENT_NOT_FOUND`, `FAQ_NOT_FOUND`, `FAQ_GROUP_NOT_FOUND`, `BLOG_POST_NOT_FOUND`, `BLOG_CATEGORY_NOT_FOUND`, `QUOTATION_NOT_FOUND`, `QUOTATION_ITEM_NOT_FOUND`.
-- **409**: `CONFLICT`, `ADMIN_EMAIL_TAKEN`, `ADMIN_SELF_MODIFICATION` (last super admin), `ROLE_KEY_TAKEN`, `ROLE_IN_USE`, `CATEGORY_SLUG_TAKEN`, `CATEGORY_HAS_CHILDREN`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_SKU_TAKEN`, `PRODUCT_SLUG_TAKEN`, `PRODUCT_IS_ACTIVE`, `PRODUCT_IN_USE`, `PRODUCT_VARIANT_LAST`, `PRODUCT_VARIANT_IN_USE`, `STOCK_INSUFFICIENT`, `IMAGE_ORDER_INVALID` (changed meanwhile), `CART_EMPTY`, `ORDER_ITEMS_NOT_ORDERABLE`, `ORDER_TOTAL_CHANGED`, `ORDER_NOT_PAYABLE`, `ORDER_CANNOT_BE_CANCELLED`, `ORDER_TRANSITION_NOT_ALLOWED`, `ORDER_CANNOT_BE_CHANGED`, `ORDER_CHANGED_MEANWHILE`, `RETURN_NOT_POSSIBLE`, `RETURN_WINDOW_CLOSED`, `RETURN_QUANTITY_INVALID` (request/complete), `RETURN_TRANSITION_NOT_ALLOWED`, `LEGAL_DOCUMENT_PUBLISHED`, `LEGAL_DOCUMENTS_MISSING`, `LEGAL_VERSION_CHANGED`, `COMPANY_DETAILS_MISSING`, `REFUND_AMOUNT_INVALID` (nothing paid), `REFUND_TRANSITION_NOT_ALLOWED`, `NOTIFICATION_TRANSITION_NOT_ALLOWED`, `ANNOUNCEMENT_NO_RECIPIENTS`, `FAQ_GROUP_HAS_FAQS`, `BLOG_POST_SLUG_TAKEN`, `BLOG_CATEGORY_SLUG_TAKEN`, `BLOG_CATEGORY_HAS_POSTS`, `QUOTATION_STATUS_INVALID`.
+- **404**: `NOT_FOUND`, `ADMIN_NOT_FOUND`, `ROLE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `ADDRESS_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `PRODUCT_VARIANT_NOT_FOUND`, `IMAGE_NOT_FOUND`, `BANNER_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND`, `ORDER_ITEM_NOT_FOUND` (orders), `RETURN_NOT_FOUND`, `INVOICE_NOT_FOUND`, `REFUND_NOT_FOUND`, `LEGAL_DOCUMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `ANNOUNCEMENT_NOT_FOUND`, `FAQ_NOT_FOUND`, `FAQ_GROUP_NOT_FOUND`, `BLOG_POST_NOT_FOUND`, `BLOG_CATEGORY_NOT_FOUND`, `QUOTATION_NOT_FOUND`, `QUOTATION_ITEM_NOT_FOUND`, `WHOLESALE_CATEGORY_NOT_FOUND`, `WHOLESALE_PRODUCT_NOT_FOUND`, `WHOLESALE_SKU_NOT_FOUND`.
+- **409**: `CONFLICT`, `ADMIN_EMAIL_TAKEN`, `ADMIN_SELF_MODIFICATION` (last super admin), `ROLE_KEY_TAKEN`, `ROLE_IN_USE`, `CATEGORY_SLUG_TAKEN`, `CATEGORY_HAS_CHILDREN`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_SKU_TAKEN`, `PRODUCT_SLUG_TAKEN`, `PRODUCT_IS_ACTIVE`, `PRODUCT_IN_USE`, `PRODUCT_VARIANT_LAST`, `PRODUCT_VARIANT_IN_USE`, `STOCK_INSUFFICIENT`, `IMAGE_ORDER_INVALID` (changed meanwhile), `CART_EMPTY`, `ORDER_ITEMS_NOT_ORDERABLE`, `ORDER_TOTAL_CHANGED`, `ORDER_NOT_PAYABLE`, `ORDER_CANNOT_BE_CANCELLED`, `ORDER_TRANSITION_NOT_ALLOWED`, `ORDER_CANNOT_BE_CHANGED`, `ORDER_CHANGED_MEANWHILE`, `RETURN_NOT_POSSIBLE`, `RETURN_WINDOW_CLOSED`, `RETURN_QUANTITY_INVALID` (request/complete), `RETURN_TRANSITION_NOT_ALLOWED`, `LEGAL_DOCUMENT_PUBLISHED`, `LEGAL_DOCUMENTS_MISSING`, `LEGAL_VERSION_CHANGED`, `COMPANY_DETAILS_MISSING`, `REFUND_AMOUNT_INVALID` (nothing paid), `REFUND_TRANSITION_NOT_ALLOWED`, `NOTIFICATION_TRANSITION_NOT_ALLOWED`, `ANNOUNCEMENT_NO_RECIPIENTS`, `FAQ_GROUP_HAS_FAQS`, `BLOG_POST_SLUG_TAKEN`, `BLOG_CATEGORY_SLUG_TAKEN`, `BLOG_CATEGORY_HAS_POSTS`, `QUOTATION_STATUS_INVALID`, `WHOLESALE_CATEGORY_SLUG_TAKEN`, `WHOLESALE_PRODUCT_SLUG_TAKEN`, `WHOLESALE_SKU_TAKEN`, `WHOLESALE_CATEGORY_HAS_PRODUCTS`, `WHOLESALE_SKU_LAST`.
 - **413**: `FILE_TOO_LARGE`. **429**: `RATE_LIMITED`, `ADMIN_ACCOUNT_LOCKED`. **502**: `PAYMENT_PROVIDER_ERROR`. **503**: `SERVICE_UNAVAILABLE`, `PAYMENTS_NOT_CONFIGURED`, `STORAGE_UNAVAILABLE`. **500**: `INTERNAL_ERROR`.
 
 ---
@@ -2204,7 +2205,7 @@ The post object (admin): `id`, `title`, `slug { en, de }`, `summary`, `status` (
 
 ## 24. Wholesale quotations (B2B)
 
-Business customers ask for prices by the carton on the wholesale site (`radhefoods.de`); the admin prices the request here and sends the quotation by email with a PDF. `doc/QUOTATIONS.md` has the workflow, the full objects, the emails and the rules. **Permissions:** `quotations.read` to see and download, `quotations.manage` to price, send and close.
+Business customers ask for prices by the carton on the wholesale site (`radhefoods.de`), from the wholesale catalogue (section 25); the admin prices the request here and sends the quotation by email with a PDF. `doc/QUOTATIONS.md` has the workflow, the full objects, the emails and the rules. **Permissions:** `quotations.read` to see and download, `quotations.manage` to price, send and close.
 
 | Endpoint | Body | Answer |
 |---|---|---|
@@ -2214,9 +2215,32 @@ Business customers ask for prices by the carton on the wholesale site (`radhefoo
 | `PATCH /v1/admin/quotations/{id}` | `{ items: [{ id, unitPrice?, cartons? }] }` | prices per carton (net cents) and corrected cartons for the lines sent; the quotation becomes `draft`; `totals` once every line is priced |
 | `POST /v1/admin/quotations/{id}/send` | | from `new`/`draft` with every line priced: `sent`, revision +1, the email with the PDF |
 | `POST /v1/admin/quotations/{id}/resend` | | from `sent`: the same revision once more |
-| `POST /v1/admin/quotations/{id}/accept`, `…/decline` | | from `sent`: the outcome |
+| `POST /v1/admin/quotations/{id}/accept`, `…/decline` | | from `sent`: the outcome. Accepting takes the cartons of every line from the wholesale stock, once (below zero allowed), and answers `stock { deductedAt, short, missing, lines[] }` |
 | `POST /v1/admin/quotations/{id}/cancel` | | from `new`, `draft`, `sent` |
 
-The summary: `id`, `number` (`Q-2026-0001`), `status`, `contact { name, company, email, phone, city }`, `itemCount`, `cartons`, `pricedLines`, `totals` (`null` until priced; else `{ cartons, net, vat: [{ vatRate, net, vat, gross }], vatTotal, gross }`), `revision`, `sentAt`, `firstSentAt`, `sentCount`, `pricedAt`, `closedAt`, `updatedBy`, `sentBy`, `closedBy`, `createdAt`, `updatedAt`. The detail adds `message`, `consent { acceptedAt, ip, userAgent }`, `locale`, `items[]` (`id`, `productId`, `variantId`, `sku`, `name`, `brand`, `packSize`, `carton { units, label, content }`, `cartons`, `vatRate`, `unitPrice`, `lineTotal`) and `notifications[]` (section 13.2, with `quotationId`). The start page (section 15) counts requests in `new` under `quotations`. **Errors:** `404 QUOTATION_NOT_FOUND`, `404 QUOTATION_ITEM_NOT_FOUND`, `400 QUOTATION_NOT_PRICED` (`details.unpriced`), `409 QUOTATION_STATUS_INVALID` (`details.status`, `details.allowed`).
+The summary: `id`, `number` (`Q-2026-0001`), `status`, `contact { name, company, email, phone, city }`, `itemCount`, `cartons`, `pricedLines`, `totals` (`null` until priced; else `{ cartons, net, vat: [{ vatRate, net, vat, gross }], vatTotal, gross }`), `revision`, `sentAt`, `firstSentAt`, `sentCount`, `pricedAt`, `closedAt`, `updatedBy`, `sentBy`, `closedBy`, `createdAt`, `updatedAt`. The summary also carries `stock`: `null` until accepted, then `{ deductedAt, short, missing }`. The detail adds `message`, `consent { acceptedAt, ip, userAgent }`, `locale`, `items[]` (`id`, `productId` and `skuId` of the wholesale catalogue, `sku`, `name`, `brand`, `packSize`, `carton { units, label, content }`, `cartons`, `vatRate`, `unitPrice`, `lineTotal`, `stock { quantity, short }` of the SKU right now or `null`), `stock` with its `lines[]` (`skuId`, `sku`, `cartons`, `applied`, `quantityBefore`, `quantityAfter`) and `notifications[]` (section 13.2, with `quotationId`). The start page (section 15) counts requests in `new` under `quotations`. **Errors:** `404 QUOTATION_NOT_FOUND`, `404 QUOTATION_ITEM_NOT_FOUND`, `400 QUOTATION_NOT_PRICED` (`details.unpriced`), `409 QUOTATION_STATUS_INVALID` (`details.status`, `details.allowed`).
 
-Pack sizes get the field `unitsPerCarton` (section 8) and the CSV column `units_per_carton`; only pack sizes with a carton are offered on the wholesale site.
+The products and SKUs a request can name come from the wholesale catalogue (section 25, `doc/WHOLESALE_CATALOG.md`), not from the retail products.
+
+---
+
+## 25. Wholesale catalogue (B2B)
+
+The products the wholesale site (`radhefoods.de`) shows, apart from the retail catalogue: **wholesale categories** (a flat ordered list) and **wholesale products with SKUs**, each SKU a pack size with its carton (1 kg × 20) and its stock in cartons with a ledger. `doc/WHOLESALE_CATALOG.md` has the data model, every endpoint with examples, the validation rules and the CSV columns. **Permissions:** `wholesale.read` to see and export, `wholesale.manage` to change and import.
+
+| Endpoint | Meaning |
+|---|---|
+| `GET /v1/admin/wholesale/categories`, `POST`, `GET /{id}`, `PATCH /{id}`, `DELETE /{id}` | Categories: `name { en, de? }`, `slug`, `description`, `sortOrder`, `isVisible`, `image`, `productCount` |
+| `PUT /v1/admin/wholesale/categories/order` | `{ orderedIds }`, may be partial |
+| `PUT` \| `PATCH` \| `DELETE /v1/admin/wholesale/categories/{id}/image` | One picture per category |
+| `GET /v1/admin/wholesale/categories/{id}/products`, `PUT …/products/order` | The products of a category in display order, and their order |
+| `GET /v1/admin/wholesale/products?status=&categoryId=&q=&isAvailable=&sort=&page=&limit=` | Page of product summaries, each with `skus[]` (`id`, `sku`, `packSize`, `unitsPerCarton`, `carton { units, label, content }`, `isEnabled`, `stock`) and `stock { quantity, shortSkus }` |
+| `POST /v1/admin/wholesale/products`, `GET /{id}`, `PATCH /{id}`, `DELETE /{id}` | Products: name, slug, texts, `highlights`, `brand`, `categoryId`, `skus` (1–20), `vatRate`, `status`, `isAvailable`, `sortOrder`, `storageType`, `food`, `searchKeywords` |
+| `POST /v1/admin/wholesale/products/from-retail` | `{ productId, categoryId, skus?, status?, copyImages? }`: a one-time copy of a retail product with the cartons given |
+| `POST /v1/admin/wholesale/products/{id}/skus`, `PATCH` \| `DELETE …/skus/{skuId}` | SKUs: `sku?` (generated `RFW-00001…`), `packSize { value, unit }`, `unitsPerCarton` 1–1000, `isEnabled`, `stock` (opening count, on create only) |
+| `PUT /v1/admin/wholesale/products/{id}/skus/{skuId}/stock` | `{ quantity }` or `{ delta }`, `note?`: sets or adjusts the cartons on hand through the ledger; below zero allowed. Answer `{ product, sku, movement }` |
+| `GET /v1/admin/wholesale/products/{id}/stock-movements?skuId=&page=&limit=` | The stock ledger of the product, newest first: `reason` (`adjustment` \| `import` \| `quotation_accepted`), `delta`, `quantityBefore`, `quantityAfter`, `quotationNumber`, `admin`, `note` |
+| `POST /v1/admin/wholesale/products/{id}/images`, `PUT …/images/order`, `PUT` \| `PATCH` \| `DELETE …/images/{imageId}` | As the retail product images (section 8) |
+| `POST /v1/admin/wholesale/import/preview`, `POST …/import`, `GET …/export?type=categories\|products` | The CSV flow of section 9 with the wholesale columns; the report has `skuId` where the retail one has `variantId` |
+
+**Errors:** `400 WHOLESALE_SKU_INVALID`, `400 WHOLESALE_CATEGORY_ORDER_INVALID`, `400 WHOLESALE_PRODUCT_ORDER_INVALID`, `400 STOCK_CHANGE_INVALID`, `404 WHOLESALE_CATEGORY_NOT_FOUND`, `404 WHOLESALE_PRODUCT_NOT_FOUND`, `404 WHOLESALE_SKU_NOT_FOUND`, `409 WHOLESALE_CATEGORY_SLUG_TAKEN`, `409 WHOLESALE_PRODUCT_SLUG_TAKEN`, `409 WHOLESALE_SKU_TAKEN`, `409 WHOLESALE_CATEGORY_HAS_PRODUCTS`, `409 WHOLESALE_SKU_LAST`.

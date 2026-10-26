@@ -22,6 +22,8 @@ import { registerQuotations } from "./modules/quotations.ts";
 import { registerShop } from "./modules/shop.ts";
 import { registerStock } from "./modules/stock.ts";
 import { registerTeam } from "./modules/team.ts";
+import { registerWholesale } from "./modules/wholesale.ts";
+import { registerWholesaleSheets } from "./modules/wholesale-sheets.ts";
 import { runCheckoutCleanup } from "./order-ops.ts";
 import { Router, bodyReader, checkIds } from "./router.ts";
 import { seed } from "./seed.ts";
@@ -96,6 +98,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   registerAnalytics(router);
   registerFaq(router);
   registerBlog(router);
+  registerWholesale(router);
+  registerWholesaleSheets(router);
   registerQuotations(router);
 
   const originAllowed = (origin: string) =>

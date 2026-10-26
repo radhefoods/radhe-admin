@@ -9,9 +9,14 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
-import { hasErrorCode, isSessionError } from "@/lib/api/errors";
+import {
+  hasErrorCode,
+  isSessionError,
+  type ApiErrorCode,
+} from "@/lib/api/errors";
 import { invalidation, queryKeys } from "@/lib/api/query-keys";
 import type {
+  AdminImage,
   Category,
   CategoryInput,
   Id,
@@ -24,9 +29,11 @@ import type {
   ProductQuery,
   ProductSummary,
   StockChangeInput,
+  Translated,
   TranslatedOptional,
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
+import type { Permission } from "@/lib/auth/permissions";
 import { reorderSiblings } from "./category-tree";
 import type { ProductPlan } from "./product-schema";
 
@@ -329,24 +336,103 @@ export function useSetAvailable() {
 
 // --- Images of a product ----------------------------------------------------
 
+/** A record with a list of pictures: a retail or a wholesale product. */
+export interface ImageOwner {
+  id: Id;
+  name: Translated;
+  images: AdminImage[];
+}
+
+type Progress = (fraction: number) => void;
+
+/** The five calls of the pictures of a record (8, 25), as the API client offers them. */
+export interface ImageEndpoints<P extends ImageOwner> {
+  uploadImages: (
+    id: Id,
+    files: File[],
+    onProgress?: Progress,
+    signal?: AbortSignal,
+  ) => Promise<{ product: P }>;
+  replaceImage: (
+    id: Id,
+    imageId: Id,
+    file: File,
+    onProgress?: Progress,
+    signal?: AbortSignal,
+  ) => Promise<{ product: P }>;
+  patchImage: (
+    id: Id,
+    imageId: Id,
+    input: ImagePatch,
+  ) => Promise<{ product: P }>;
+  removeImage: (id: Id, imageId: Id) => Promise<{ product: P }>;
+  reorderImages: (id: Id, orderedIds: Id[]) => Promise<{ product: P }>;
+}
+
+/**
+ * Where the pictures of a record live: the endpoints, the query that
+ * holds the record, what to load again, and who may change them. The
+ * retail and the wholesale product share the picture manager through it.
+ */
+export interface ImageTarget<P extends ImageOwner> {
+  id: Id;
+  endpoints: ImageEndpoints<P>;
+  detailKey: readonly unknown[];
+  invalidates: readonly (readonly unknown[])[];
+  /** The code the API answers for a record that is gone. */
+  notFound: ApiErrorCode;
+  permission: Permission;
+  /** Where the record is shown: "the shop", "the wholesale site". */
+  site: string;
+}
+
+/** The pictures of a retail product (8). */
+export function retailImages(id: Id): ImageTarget<ProductDetail> {
+  return {
+    id,
+    endpoints: api.products,
+    detailKey: queryKeys.products.detail(id),
+    invalidates: invalidation.catalog,
+    notFound: "PRODUCT_NOT_FOUND",
+    permission: "catalog.manage",
+    site: "the shop",
+  };
+}
+
 export interface UploadInput {
   files: File[];
-  onProgress?: (fraction: number) => void;
+  onProgress?: Progress;
   signal?: AbortSignal;
 }
 
+/** The answer of a change is the record as it is now: the page shows it at once. */
+function keepOwner<P extends ImageOwner>(
+  client: QueryClient,
+  target: ImageTarget<P>,
+  product: P,
+): void {
+  client.setQueryData(target.detailKey, product);
+}
+
 /** All-or-nothing: if the API refuses one file, it stores none (8). */
-export function useUploadImages(id: Id) {
+export function useUploadImages<P extends ImageOwner>(target: ImageTarget<P>) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async ({ files, onProgress, signal }: UploadInput) =>
-      (await api.products.uploadImages(id, files, onProgress, signal)).product,
-    onSuccess: (product) => keepProduct(client, product),
-    meta: { invalidates: invalidation.catalog, silent: true },
+      (
+        await target.endpoints.uploadImages(
+          target.id,
+          files,
+          onProgress,
+          signal,
+        )
+      ).product,
+    onSuccess: (product) => keepOwner(client, target, product),
+    meta: { invalidates: target.invalidates, silent: true },
   });
 }
 
-export function useReplaceImage(id: Id) {
+export function useReplaceImage<P extends ImageOwner>(target: ImageTarget<P>) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -357,55 +443,62 @@ export function useReplaceImage(id: Id) {
     }: {
       imageId: Id;
       file: File;
-      onProgress?: (fraction: number) => void;
+      onProgress?: Progress;
       signal?: AbortSignal;
     }) =>
-      (await api.products.replaceImage(id, imageId, file, onProgress, signal))
-        .product,
-    onSuccess: (product) => keepProduct(client, product),
-    meta: { invalidates: invalidation.catalog, silent: true },
+      (
+        await target.endpoints.replaceImage(
+          target.id,
+          imageId,
+          file,
+          onProgress,
+          signal,
+        )
+      ).product,
+    onSuccess: (product) => keepOwner(client, target, product),
+    meta: { invalidates: target.invalidates, silent: true },
   });
 }
 
-export function usePatchImage(id: Id) {
+export function usePatchImage<P extends ImageOwner>(target: ImageTarget<P>) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async ({ imageId, ...input }: ImagePatch & { imageId: Id }) =>
-      (await api.products.patchImage(id, imageId, input)).product,
-    onSuccess: (product) => keepProduct(client, product),
-    meta: { invalidates: invalidation.catalog, silent: true },
+      (await target.endpoints.patchImage(target.id, imageId, input)).product,
+    onSuccess: (product) => keepOwner(client, target, product),
+    meta: { invalidates: target.invalidates, silent: true },
   });
 }
 
-export function useRemoveImage(id: Id) {
+export function useRemoveImage<P extends ImageOwner>(target: ImageTarget<P>) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async (imageId: Id) =>
-      (await api.products.removeImage(id, imageId)).product,
-    onSuccess: (product) => keepProduct(client, product),
-    meta: { invalidates: invalidation.catalog, silent: true },
+      (await target.endpoints.removeImage(target.id, imageId)).product,
+    onSuccess: (product) => keepOwner(client, target, product),
+    meta: { invalidates: target.invalidates, silent: true },
   });
 }
 
 /**
  * The new order of the pictures. The grid follows at once; if the pictures
- * changed in the meantime (`IMAGE_ORDER_INVALID`), the product is loaded
+ * changed in the meantime (`IMAGE_ORDER_INVALID`), the record is loaded
  * again and the error says so.
  */
-export function useReorderImages(id: Id) {
+export function useReorderImages<P extends ImageOwner>(target: ImageTarget<P>) {
   const client = useQueryClient();
-  const key = queryKeys.products.detail(id);
+  const key = target.detailKey;
   return useMutation({
     mutationFn: async (orderedIds: Id[]) =>
-      (await api.products.reorderImages(id, orderedIds)).product,
+      (await target.endpoints.reorderImages(target.id, orderedIds)).product,
     onMutate: async (orderedIds) => {
       await client.cancelQueries({ queryKey: key });
-      const before = client.getQueryData<ProductDetail>(key);
+      const before = client.getQueryData<P>(key);
       if (before) {
         const byId = new Map(before.images.map((image) => [image.id, image]));
         const images = orderedIds.flatMap((imageId) => byId.get(imageId) ?? []);
         if (images.length === before.images.length) {
-          client.setQueryData<ProductDetail>(key, { ...before, images });
+          client.setQueryData<P>(key, { ...before, images });
         }
       }
       return { before };
@@ -413,9 +506,10 @@ export function useReorderImages(id: Id) {
     onError: (_error, _input, context) => {
       if (context?.before) client.setQueryData(key, context.before);
     },
-    onSuccess: (product) => keepProduct(client, product),
+    onSuccess: (product) => keepOwner(client, target, product),
     onSettled: () => {
-      void client.invalidateQueries({ queryKey: queryKeys.products.all });
+      for (const queryKey of target.invalidates)
+        void client.invalidateQueries({ queryKey });
     },
   });
 }
