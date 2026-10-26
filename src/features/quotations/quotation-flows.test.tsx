@@ -482,3 +482,74 @@ describe("the Decisions tab", () => {
     expect(screen.queryByText("Quotation requests")).not.toBeInTheDocument();
   });
 });
+
+describe("the wholesale stock", () => {
+  it("warns on a sent quotation whose lines exceed the stock, never blocks accepting, and shows what accepting took", async () => {
+    const sent = byStatus("sent");
+    const detail = (await detailOf(sent.id)).quotation;
+    const short = detail.items.find((item) => item.stock?.short)!;
+    api.calls.length = 0;
+    const { user } = renderQuotation(sent.id);
+    await screen.findByRole("heading", { name: sent.number });
+    expect(
+      screen.getByText(
+        "Stock is short for 1 line; accepting will take it below zero.",
+      ),
+    ).toBeInTheDocument();
+    expect(lineRow(short)).toHaveTextContent("Short");
+    expect(lineRow(short)).toHaveTextContent(String(short.stock!.quantity));
+    const accept = screen.getByRole("button", { name: "Mark accepted" });
+    expect(accept).toBeEnabled();
+    await user.click(accept);
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("taken from the wholesale stock");
+    expect(dialog).toHaveTextContent(lineName(short));
+    expect(dialog).toHaveTextContent("Short lines");
+    await user.click(
+      within(dialog).getByRole("button", { name: "Mark accepted" }),
+    );
+    expect(
+      (await screen.findAllByText("Marked as accepted")).length,
+    ).toBeGreaterThan(0);
+    const taken = await screen.findByRole("list", {
+      name: "Stock taken per line",
+    });
+    expect(taken).toHaveTextContent(short.sku);
+    expect(taken).toHaveTextContent(
+      `${short.stock!.quantity} → ${short.stock!.quantity - short.cartons}`,
+    );
+    expect(screen.getByText("The stock is short")).toBeInTheDocument();
+    expect(screen.queryByText("No price yet")).not.toBeInTheDocument();
+    const movements = api.mock
+      .db()
+      .wholesaleStockMovements.filter((entry) => entry.quotationId === sent.id);
+    expect(movements).toHaveLength(detail.items.length);
+    expect(
+      movements.every((entry) => entry.reason === "quotation_accepted"),
+    ).toBe(true);
+  });
+
+  it("marks an accepted quotation that went short in the list", async () => {
+    renderPanel(<QuotationsView />, { path: "/quotations?status=accepted" });
+    const table = await screen.findByRole("table", {
+      name: "Wholesale quotations",
+    });
+    await waitFor(() =>
+      expect(within(table).getAllByRole("row")).toHaveLength(2),
+    );
+    expect(table).toHaveTextContent("Stock short");
+  });
+
+  it("says when the SKU of a line is no longer in the catalogue", async () => {
+    const fresh = byStatus("new");
+    const detail = (await detailOf(fresh.id)).quotation;
+    const first = detail.items[0]!;
+    const db = api.mock.db();
+    db.wholesaleProducts = db.wholesaleProducts.filter(
+      (product) => product.id !== first.productId,
+    );
+    renderQuotation(fresh.id);
+    await screen.findByRole("heading", { name: fresh.number });
+    expect(lineRow(first)).toHaveTextContent("No longer in the catalogue");
+  });
+});

@@ -15,6 +15,7 @@ import { RequirePermission } from "@/components/domain/permission";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { DateTime, Money, TwoLine } from "@/components/domain/values";
 import { PageBody, PageHeader } from "@/components/shell/page";
+import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/surface";
 import {
   QUOTATION_RULES,
@@ -113,7 +114,13 @@ const columns: Column<QuotationSummary>[] = [
     id: "status",
     header: "Status",
     cell: ({ row }) => (
-      <StatusBadge kind="quotation" value={row.original.status} />
+      <span className="inline-flex flex-wrap items-center gap-1">
+        <StatusBadge kind="quotation" value={row.original.status} />
+        {row.original.stock?.short ? (
+          // Accepting took a SKU below zero (25): the shortage is the admin's to resolve.
+          <Badge tone="danger">Stock short</Badge>
+        ) : null}
+      </span>
     ),
   },
   {
@@ -162,6 +169,9 @@ function QuotationCard({ quotation }: { quotation: QuotationSummary }) {
       </span>
       <span className="flex flex-wrap items-center gap-1.5">
         <StatusBadge kind="quotation" value={quotation.status} />
+        {quotation.stock?.short ? (
+          <Badge tone="danger">Stock short</Badge>
+        ) : null}
         <span className="ml-auto text-13 text-ink-subtle">
           {linesText(quotation)} ·{" "}
           <DateTime value={quotation.createdAt} short />

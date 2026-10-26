@@ -44,6 +44,30 @@ export function allPriced(items: readonly QuotationItem[]): boolean {
   return items.every((item) => item.unitPrice !== null);
 }
 
+/** The lines whose cartons exceed the wholesale stock of their SKU right now (25). */
+export function shortLines(items: readonly QuotationItem[]): QuotationItem[] {
+  return items.filter((item) => item.stock?.short === true);
+}
+
+/** The lines whose SKU no longer exists in the wholesale catalogue. */
+export function missingLines(items: readonly QuotationItem[]): QuotationItem[] {
+  return items.filter((item) => item.stock === null);
+}
+
+/**
+ * The warning above the actions of a sent quotation: accepting takes the
+ * cartons of every line, and these lines would go below zero. Accept is
+ * never held back by it (section 8: nothing is refused for want of stock).
+ */
+export function stockWarning(
+  quotation: Pick<QuotationDetail, "status" | "items">,
+): string | null {
+  if (quotation.status !== "sent") return null;
+  const short = shortLines(quotation.items);
+  if (short.length === 0) return null;
+  return `Stock is short for ${plural(short.length, "line")}; accepting will take it below zero.`;
+}
+
 /** "2 of 3 priced", for a quotation without totals. */
 export function pricedText(
   quotation: Pick<QuotationSummary, "pricedLines" | "itemCount">,

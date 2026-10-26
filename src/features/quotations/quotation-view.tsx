@@ -37,6 +37,7 @@ import { errorMessage } from "@/lib/api/error-text";
 import { hasErrorCode } from "@/lib/api/errors";
 import type { Id, QuotationDetail, QuotationWithEmails } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
+import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format/money";
 import { LOCALE_LABEL, plural } from "@/lib/format/names";
 import { routes } from "@/lib/routes";
@@ -57,6 +58,8 @@ import {
   linesText,
   revisionText,
   sendBlocked,
+  shortLines,
+  stockWarning,
   toLinesPatch,
   type QuotationAction,
 } from "./rules";
@@ -104,8 +107,17 @@ const ACTION: Record<
     confirm: "Mark accepted",
     tone: "primary",
     done: "Marked as accepted",
-    describe: () =>
-      "Records that the customer ordered. The quotation is closed; no email is sent.",
+    describe: (quotation) => {
+      const short = shortLines(quotation.items);
+      const base =
+        "Records that the customer ordered. The cartons of every line are taken from the wholesale stock, once; the quotation is closed and no email is sent.";
+      if (short.length === 0) return base;
+      return `${base} ${plural(short.length, "line")} asks for more than is on hand: ${short
+        .map((item) => `${item.name} ${item.packSize.label}`)
+        .join(
+          ", ",
+        )}. The stock goes below zero there; nothing is refused for it.`;
+    },
   },
   decline: {
     label: "Mark declined",
@@ -208,6 +220,18 @@ function Actions({
           { label: "Quotation", value: quotation.number },
           { label: "Company", value: quotation.contact.company },
           { label: "Lines", value: linesText(quotation) },
+          ...(pending === "accept" && shortLines(quotation.items).length > 0
+            ? [
+                {
+                  label: "Short lines",
+                  value: (
+                    <span className="text-danger-fg">
+                      {shortLines(quotation.items).length}
+                    </span>
+                  ),
+                },
+              ]
+            : []),
           ...(quotation.totals
             ? [
                 {
@@ -303,6 +327,73 @@ function RequestCard({ quotation }: { quotation: QuotationDetail }) {
           </Fact>
         </dl>
       </CardBody>
+    </Card>
+  );
+}
+
+/**
+ * What accepting took from the wholesale stock (25): per line, the count
+ * before and after, in red where it went below zero; a SKU that was gone
+ * by then is named.
+ */
+function StockTakenCard({ quotation }: { quotation: QuotationDetail }) {
+  const stock = quotation.stock;
+  if (!stock) return null;
+  return (
+    <Card aria-label="Stock taken">
+      <CardHeader
+        title="Stock taken"
+        description={
+          <>
+            The cartons of every line were taken from the wholesale stock on{" "}
+            <DateTime value={stock.deductedAt} short />.
+          </>
+        }
+      />
+      {stock.short || stock.missing ? (
+        <CardBody className="border-b border-line py-3">
+          <Alert tone="danger" title="The stock is short">
+            {stock.short
+              ? "A SKU went below zero: the customer ordered more than was on hand. Set the count once the delivery arrives."
+              : null}
+            {stock.missing
+              ? " A SKU was no longer in the catalogue: nothing was taken for it."
+              : null}
+          </Alert>
+        </CardBody>
+      ) : null}
+      <ul className="divide-y divide-line" aria-label="Stock taken per line">
+        {stock.lines.map((line) => (
+          <li
+            key={line.skuId}
+            className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-2.5 text-sm sm:px-5"
+          >
+            <span className="flex min-w-0 flex-col">
+              <span className="font-medium text-ink tabular">{line.sku}</span>
+              <span className="text-13 text-ink-muted">
+                {plural(line.cartons, "carton")}
+              </span>
+            </span>
+            {line.applied ? (
+              <span className="whitespace-nowrap tabular">
+                {line.quantityBefore} →{" "}
+                <span
+                  className={cn(
+                    "font-semibold",
+                    (line.quantityAfter ?? 0) < 0 && "text-danger-fg",
+                  )}
+                >
+                  {line.quantityAfter}
+                </span>
+              </span>
+            ) : (
+              <span className="text-13 text-ink-subtle">
+                No longer in the catalogue, nothing taken
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
     </Card>
   );
 }
@@ -420,6 +511,7 @@ function QuotationPage({ data }: { data: QuotationWithEmails }) {
   );
   const dirty = toLinesPatch(form.watch(), quotation.items).length > 0;
   const revision = revisionText(quotation);
+  const warning = stockWarning(quotation);
 
   return (
     <>
@@ -475,6 +567,18 @@ function QuotationPage({ data }: { data: QuotationWithEmails }) {
         }
       />
       <PageBody>
+        {warning ? (
+          <Alert tone="warning" title={warning}>
+            {shortLines(quotation.items)
+              .map(
+                (item) =>
+                  `${item.name} ${item.packSize.label}: ${item.cartons} asked, ${item.stock?.quantity ?? 0} on hand`,
+              )
+              .join(" · ")}
+            . Accepting is still possible; the shortage is yours to resolve
+            afterwards.
+          </Alert>
+        ) : null}
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
           <div className="flex min-w-0 flex-col gap-6">
             <LinesCard
@@ -486,6 +590,7 @@ function QuotationPage({ data }: { data: QuotationWithEmails }) {
               saving={pending || actions.save.isPending}
               state={state}
             />
+            <StockTakenCard quotation={quotation} />
             <EmailsCard
               quotationId={quotation.id}
               messages={data.notifications}

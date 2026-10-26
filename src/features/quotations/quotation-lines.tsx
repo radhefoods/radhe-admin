@@ -9,6 +9,7 @@ import {
   FormError,
   type SubmitState,
 } from "@/components/form/form";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollX } from "@/components/ui/scroll-x";
@@ -18,6 +19,7 @@ import { cn } from "@/lib/cn";
 import { formatVatRate } from "@/lib/format/money";
 import { plural } from "@/lib/format/names";
 import {
+  isClosed,
   lineAmount,
   pricedText,
   toLinesPatch,
@@ -92,6 +94,40 @@ function Cell({
   );
 }
 
+/**
+ * The wholesale stock of the SKU of a line right now (25): the cartons on
+ * hand, in red with "Short" while the line asks for more than there is;
+ * a SKU that is gone says so. Accepted quotations show what was taken in
+ * their own card, so the mark is left off once the quotation is closed.
+ */
+function Stock({ item, closed }: { item: QuotationItem; closed: boolean }) {
+  if (!item.stock) {
+    return (
+      <span className="text-13 text-ink-subtle">
+        No longer in the catalogue
+      </span>
+    );
+  }
+  const short = item.stock.short && !closed;
+  return (
+    <span className="inline-flex flex-col items-end gap-0.5 leading-tight">
+      <span
+        className={cn(
+          "tabular",
+          (short || item.stock.quantity < 0) && "font-semibold text-danger-fg",
+        )}
+      >
+        {item.stock.quantity}
+      </span>
+      {short ? (
+        <Badge tone="danger" className="h-[18px] px-1.5 text-2xs">
+          Short
+        </Badge>
+      ) : null}
+    </span>
+  );
+}
+
 function Totals({ quotation }: { quotation: QuotationDetail }) {
   const { totals } = quotation;
   if (!totals) {
@@ -148,12 +184,14 @@ export function LinesCard({
 }) {
   const lines = useWatch({ control: form.control, name: "lines" });
   const changes = toLinesPatch({ lines }, quotation.items).length;
+  const closed = isClosed(quotation.status);
   const columns: { label: ReactNode; className?: string }[] = [
     { label: "Product" },
     { label: "VAT" },
     { label: "Cartons", className: "w-28" },
     { label: "Price per carton (excl. VAT)", className: "w-44" },
     { label: "Amount (excl. VAT)", className: "text-right" },
+    { label: "Stock", className: "w-24 text-right" },
   ];
 
   return (
@@ -174,7 +212,7 @@ export function LinesCard({
         noValidate
       >
         <ScrollX label={`Lines of ${quotation.number}`}>
-          <table className="w-full min-w-[40rem] text-sm">
+          <table className="w-full min-w-[46rem] text-sm">
             <thead className="border-b border-line bg-sunken">
               <tr>
                 {columns.map((column, index) => (
@@ -243,6 +281,9 @@ export function LinesCard({
                       )}
                     >
                       <Money cents={amount} />
+                    </td>
+                    <td className={cn(CELL, "text-right")}>
+                      <Stock item={item} closed={closed} />
                     </td>
                   </tr>
                 );
