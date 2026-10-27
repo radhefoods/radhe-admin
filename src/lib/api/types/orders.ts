@@ -12,6 +12,7 @@ import type {
   VatRate,
 } from "./common";
 import type { PackSize } from "./catalog";
+import type { OrderDiscount } from "./discounts";
 import type { LegalType } from "./legal";
 import type { PaymentBlock, PaymentStatus } from "./payments";
 
@@ -98,6 +99,8 @@ export interface OrderSummary {
   paymentStatus: PaymentStatus;
   placedAt: IsoDateTime;
   customer: OrderCustomer;
+  /** The discount code the order was made with (26), else `null`. */
+  discountCode: string | null;
   /** The agreed bill. */
   total: Cents;
   /** After corrections and returns: the invoiced amount minus credit notes. */
@@ -130,6 +133,8 @@ export interface OrderItem {
   vatRate: VatRate;
   vatPercent: number;
   vatAmount: Cents;
+  /** Cents the discount code took off this line (26); 0 without one. */
+  discountAmount: Cents;
   deliveredQuantity: number;
   returnedQuantity: number;
   finalLineTotal: Cents;
@@ -144,7 +149,10 @@ export interface VatLine {
 
 export interface Totals {
   currency: "EUR";
+  /** The goods before the discount. */
   subtotal: Cents;
+  /** What the discount code took off the goods (26); 0 without one. */
+  discount: Cents;
   deliveryFee: Cents;
   total: Cents;
   netTotal: Cents;
@@ -219,6 +227,8 @@ export interface OrderDetail extends OrderSummary {
   items: OrderItem[];
   totals: Totals;
   finalTotals: Totals;
+  /** The discount code the order was made with (26), else `null`. */
+  discount: OrderDiscount | null;
   adjustments: OrderAdjustment[];
   deliveryAddress: DeliveryAddress;
   /** The customer's note at checkout. */

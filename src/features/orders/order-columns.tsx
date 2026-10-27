@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Column } from "@/components/data/data-table";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { DateTime, Money, TwoLine } from "@/components/domain/values";
+import { Badge } from "@/components/ui/badge";
 import type { OrderSummary } from "@/lib/api/types";
 import { DELIVERY_METHOD_LABEL, personName } from "@/lib/format/names";
 import { routes } from "@/lib/routes";
@@ -17,6 +18,20 @@ function OrderNumber({ order }: { order: OrderSummary }) {
   );
 }
 
+/** The discount code an order was made with (26), next to its number. */
+export function DiscountBadge({ code }: { code: string | null }) {
+  if (!code) return null;
+  return (
+    <Badge
+      dot={false}
+      className="font-mono"
+      title={`Made with the discount code ${code}`}
+    >
+      {code}
+    </Badge>
+  );
+}
+
 /** The columns of every list of orders. */
 export function orderColumns(): Column<OrderSummary>[] {
   return [
@@ -25,7 +40,12 @@ export function orderColumns(): Column<OrderSummary>[] {
       header: "Order",
       cell: ({ row }) => (
         <TwoLine
-          primary={<OrderNumber order={row.original} />}
+          primary={
+            <span className="inline-flex flex-wrap items-center gap-1.5">
+              <OrderNumber order={row.original} />
+              <DiscountBadge code={row.original.discountCode} />
+            </span>
+          }
           secondary={<DateTime value={row.original.placedAt} short />}
         />
       ),
@@ -109,8 +129,11 @@ export function OrderCard({ order }: { order: OrderSummary }) {
       className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 active:bg-sunken"
     >
       <span className="flex items-center justify-between gap-3">
-        <span className="text-base font-semibold text-ink">
-          {order.orderNumber}
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          <span className="text-base font-semibold text-ink">
+            {order.orderNumber}
+          </span>
+          <DiscountBadge code={order.discountCode} />
         </span>
         <Money cents={order.finalTotal} className="font-semibold" />
       </span>

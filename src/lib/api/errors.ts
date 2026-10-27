@@ -150,6 +150,12 @@ export const API_ERROR_CODES = [
   "WHOLESALE_SKU_TAKEN",
   "WHOLESALE_SKU_INVALID",
   "WHOLESALE_SKU_LAST",
+  // discount codes (26)
+  "DISCOUNT_NOT_FOUND",
+  "DISCOUNT_VALUE_INVALID",
+  "DISCOUNT_SCHEDULE_INVALID",
+  "DISCOUNT_CODE_TAKEN",
+  "DISCOUNT_IN_USE",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -230,6 +236,8 @@ export interface ErrorDetails {
   /** Mixed units, the same pack and carton twice, an article number twice, more than 20. */
   WHOLESALE_SKU_INVALID:
     { families?: string[]; sku?: string; baseQuantity?: number } | undefined;
+  /** The code was used or reserved by orders: its text cannot change, it cannot be deleted. */
+  DISCOUNT_IN_USE: { usedCount: number; reservedCount: number } | undefined;
   ORDER_TRANSITION_NOT_ALLOWED: {
     from: OrderStatus;
     to: OrderStatus;

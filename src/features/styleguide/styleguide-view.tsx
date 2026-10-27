@@ -79,6 +79,8 @@ const STATUS_TITLES: Record<StatusKind, string> = {
   legal: "Legal text",
   invoiceType: "Invoice type",
   banner: "Banner",
+  discount: "Discount code",
+  discountUse: "Use of a discount code",
 };
 
 const demoSchema = z.object({

@@ -19,3 +19,4 @@ export * from "./faq";
 export * from "./blog";
 export * from "./quotations";
 export * from "./wholesale";
+export * from "./discounts";

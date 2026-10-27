@@ -44,6 +44,10 @@ export const routes = {
   /** The display order of the products of a category. */
   categoryProducts: (id: Id) => `/catalogue/categories/${id}/products` as Route,
   banners: "/catalogue/banners" as Route,
+  /** Discount codes of the retail shop (26). */
+  discounts: "/catalogue/discounts" as Route,
+  discountNew: "/catalogue/discounts/new" as Route,
+  discount: (id: Id) => `/catalogue/discounts/${id}` as Route,
 
   /** The start page with its Analytics tab open. */
   analytics: "/?tab=analytics" as Route,

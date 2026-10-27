@@ -37,6 +37,12 @@ import {
 import { newId } from "./http.ts";
 import { seedBlog } from "./modules/blog.ts";
 import { seedFaq } from "./modules/faq.ts";
+import {
+  discountShares,
+  reserveDiscountUse,
+  seedDiscountCodes,
+  type DiscountCodeRecord,
+} from "./modules/discounts.ts";
 import { seedQuotations } from "./modules/quotations.ts";
 import { seedWholesale } from "./modules/wholesale.ts";
 import { completeRefund } from "./modules/payments.ts";
@@ -79,6 +85,8 @@ export const ALL_PERMISSIONS = [
   "quotations.manage",
   "wholesale.read",
   "wholesale.manage",
+  "discounts.read",
+  "discounts.manage",
 ];
 
 /** The sign-ins of the demo. Every admin also accepts the code 000000. */
@@ -593,8 +601,15 @@ export function seed(options: SeedOptions): Db {
   const catalogueEditor = role(
     "catalogue_editor",
     "Catalogue editor",
-    "Keeps products, categories and pictures, retail and wholesale.",
-    ["catalog.read", "catalog.manage", "wholesale.read", "wholesale.manage"],
+    "Keeps products, categories, pictures and discount codes, retail and wholesale.",
+    [
+      "catalog.read",
+      "catalog.manage",
+      "wholesale.read",
+      "wholesale.manage",
+      "discounts.read",
+      "discounts.manage",
+    ],
   );
   const viewer = role(
     "viewer",
@@ -987,6 +1002,9 @@ export function seed(options: SeedOptions): Db {
     (customer) => customer.status === "active",
   );
   /** The pack sizes that can be bought now, with their product. */
+  // The discount codes exist before the orders: some orders are made with one (26).
+  const codes = seedDiscountCodes(db, now, owner);
+
   const sellable = () =>
     orderable.flatMap((product) =>
       product.variants
@@ -998,6 +1016,7 @@ export function seed(options: SeedOptions): Db {
     customer: Customer,
     placedAt: number,
     method?: DeliveryMethod,
+    wanted?: DiscountCodeRecord,
   ): OrderRecord => {
     db.counters.order += 1;
     const lines = rng.int(1, 4);
@@ -1027,15 +1046,41 @@ export function seed(options: SeedOptions): Db {
         vatRate: product.vatRate,
         vatPercent: product.vatRate / 100,
         vatAmount: vatOf(quantity * unitPrice, product.vatRate),
+        discountAmount: 0,
         deliveredQuantity: quantity,
         returnedQuantity: 0,
         finalLineTotal: quantity * unitPrice,
       };
     });
     const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
+    // The code applies when the goods reach its minimum and the customer
+    // has not used a once-per-customer code already; else the order is made without it.
+    const code =
+      wanted &&
+      subtotal >= (wanted.minOrderValue ?? 0) &&
+      !(
+        wanted.oncePerCustomer &&
+        db.discountUses.some(
+          (use) =>
+            use.codeId === wanted.id &&
+            use.customerId === customer.id &&
+            use.counts,
+        )
+      )
+        ? wanted
+        : undefined;
+    const shares = code ? discountShares(items, code) : null;
+    items.forEach((item, index) => {
+      item.discountAmount = shares?.shares[index] ?? 0;
+      item.lineTotal -= item.discountAmount;
+      item.finalLineTotal = item.lineTotal;
+      item.vatAmount = vatOf(item.lineTotal, item.vatRate);
+    });
+    const discount = shares?.amount ?? 0;
     const totals = totalsOf(
       items.map((item) => ({ gross: item.lineTotal, vatRate: item.vatRate })),
-      deliveryFeeFor(db, subtotal),
+      deliveryFeeFor(db, subtotal - discount),
+      discount,
     );
     const address = customer.addresses[0];
     const pageMinutes = db.settings.payments.checkoutMinutes;
@@ -1066,6 +1111,7 @@ export function seed(options: SeedOptions): Db {
       items,
       totals,
       finalTotals: totals,
+      discount: null,
       adjustments: [],
       deliveryAddress: {
         firstName: address?.firstName ?? "",
@@ -1144,6 +1190,9 @@ export function seed(options: SeedOptions): Db {
       updatedAt: iso(placedAt),
     };
     db.orders.push(order);
+    if (code && discount > 0) {
+      reserveDiscountUse(db, order, code, discount, placedAt);
+    }
     return order;
   };
 
@@ -1190,8 +1239,12 @@ export function seed(options: SeedOptions): Db {
     | "given_up"
     | "cancelled_by_admin";
 
-  const walk = (plan: Plan, placedAt: number): OrderRecord => {
-    const order = placeOrder(rng.pick(buyers), placedAt, pickMethod());
+  const walk = (
+    plan: Plan,
+    placedAt: number,
+    code?: DiscountCodeRecord,
+  ): OrderRecord => {
+    const order = placeOrder(rng.pick(buyers), placedAt, pickMethod(), code);
     const paidAt = placedAt + rng.int(4, 12) * 60_000;
     if (plan === "pending") return order;
     if (plan === "failed") {
@@ -1257,19 +1310,43 @@ export function seed(options: SeedOptions): Db {
     return order;
   };
 
+  // Which delivered orders were made with a discount code: the spring code
+  // while it ran, the early-bird code until it was used up, the others since.
+  const codeOf: Record<number, DiscountCodeRecord> = {
+    2: codes.spring,
+    5: codes.spring,
+    8: codes.earlyBird,
+    11: codes.earlyBird,
+    14: codes.earlyBird,
+    16: codes.welcome,
+    20: codes.welcome,
+    22: codes.diwali,
+  };
   const delivered: OrderRecord[] = [];
   for (let index = 0; index < 24; index += 1) {
     delivered.push(
-      walk("delivered", now - (50 - index * 1.7) * DAY - rng.int(1, 9) * HOUR),
+      walk(
+        "delivered",
+        now - (50 - index * 1.7) * DAY - rng.int(1, 9) * HOUR,
+        codeOf[index],
+      ),
     );
   }
-  const givenUp = walk("given_up", now - 9 * DAY - 5 * HOUR);
+  const givenUp = walk("given_up", now - 9 * DAY - 5 * HOUR, codes.diwali);
   const refundedByAdmin = walk("cancelled_by_admin", now - 10 * DAY - 2 * HOUR);
   for (let index = 0; index < 4; index += 1) {
-    walk("dispatched", now - (5 - index * 0.5) * DAY - rng.int(1, 6) * HOUR);
+    walk(
+      "dispatched",
+      now - (5 - index * 0.5) * DAY - rng.int(1, 6) * HOUR,
+      index === 1 ? codes.diwali : undefined,
+    );
   }
   for (let index = 0; index < 3; index += 1) {
-    walk("processing", now - (2.5 - index * 0.5) * DAY - rng.int(1, 4) * HOUR);
+    walk(
+      "processing",
+      now - (2.5 - index * 0.5) * DAY - rng.int(1, 4) * HOUR,
+      index === 0 ? codes.welcome : undefined,
+    );
   }
   const cancelledPaid = walk("cancelled_by_customer", now - 2 * DAY - 3 * HOUR);
   const toProcess: OrderRecord[] = [];
@@ -1278,11 +1355,12 @@ export function seed(options: SeedOptions): Db {
       walk(
         "confirmed",
         now - (40 - index * 7) * HOUR - rng.int(5, 50) * 60_000,
+        index === 2 ? codes.diwali : undefined,
       ),
     );
   }
   walk("failed", now - 3 * HOUR);
-  const pending = walk("pending", now - 20 * 60_000);
+  const pending = walk("pending", now - 20 * 60_000, codes.diwali);
   void givenUp;
   void pending;
 

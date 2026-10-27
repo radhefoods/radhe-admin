@@ -9,6 +9,7 @@ export const RESOURCES = [
   "payments",
   "customers",
   "catalog",
+  "discounts",
   "content",
   "analytics",
   "notifications",
@@ -67,6 +68,10 @@ export const RESOURCE_LABELS: Record<
     label: "Catalogue",
     covers:
       "Categories, products, stock, pictures, import and export, the homepage banners",
+  },
+  discounts: {
+    label: "Discount codes",
+    covers: "The promotional codes of the retail shop and their uses",
   },
   content: {
     label: "Content",

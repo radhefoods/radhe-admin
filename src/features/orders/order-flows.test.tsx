@@ -458,6 +458,7 @@ describe("correcting what was delivered", () => {
       vatRate: 700,
       vatPercent: 7,
       vatAmount: 0,
+      discountAmount: 0,
       deliveredQuantity: quantity,
       returnedQuantity: returned,
       finalLineTotal: (quantity - returned) * unitPrice,
@@ -465,6 +466,7 @@ describe("correcting what was delivered", () => {
     const totals = (total: number, deliveryFee: number) => ({
       currency: "EUR" as const,
       subtotal: total - deliveryFee,
+      discount: 0,
       deliveryFee,
       total,
       netTotal: 0,

@@ -203,6 +203,13 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
     "The SKUs do not fit together: one unit family per product, no pack size with the same carton twice, no article number twice, 20 at most.",
   WHOLESALE_SKU_LAST:
     "A product needs at least one SKU. Disable it, or delete the product.",
+  // discount codes
+  DISCOUNT_NOT_FOUND: "This discount code does not exist (any more).",
+  DISCOUNT_VALUE_INVALID: "A percentage is at most 100.",
+  DISCOUNT_SCHEDULE_INVALID: "The end must come after the start.",
+  DISCOUNT_CODE_TAKEN: "Another discount code has this text.",
+  DISCOUNT_IN_USE:
+    "Orders were made with this code. It keeps its text and stays for the order history; switch it off instead.",
   QUOTATION_STATUS_INVALID:
     "The quotation is not in a status that allows this. The page was loaded again.",
 };

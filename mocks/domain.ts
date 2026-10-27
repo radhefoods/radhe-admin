@@ -34,6 +34,7 @@ import type {
   VariantRecord,
 } from "./db.ts";
 import { newId } from "./http.ts";
+import { discountOfUnits } from "./modules/discounts.ts";
 import { berlinDay, iso } from "./time.ts";
 
 // --- State machine (9.1) ----------------------------------------------------
@@ -384,14 +385,19 @@ export function deliveryFeeFor(db: Db, subtotal: number): number {
  * tax adviser still has to confirm that, architecture 15).
  */
 export function totalsOf(
+  /** Each line at what is paid for it: after its share of the discount. */
   lines: { gross: number; vatRate: number }[],
   deliveryFee: number,
+  /** What a discount code took off the goods (26). */
+  discount = 0,
 ): Totals {
   const byRate = new Map<number, number>();
   for (const line of lines) {
     byRate.set(line.vatRate, (byRate.get(line.vatRate) ?? 0) + line.gross);
   }
-  const subtotal = lines.reduce((sum, line) => sum + line.gross, 0);
+  const goods = lines.reduce((sum, line) => sum + line.gross, 0);
+  // The goods before the discount; VAT is on what is paid.
+  const subtotal = goods + discount;
   if (deliveryFee > 0) {
     const main =
       [...byRate.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 700;
@@ -405,10 +411,11 @@ export function totalsOf(
       return { vatRate, gross, net: gross - tax, vat: tax };
     });
   const vatTotal = vat.reduce((sum, entry) => sum + entry.vat, 0);
-  const total = subtotal + deliveryFee;
+  const total = goods + deliveryFee;
   return {
     currency: "EUR",
     subtotal,
+    discount,
     deliveryFee,
     total,
     netTotal: total - vatTotal,
@@ -422,9 +429,13 @@ export function totalsOf(
  * agreed delivery fee stays, and is 0 only when nothing was kept.
  */
 export function recomputeFinal(order: OrderRecord): void {
+  let discount = 0;
   for (const item of order.items) {
     const kept = Math.max(0, item.deliveredQuantity - item.returnedQuantity);
-    item.finalLineTotal = kept * item.unitPrice;
+    // A kept unit is paid at its unit price less its part of the line's discount (26).
+    const share = discountOfUnits(item, kept);
+    discount += share;
+    item.finalLineTotal = kept * item.unitPrice - share;
   }
   const kept = order.items.some((item) => item.finalLineTotal > 0);
   order.finalTotals = totalsOf(
@@ -433,6 +444,7 @@ export function recomputeFinal(order: OrderRecord): void {
       vatRate: item.vatRate,
     })),
     kept ? order.totals.deliveryFee : 0,
+    discount,
   );
 }
 
@@ -566,6 +578,7 @@ export function orderSummary(order: OrderRecord): OrderSummary {
           .filter((part) => part && part.trim() !== "")
           .join(" ") || null,
     },
+    discountCode: order.discount?.code ?? null,
     total: order.totals.total,
     finalTotal: order.finalTotals.total,
     paidAmount: order.payment.paidAmount,
@@ -595,6 +608,7 @@ export function orderDetail(
     items: order.items,
     totals: order.totals,
     finalTotals: order.finalTotals,
+    discount: order.discount,
     adjustments: order.adjustments,
     deliveryAddress: order.deliveryAddress,
     note: order.note,
@@ -859,6 +873,32 @@ export function companyMissing(db: Db) {
  * The invoice of a paid order, issued the moment the money is captured
  * (12): from the agreed bill, issued and paid at the same moment.
  */
+function discountLines(
+  order: OrderRecord,
+  language: "en" | "de",
+): InvoiceDetail["lines"] {
+  if (!order.discount || order.totals.discount === 0) return [];
+  const byRate = new Map<number, number>();
+  for (const item of order.items) {
+    if (item.discountAmount === 0) continue;
+    byRate.set(
+      item.vatRate,
+      (byRate.get(item.vatRate) ?? 0) + item.discountAmount,
+    );
+  }
+  return [...byRate.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([vatRate, amount]) => ({
+      description: `${language === "de" ? "Rabatt" : "Discount"} ${order.discount?.code}`,
+      sku: null,
+      quantity: 1,
+      unitPrice: -amount,
+      vatRate,
+      vatPercent: vatRate / 100,
+      lineTotal: -amount,
+    }));
+}
+
 export function issueInvoice(
   db: Db,
   order: OrderRecord,
@@ -892,6 +932,8 @@ export function issueInvoice(
         vatPercent: item.vatPercent,
         lineTotal: item.lineTotal,
       })),
+      // The discount as one negative line per VAT rate (26, section 3).
+      ...discountLines(order, language),
       ...(order.totals.deliveryFee > 0
         ? [
             {

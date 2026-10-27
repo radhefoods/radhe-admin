@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
-import { ActionButton } from "@/components/domain/permission";
+import { ActionButton, Can } from "@/components/domain/permission";
+import { StatusBadge } from "@/components/domain/status-badge";
 import { AdminName, DateTime, Money, Thumb } from "@/components/domain/values";
 import { ScrollX } from "@/components/ui/scroll-x";
 import { Card, CardBody, CardHeader } from "@/components/ui/surface";
@@ -9,6 +11,7 @@ import type { OrderDetail, OrderItem, Totals } from "@/lib/api/types";
 import { cn } from "@/lib/cn";
 import { formatVatRate } from "@/lib/format/money";
 import { translated } from "@/lib/format/names";
+import { routes, withQuery } from "@/lib/routes";
 import { ORDER_STATUS, humanize } from "@/lib/status";
 import { ORDER_CHANGEABLE_IN } from "@/lib/status/transitions";
 import { OrderItemDialog } from "./order-dialogs";
@@ -34,6 +37,14 @@ function TotalsBlock({
           <Money cents={totals.subtotal} />
         </dd>
       </div>
+      {totals.discount > 0 ? (
+        <div className="flex justify-between gap-6">
+          <dt>Discount</dt>
+          <dd>
+            <Money cents={-totals.discount} />
+          </dd>
+        </div>
+      ) : null}
       <div className="flex justify-between gap-6">
         <dt>Delivery</dt>
         <dd>
@@ -63,6 +74,53 @@ function TotalsBlock({
         </div>
       ))}
     </dl>
+  );
+}
+
+/** The discount code the order was made with (26): what it is and whether its use counts. */
+function DiscountBlock({ order }: { order: OrderDetail }) {
+  const discount = order.discount;
+  if (!discount) return null;
+  const value =
+    discount.type === "percent" ? (
+      `${discount.value} %`
+    ) : (
+      <Money cents={discount.value} />
+    );
+  return (
+    <CardBody
+      role="region"
+      aria-label="Discount code"
+      className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line text-13"
+    >
+      <span className="text-ink-muted">Discount code</span>
+      <Can
+        permission="discounts.read"
+        fallback={
+          <span className="font-mono font-semibold text-ink">
+            {discount.code}
+          </span>
+        }
+      >
+        <Link
+          href={withQuery(routes.discounts, { q: discount.code })}
+          className="font-mono font-semibold text-accent-text hover:underline"
+        >
+          {discount.code}
+        </Link>
+      </Can>
+      <span className="tabular">
+        {value} off the goods · <Money cents={discount.amount} /> taken off
+      </span>
+      <StatusBadge kind="discountUse" value={discount.state} />
+      <span className="text-ink-subtle">
+        {discount.state === "reserved"
+          ? "The use counts once the order is paid."
+          : discount.state === "used"
+            ? "The use is counted; a cancellation or refund does not give it back."
+            : "The order was given up unpaid; the use went back to the code."}
+      </span>
+    </CardBody>
   );
 }
 
@@ -181,6 +239,11 @@ export function OrderItemsCard({
                         <Money cents={item.lineTotal} />
                       </span>
                     ) : null}
+                    {item.discountAmount > 0 ? (
+                      <span className="block text-13 text-ink-subtle">
+                        <Money cents={-item.discountAmount} /> discount
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-4 py-2.5 text-right sm:px-5">
                     {changeable ? (
@@ -201,6 +264,7 @@ export function OrderItemsCard({
           </tbody>
         </table>
       </ScrollX>
+      {order.discount ? <DiscountBlock order={order} /> : null}
       <CardBody className="flex flex-col gap-4 border-t border-line sm:flex-row sm:justify-end sm:gap-10">
         {differs ? (
           <div className="sm:w-64">

@@ -3,12 +3,14 @@ import type {
   AnnouncementQuery,
   BlogPostQuery,
   CustomerQuery,
+  DiscountQuery,
   FaqQuery,
   Id,
   InvoiceQuery,
   LegalType,
   NotificationQuery,
   OrderQuery,
+  PageQuery,
   ProductQuery,
   QuotationQuery,
   RefundQuery,
@@ -140,6 +142,15 @@ export const queryKeys = {
     list: (query: QuotationQuery) => ["quotations", "list", query] as const,
     detail: (id: Id) => ["quotations", "detail", id] as const,
   },
+  /** Discount codes of the retail shop (26). */
+  discounts: {
+    all: ["discounts"] as const,
+    list: (query: DiscountQuery = {}) => ["discounts", "list", query] as const,
+    detail: (id: Id) => ["discounts", "detail", id] as const,
+    /** The orders made with a code, by page. */
+    uses: (id: Id, query: PageQuery = {}) =>
+      ["discounts", "uses", id, query] as const,
+  },
   /** The wholesale catalogue (25). */
   wholesale: {
     all: ["wholesale"] as const,
@@ -208,4 +219,6 @@ export const invalidation = {
   ],
   /** A wholesale category or product: the lists, the details, the ledgers; the quotation lines show the stock. */
   wholesale: [queryKeys.wholesale.all, queryKeys.quotations.all],
+  /** A discount code: its list and its page. Orders keep what they were made with. */
+  discount: [queryKeys.discounts.all],
 } as const satisfies Record<string, readonly Key[]>;

@@ -1,4 +1,5 @@
 import {
+  BadgePercent,
   Bell,
   BookOpenText,
   CircleHelp,
@@ -181,6 +182,13 @@ export const NAVIGATION: NavGroup[] = [
         icon: GalleryHorizontal,
         requires: "catalog.read",
         keywords: "homepage hero carousel slides promotion offer pictures",
+      },
+      {
+        label: "Discount codes",
+        href: routes.discounts,
+        icon: BadgePercent,
+        requires: "discounts.read",
+        keywords: "promotion voucher coupon percent off checkout uses",
       },
     ],
   },

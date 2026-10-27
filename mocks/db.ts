@@ -24,6 +24,10 @@ import type {
   StockMovement,
 } from "../src/lib/api/types/index.ts";
 import type { BlogCategoryRecord, BlogPostRecord } from "./modules/blog.ts";
+import type {
+  DiscountCodeRecord,
+  DiscountUseRecord,
+} from "./modules/discounts.ts";
 import type { FaqGroupRecord, FaqRecord } from "./modules/faq.ts";
 import type { QuotationRecord } from "./modules/quotations.ts";
 import type {
@@ -159,6 +163,7 @@ export type OrderRecord = Omit<
   | "itemCount"
   | "city"
   | "postalCode"
+  | "discountCode"
 > & {
   payment: PaymentRecord;
   /** While pending: when the cleanup gives the order up. */
@@ -215,6 +220,9 @@ export interface Db {
   wholesaleCategories: WholesaleCategoryRecord[];
   wholesaleProducts: WholesaleProductRecord[];
   wholesaleStockMovements: WholesaleStockMovementRecord[];
+  /** Discount codes of the retail shop (26) and their uses by orders. */
+  discountCodes: DiscountCodeRecord[];
+  discountUses: DiscountUseRecord[];
   /** Pictures uploaded while the mock runs, by the key in their address. */
   files: Map<string, StoredFile>;
   counters: {
@@ -273,6 +281,8 @@ export function emptyDb(config: MockConfig): Db {
     wholesaleCategories: [],
     wholesaleProducts: [],
     wholesaleStockMovements: [],
+    discountCodes: [],
+    discountUses: [],
     files: new Map(),
     counters: {
       order: 1000,

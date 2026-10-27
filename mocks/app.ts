@@ -11,6 +11,7 @@ import { HttpError, fail, json, noContent, setPeople } from "./http.ts";
 import { bannerSvg, placeholderSvg } from "./media.ts";
 import { registerAnalytics } from "./modules/analytics.ts";
 import { registerBanners } from "./modules/banners.ts";
+import { registerDiscounts } from "./modules/discounts.ts";
 import { registerBlog } from "./modules/blog.ts";
 import { registerCatalog } from "./modules/catalog.ts";
 import { registerCatalogSheets } from "./modules/catalog-sheets.ts";
@@ -100,6 +101,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   registerBlog(router);
   registerWholesale(router);
   registerWholesaleSheets(router);
+  registerDiscounts(router);
   registerQuotations(router);
 
   const originAllowed = (origin: string) =>

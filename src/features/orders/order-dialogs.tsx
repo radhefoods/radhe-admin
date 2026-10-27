@@ -377,8 +377,13 @@ export function billAfterCorrection(
   item: OrderItem,
   delivered: number,
 ): { lineTotal: number; total: number; difference: number } {
-  const lineTotal =
-    Math.max(0, delivered - item.returnedQuantity) * item.unitPrice;
+  const kept = Math.max(0, delivered - item.returnedQuantity);
+  // A kept unit is paid at its unit price less its part of the line's discount (26).
+  const share =
+    item.quantity > 0
+      ? Math.round((item.discountAmount * kept) / item.quantity)
+      : 0;
+  const lineTotal = kept * item.unitPrice - share;
   const goods = order.items.reduce(
     (sum, entry) =>
       sum +

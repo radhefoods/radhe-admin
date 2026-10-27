@@ -3,6 +3,8 @@ import type {
   BannerStatus,
   BlogVisibility,
   CustomerStatus,
+  DiscountState,
+  DiscountUseState,
   InvoiceType,
   LegalStatus,
   NotificationStatus,
@@ -146,6 +148,28 @@ export const QUOTATION_STATUS = table<QuotationStatus>({
   cancelled: "neutral",
 });
 
+/**
+ * A code the shop takes right now is active; a scheduled one waits for
+ * its start; expired and exhausted ones are over; inactive is switched off (26).
+ */
+export const DISCOUNT_STATE = table<DiscountState>({
+  active: "success",
+  scheduled: "planned",
+  expired: "neutral",
+  exhausted: "neutral",
+  inactive: "neutral",
+});
+
+/** A use waits for the payment, counted once paid, given back when the order was given up unpaid. */
+export const DISCOUNT_USE_STATE = table<DiscountUseState>(
+  { reserved: "attention", used: "success", released: "neutral" },
+  {
+    reserved: "Waiting for payment",
+    used: "Paid",
+    released: "Given up unpaid",
+  },
+);
+
 export const INVOICE_TYPE = table<InvoiceType>({
   invoice: "planned",
   credit_note: "moving",
@@ -165,6 +189,8 @@ export const STATUS_TABLES = {
   banner: BANNER_STATUS,
   blogPost: BLOG_VISIBILITY,
   quotation: QUOTATION_STATUS,
+  discount: DISCOUNT_STATE,
+  discountUse: DISCOUNT_USE_STATE,
 } as const;
 
 export type StatusKind = keyof typeof STATUS_TABLES;

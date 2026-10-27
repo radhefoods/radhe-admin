@@ -8,6 +8,7 @@ import {
   productsApi,
 } from "./endpoints/catalog";
 import { announcementsApi, notificationsApi } from "./endpoints/communication";
+import { discountsApi } from "./endpoints/discounts";
 import {
   attentionApi,
   invoicesApi,
@@ -57,6 +58,7 @@ export function createAdminApi(transport: SessionTransport) {
     wholesaleCategories: wholesaleCategoriesApi(transport),
     wholesaleProducts: wholesaleProductsApi(transport),
     wholesaleSheets: wholesaleSheetsApi(transport),
+    discounts: discountsApi(transport),
   };
 }
 

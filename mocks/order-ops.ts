@@ -2,6 +2,7 @@
 // things to many orders that the order routes do to one, and the seed
 // walks orders through the same steps.
 
+import { settleDiscountUse } from "./modules/discounts.ts";
 import type {
   CancellationReason,
   DeliveryMethod,
@@ -200,6 +201,8 @@ export function settleOrder(
     now + 2000,
   );
   order.paymentStatus = "paid";
+  // The payment counts the use of a discount code (26).
+  settleDiscountUse(db, order, "used", now + 2000);
   const customer = customerOf(db, order);
   if (customer) {
     queueMessage(
@@ -278,6 +281,9 @@ export function cancelOrder(
   order.status = "cancelled";
   order.cancellation = { ...cancellation, at: iso(now) };
   giveBackStock(db, order, now);
+  // An order given up unpaid gives its use of a discount code back (26).
+  if (order.payment.paidAmount === 0)
+    settleDiscountUse(db, order, "released", now);
   order.payment.checkoutUrl = null;
   order.payment.checkoutExpiresAt = null;
   order.pendingUntil = null;
