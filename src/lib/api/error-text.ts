@@ -59,6 +59,8 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
     "The role contains a permission the API does not know.",
   // customers
   CUSTOMER_NOT_FOUND: "This customer does not exist (any more).",
+  CUSTOMER_DELETED:
+    "The customer closed this account. It cannot be blocked or unblocked.",
   // legal
   LEGAL_DOCUMENT_NOT_FOUND: "This legal text does not exist (any more).",
   LEGAL_DOCUMENT_PUBLISHED:
@@ -210,6 +212,14 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   DISCOUNT_CODE_TAKEN: "Another discount code has this text.",
   DISCOUNT_IN_USE:
     "Orders were made with this code. It keeps its text and stays for the order history; switch it off instead.",
+  // product reviews
+  REVIEW_NOT_FOUND: "This review does not exist (any more).",
+  // problem reports
+  ISSUE_NOT_FOUND: "This problem report does not exist (any more).",
+  ISSUE_TRANSITION_NOT_ALLOWED:
+    "The report cannot take this step from where it is now. It was loaded again.",
+  ISSUE_QUANTITY_INVALID:
+    "The units are not possible: at most what was reported, and something must be refunded.",
   QUOTATION_STATUS_INVALID:
     "The quotation is not in a status that allows this. The page was loaded again.",
 };

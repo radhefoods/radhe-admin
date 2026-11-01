@@ -9,6 +9,7 @@ import { authenticate, registerAuth, revokeSessions } from "./auth.ts";
 import type { Db } from "./db.ts";
 import { HttpError, fail, json, noContent, setPeople } from "./http.ts";
 import { bannerSvg, placeholderSvg } from "./media.ts";
+import { customerRef, registerAccounts } from "./modules/accounts.ts";
 import { registerAnalytics } from "./modules/analytics.ts";
 import { registerBanners } from "./modules/banners.ts";
 import { registerDiscounts } from "./modules/discounts.ts";
@@ -75,14 +76,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       const found = db.admins.find((admin) => admin.id === id);
       return found ? { id: found.id, name: found.name } : null;
     },
-    customer: (id) => {
-      const found = db.customers.find((customer) => customer.id === id);
-      if (!found) return null;
-      const name = [found.firstName, found.lastName]
-        .filter((part) => part && part.trim() !== "")
-        .join(" ");
-      return { id: found.id, name: name || null, email: found.email };
-    },
+    customer: (id) => customerRef(db, id),
   });
 
   const router = new Router();
@@ -103,6 +97,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   registerWholesaleSheets(router);
   registerDiscounts(router);
   registerQuotations(router);
+  registerAccounts(router);
 
   const originAllowed = (origin: string) =>
     (options.allowedOrigins ?? []).includes(origin) ||

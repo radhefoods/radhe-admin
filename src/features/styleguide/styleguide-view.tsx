@@ -81,6 +81,9 @@ const STATUS_TITLES: Record<StatusKind, string> = {
   banner: "Banner",
   discount: "Discount code",
   discountUse: "Use of a discount code",
+  issue: "Problem report",
+  review: "Product review",
+  referral: "Referral",
 };
 
 const demoSchema = z.object({

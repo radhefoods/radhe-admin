@@ -50,6 +50,7 @@ export const API_ERROR_CODES = [
   "ROLE_PERMISSION_UNKNOWN",
   // customers (4)
   "CUSTOMER_NOT_FOUND",
+  "CUSTOMER_DELETED",
   // legal (6)
   "LEGAL_DOCUMENT_NOT_FOUND",
   "LEGAL_DOCUMENT_PUBLISHED",
@@ -156,6 +157,12 @@ export const API_ERROR_CODES = [
   "DISCOUNT_SCHEDULE_INVALID",
   "DISCOUNT_CODE_TAKEN",
   "DISCOUNT_IN_USE",
+  // product reviews (28)
+  "REVIEW_NOT_FOUND",
+  // problem reports (29)
+  "ISSUE_NOT_FOUND",
+  "ISSUE_TRANSITION_NOT_ALLOWED",
+  "ISSUE_QUANTITY_INVALID",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];

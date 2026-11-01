@@ -1,4 +1,5 @@
 import type {
+  IssueStatus,
   OrderStatus,
   RefundMethod,
   RefundStatus,
@@ -51,6 +52,18 @@ export const ORDER_CHANGEABLE_IN: readonly OrderStatus[] = [
   "dispatched",
   "delivered",
 ];
+
+/**
+ * The steps of a problem report (29): taken on first, then resolved or
+ * rejected; `cancelled` from `open` is the customer's own step.
+ */
+export const ISSUE_TRANSITIONS: Record<IssueStatus, readonly IssueStatus[]> = {
+  open: ["in_review"],
+  in_review: ["resolved", "rejected"],
+  resolved: [],
+  rejected: [],
+  cancelled: [],
+};
 
 /** `cancelled` from `requested` is the customer's own step. */
 export const RETURN_TRANSITIONS: Record<ReturnStatus, readonly ReturnStatus[]> =

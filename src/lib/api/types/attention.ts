@@ -1,6 +1,7 @@
 // Section 15: the attention overview of the start page.
 
 import type { ProductSummary } from "./catalog";
+import type { Issue } from "./issues";
 import type { Notification } from "./notifications";
 import type { OrderSummary } from "./orders";
 import type { Refund } from "./payments";
@@ -29,4 +30,8 @@ export interface Attention {
   notifications: { failed: number; queued: number; items: Notification[] };
   /** Wholesale quotation requests nobody has priced yet (24), the newest five. */
   quotations: { new: number; items: QuotationSummary[] };
+  /** Problem reports nobody looked at yet (29), the newest five. */
+  issues: { open: number; items: Issue[] };
+  /** Reviews waiting to be read (28); the list gives them. */
+  reviews: { pending: number };
 }

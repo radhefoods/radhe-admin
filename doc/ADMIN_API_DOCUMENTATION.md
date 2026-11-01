@@ -35,6 +35,11 @@ For the Next.js Admin Panel. Generated from the implemented NestJS backend (`rad
 24. Wholesale quotations (B2B)
 25. Wholesale catalogue (B2B)
 26. Discount codes (retail shop)
+27. Referrals
+28. Product reviews
+29. Problem reports
+
+Added on 2026-11-01 (`doc/CUSTOMER_ACCOUNTS.md` has the long version): guest orders and deleted accounts (sections 4 and 9), referrals (27), reviews (28), problem reports (29), the attention overview with reports and reviews (15), `issueWindowDays` in the return policy (5), the permissions `reviews.read` and `reviews.manage`.
 
 ---
 
@@ -469,7 +474,9 @@ Read customer accounts and block or unblock them. A blocked customer cannot sign
 }
 ```
 
-`status` ∈ `active`, `blocked`. Customers sign up with email and password; the admin never sees or sets a password. `communication.whatsappNumber` falls back to `phone` when no separate number was given; `whatsappOptIn` allows messages about own orders by WhatsApp, `marketingOptIn` the news of section 14.
+`status` ∈ `active`, `blocked`, `deleted`. Customers sign up with email and password, proven with an emailed code; the admin never sees or sets a password. `communication.whatsappNumber` falls back to `phone` when no separate number was given; `whatsappOptIn` allows messages about own orders by WhatsApp, `marketingOptIn` the news of section 14.
+
+Since 2026-11-01 the object also carries `kind` (`registered`: signs in with a password; `guest`: ordered without an account, see section 20 of the customer documentation), `emailVerifiedAt`, `deletedAt`, `referralCode` and `referredBy`. A customer who closed the account has `status: "deleted"`, `email: "deleted:<id>"` and no personal fields: show "Deleted account". Wherever a record names its customer (`customer` on orders, returns, refunds, reports, notifications), the reference carries `deleted: true`, `name: "Deleted account"` and `email: null` for such an account.
 
 ### `GET /v1/admin/customers`
 
@@ -481,7 +488,8 @@ Read customer accounts and block or unblock them. A blocked customer cannot sign
 
 | Field | Type | Required | Description |
 | ----- | ---- | -------- | ----------- |
-| `status` | `active` \| `blocked` | no | |
+| `status` | `active` \| `blocked` \| `deleted` | no | |
+| `kind` | `registered` \| `guest` | no | |
 | `email` | string, 2–254 | no | Beginning of the email address. |
 | `q` | string 1–100 | no | Words of the name, the email or the phone; every word must begin a word of the customer (`schmi`, `anna@`, `4915`). |
 | `sort` | `createdAt` \| `email` \| `status`, with `:asc` or `:desc` | no | Default `createdAt:desc`. |
@@ -506,7 +514,7 @@ Read customer accounts and block or unblock them. A blocked customer cannot sign
 
 **Request Body:** `{ "status": "active" | "blocked", "reason"?: string (≤500, stored when blocking) }`
 
-**Success Response (200):** `{ "customer": { … } }`. **Possible Errors:** `404 CUSTOMER_NOT_FOUND`.
+**Success Response (200):** `{ "customer": { … } }`. **Possible Errors:** `404 CUSTOMER_NOT_FOUND`, `409 CUSTOMER_DELETED` (a closed account cannot be changed).
 
 ---
 
@@ -573,7 +581,7 @@ The business rules the admin can change. `GET` returns all of them; each `PUT` r
 
 ### `PUT /v1/admin/settings/return-policy`
 
-**Permission:** `settings.manage`. **Request Body:** `{ "windowDays": 14 }` (0–365; 0 switches return requests off). **Success Response (200):** `{ "returnPolicy": { … } }`.
+**Permission:** `settings.manage`. **Request Body:** `{ "windowDays": 14, "issueWindowDays"?: 14 }` (each 0–365; 0 switches return requests, or problem reports, off; `issueWindowDays` defaults to `windowDays`). **Success Response (200):** `{ "returnPolicy": { "windowDays", "issueWindowDays" } }`.
 
 ### `PUT /v1/admin/settings/company`
 
@@ -1908,7 +1916,7 @@ The start page has two tabs: **Decisions**, this endpoint, and **Analytics**, se
 
 ### `GET /v1/admin/attention`
 
-**Purpose:** What waits for the admin, in one call: paid orders to prepare, refunds to decide, return requests, products that run low, failed messages. Each group has a count and the newest five; the module lists give the rest (`orders?status=confirmed`, `orders?needsRefund=true`, `refunds?status=pending` / `failed`, `returns?status=requested`, `products?lowStock=true`, `notifications?status=failed`).
+**Purpose:** What waits for the admin, in one call: paid orders to prepare, refunds to decide, return requests, problem reports, reviews to read, quotation requests, products that run low, failed messages. Each group has a count and the newest five; the module lists give the rest (`orders?status=confirmed`, `orders?needsRefund=true`, `refunds?status=pending` / `failed`, `returns?status=requested`, `issues?status=open`, `reviews?status=pending`, `products?lowStock=true`, `notifications?status=failed`). Since 2026-11-01 the answer also carries `issues: { open, items }` (section 29) and `reviews: { pending }` (section 28).
 
 **Permission:** `orders.read`.
 
@@ -1987,6 +1995,9 @@ Stripe's webhook (header `stripe-signature`, verified with the webhook secret; t
 | Wholesale quotations | `quotations.read` | `quotations.manage` |
 | Wholesale catalogue (categories, products, SKUs, stock, import/export) | `wholesale.read` | `wholesale.manage` |
 | Discount codes of the retail shop | `discounts.read` | `discounts.manage` |
+| Product reviews | `reviews.read` | `reviews.manage` |
+| Problem reports | `orders.read` | `orders.manage` |
+| Referrals | `customers.read` | |
 
 Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 
@@ -2265,8 +2276,59 @@ Promotional codes for the retail shop: percentage or fixed-amount, with an optio
 
 The code: `id`, `code` (upper case), `note`, `type`, `value` (whole percent, or cents), `appliesToSaleItems`, `minOrderValue`, `startsAt`, `expiresAt`, `maxUses` (`null` = unlimited), `oncePerCustomer`, `isActive`, `usedCount` (paid orders), `reservedCount` (orders waiting for payment), `remainingUses` (`null` when unlimited), `state`, `createdBy`, `createdAt`, `updatedAt`.
 
-Orders carry the code: `discountCode` in the summary (section 9.2), and in the detail `discount { code, type, value, amount, state }`, `items[].discountAmount`, `totals.discount` and `finalTotals.discount` (0 on orders from before discount codes). Invoices and credit notes list the discount as negative lines per VAT rate (`Discount DIWALI10`) and carry `totals.discount`.
+Orders carry the code: `discountCode` in the summary (section 9.2), and in the detail `discount { code, type, value, amount, state }`, `items[].discountAmount`, `totals.discount` and `finalTotals.discount` (0 on orders from before discount codes). Invoices and credit notes list the discount as negative lines per VAT rate (`Discount DIWALI10`) and carry `totals.discount`. Guest orders take a code too (`discountCode` of the guest checkout).
 
 **Errors:** `400 DISCOUNT_VALUE_INVALID` (a percentage above 100), `400 DISCOUNT_SCHEDULE_INVALID`, `404 DISCOUNT_NOT_FOUND`, `409 DISCOUNT_CODE_TAKEN`, `409 DISCOUNT_IN_USE`. On the store side: `400`/`409 DISCOUNT_NOT_APPLICABLE` with `details { code, reason }`.
 
 **Permissions:** `discounts.read` to see codes and uses, `discounts.manage` to create, change, switch and delete.
+
+---
+
+## 27. Referrals
+
+Customers invite others with a code (8 characters, made on first use, `referralCode` on the customer) and the link `<shop>/?ref=<code>`. A referral is made at the sign-up of the invited person (`registered`), counts once their first delivered order stands with nothing to refund (`qualified`, with `orderNumber`), and is `void` (`voidReason: "refunded"`) when all the goods of that order are credited later, or `already_customer` is answered at the sign-up when the person paid for an order as a guest before. Rewards are not built; the records are what a reward will rest on.
+
+| Endpoint | Query | Answer |
+|---|---|---|
+| `GET /v1/admin/referrals` | `status` (`registered` \| `qualified` \| `void`), `referrerId`, `referredId`, `limit`, `cursor`, `sort` (`createdAt`, `status`) | `{ items: [ { id, status, code, referrerId, referrer, referredId, referred, registeredAt, orderId, orderNumber, qualifiedAt, voidReason, voidAt } ], nextCursor }` |
+| `GET /v1/admin/referrals/count` | the same filters | `{ total }` |
+
+**Permission:** `customers.read`.
+
+## 28. Product reviews
+
+A customer writes one review per product of a delivered order (rating 1 to 5, title, text); it waits (`pending`) until the admin publishes it (`published`) or rejects it with a note to the customer (`rejected`). A published review that the customer rewrites waits again. The rating of a product (`rating { average, count }` in the catalogue) follows its published reviews. The admin may answer in public.
+
+| Endpoint | Body / query | Answer |
+|---|---|---|
+| `GET /v1/admin/reviews` | `status`, `productId`, `customerId`, `rating`, `limit`, `cursor`, `sort` (`createdAt`, `status`, `rating`) | `{ items, nextCursor }` |
+| `GET /v1/admin/reviews/count` | the same filters | `{ total }` |
+| `GET /v1/admin/reviews/{id}` | | `{ review }` |
+| `POST /v1/admin/reviews/{id}/approve` | | `{ review }`, published; the product's rating follows |
+| `POST /v1/admin/reviews/{id}/reject` | `{ note }` (shown to the customer) | `{ review }`; a published review is taken off the shop |
+| `POST /v1/admin/reviews/{id}/reply` | `{ text }` | `{ review }`, the answer shown under the review; answering again replaces it |
+| `DELETE /v1/admin/reviews/{id}/reply` | | `{ review }` |
+| `DELETE /v1/admin/reviews/{id}` | | `204` |
+
+The review: `id`, `productId`, `product { id, slug, name, imageUrl }`, `customerId`, `customer`, `orderId`, `orderNumber`, `rating`, `title`, `text`, `locale`, `authorName` ("Priya S."), `status`, `publishedAt`, `moderation { adminId, admin, at, note }`, `reply { text, adminId, admin, at }`, `writtenAt`, `editedAt`, `updatedAt`.
+
+**Permissions:** `reviews.read` to look, `reviews.manage` to decide, answer and delete. **Errors:** `404 REVIEW_NOT_FOUND`.
+
+Order feedback (stars for the shopping and the delivery, a comment), given once by the customer after the delivery, is on the order detail as `feedback { rating, deliveryRating, comment, at }` and never public.
+
+## 29. Problem reports
+
+After a delivery, within `returnPolicy.issueWindowDays`, a customer reports what went wrong with an order: the products concerned with the units affected, the problems (`damaged`, `missing`, `wrong_item`, `not_fresh`, `late`, `other`), a description, up to five photos, and what they would like (`preferredResolution`: `refund`, `replacement`, `none`). Numbers are `RF-1084-P1`. Statuses: `open` → `in_review` → `resolved` | `rejected`; `cancelled` when the customer takes it back while `open`. The customer is emailed when the report is received, resolved or rejected.
+
+| Endpoint | Body / query | Answer |
+|---|---|---|
+| `GET /v1/admin/issues` | `status`, `orderNumber`, `customerId`, `limit`, `cursor`, `sort` (`createdAt`, `status`) | `{ items, nextCursor }` |
+| `GET /v1/admin/issues/count` | the same filters | `{ total }` |
+| `GET /v1/admin/issues/{id}` | | `{ issue }` |
+| `POST /v1/admin/issues/{id}/review` | `{ note?, internalNote? }` | `{ issue }`, `in_review`; the customer can no longer take it back; no email |
+| `POST /v1/admin/issues/{id}/resolve` | `{ resolution: "refund" \| "replacement" \| "none", items?: [ { variantId, quantity } ], note?, internalNote? }` | `{ issue }`, `resolved`. `refund`: the units in `items` (default: as reported) come off the delivered quantity of the order, as a correction with the reason from the problems (`missing`, `wrong_item`, `damaged`, else `customer_complaint`) and the note "Problem report RF-1084-P1"; the credit note is issued and the refund waits in the refund queue of section 11. `replacement`: noted, sent again by hand. `none`: settled with the note |
+| `POST /v1/admin/issues/{id}/reject` | `{ note, internalNote? }` | `{ issue }`, `rejected` |
+
+The report: `id`, `issueNumber`, `orderId`, `orderNumber`, `customerId`, `customer`, `status`, `reportedAt`, `decidedAt`, `items[] { productId, variantId, sku, name, packSize, quantity, refundedQuantity, unitPrice, vatRate }`, `reportedAmount` (cents of the reported units), `problems`, `description`, `images[]` (as product images), `preferredResolution`, `resolution { type, amount (cents credited), note, adminId, admin, at }`, `internalNote`, `statusHistory[]`, `updatedAt`.
+
+**Permissions:** `orders.read` to look, `orders.manage` to decide. **Errors:** `404 ISSUE_NOT_FOUND`, `409 ISSUE_TRANSITION_NOT_ALLOWED`, `400 ISSUE_QUANTITY_INVALID` (more than reported, or nothing to refund), `400 ORDER_ITEM_NOT_FOUND`.

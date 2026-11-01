@@ -115,7 +115,9 @@ export function registerShop(router: Router): void {
     const status = enumParam(ctx.query, "status", [
       "active",
       "blocked",
+      "deleted",
     ] as const);
+    const kind = enumParam(ctx.query, "kind", ["registered", "guest"] as const);
     const email = ctx.query.get("email")?.trim().toLowerCase();
     const q = searchParam(ctx.query);
     if (
@@ -133,6 +135,7 @@ export function registerShop(router: Router): void {
     return ctx.db.customers.filter(
       (customer) =>
         (!status || customer.status === status) &&
+        (!kind || customer.kind === kind) &&
         (!email || customer.email.startsWith(email)) &&
         wordsMatch(q, [
           `${customer.firstName ?? ""} ${customer.lastName ?? ""}`,
@@ -166,6 +169,13 @@ export function registerShop(router: Router): void {
     async (ctx) => {
       const input = await ctx.body(statusBody);
       const customer = customerById(ctx.db, ctx.params.id ?? "");
+      if (customer.status === "deleted") {
+        throw fail(
+          409,
+          "CUSTOMER_DELETED",
+          "The customer closed this account; it cannot be changed.",
+        );
+      }
       customer.status = input.status;
       customer.blockedReason =
         input.status === "blocked" ? (input.reason ?? null) : null;
@@ -249,9 +259,17 @@ export function registerShop(router: Router): void {
     `${settings}/return-policy`,
     { permission: "settings.manage" },
     async (ctx) => {
-      ctx.db.settings.returnPolicy = await ctx.body(
-        z.strictObject({ windowDays: z.number().int().min(0).max(365) }),
+      const input = await ctx.body(
+        z.strictObject({
+          windowDays: z.number().int().min(0).max(365),
+          issueWindowDays: z.number().int().min(0).max(365).optional(),
+        }),
       );
+      // `issueWindowDays` defaults to `windowDays` (5).
+      ctx.db.settings.returnPolicy = {
+        windowDays: input.windowDays,
+        issueWindowDays: input.issueWindowDays ?? input.windowDays,
+      };
       return json({ returnPolicy: ctx.db.settings.returnPolicy });
     },
   );

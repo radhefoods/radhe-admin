@@ -16,6 +16,9 @@ export const routes = {
   order: (id: Id) => `/orders/${id}` as Route,
   returns: "/returns" as Route,
   return: (id: Id) => `/returns/${id}` as Route,
+  /** Problem reports after a delivery (29). */
+  issues: "/issues" as Route,
+  issue: (id: Id) => `/issues/${id}` as Route,
 
   /** Wholesale quotations (24); the heads-up email links to the detail. */
   quotations: "/quotations" as Route,
@@ -36,6 +39,10 @@ export const routes = {
 
   customers: "/customers" as Route,
   customer: (id: Id) => `/customers/${id}` as Route,
+  /** Referrals (27) and product reviews (28). */
+  referrals: "/referrals" as Route,
+  reviews: "/reviews" as Route,
+  review: (id: Id) => `/reviews/${id}` as Route,
 
   products: "/catalogue/products" as Route,
   productNew: "/catalogue/products/new" as Route,

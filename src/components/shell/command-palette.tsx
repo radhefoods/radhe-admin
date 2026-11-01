@@ -21,7 +21,7 @@ import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useCan } from "@/lib/auth/auth-provider";
 import { formatMoney } from "@/lib/format/money";
-import { personName, translated } from "@/lib/format/names";
+import { personEmail, personName, translated } from "@/lib/format/names";
 import { useDebounced } from "@/lib/hooks/use-debounced";
 import { routes } from "@/lib/routes";
 import { visibleNavigation } from "./nav";
@@ -121,7 +121,7 @@ export function CommandPalette({
     href: routes.customer(customer.id),
     icon: Users,
     title: personName(customer),
-    detail: customer.email,
+    detail: personEmail(customer) ?? "The account was closed",
     trailing:
       customer.status === "blocked" ? (
         <StatusBadge kind="customer" value={customer.status} />

@@ -268,6 +268,49 @@ function groupsOf(
         ),
       })),
     },
+    {
+      key: "issues",
+      label: "Problem reports",
+      count: attention.issues.open,
+      tone: "attention",
+      href: withQuery(routes.issues, { status: "open" }),
+      detail:
+        attention.issues.open > 0
+          ? "Customers reported a problem with a delivered order. Take each report on, then resolve or reject it."
+          : "No report waits to be taken on.",
+      rows: attention.issues.items.map((issue) => ({
+        key: issue.id,
+        href: routes.issue(issue.id),
+        title: issue.issueNumber,
+        meta: (
+          <>
+            {issue.problems.map((problem) => humanize(problem)).join(", ")} ·{" "}
+            {issue.orderNumber} · <DateTime value={issue.reportedAt} short />
+          </>
+        ),
+        trailing:
+          issue.reportedAmount > 0 ? (
+            <Money cents={issue.reportedAmount} />
+          ) : undefined,
+      })),
+    },
+    ...(can("reviews.read")
+      ? [
+          {
+            key: "reviews",
+            label: "Reviews to read",
+            count: attention.reviews.pending,
+            tone: "attention" as const,
+            href: withQuery(routes.reviews, { status: "pending" }),
+            detail:
+              attention.reviews.pending > 0
+                ? "Customers wrote about products they received. Publish each review, or reject it with a note."
+                : "Every review was read.",
+            // The overview carries the count only (15): the list has the reviews.
+            rows: [],
+          },
+        ]
+      : []),
     ...(can("quotations.read")
       ? [
           {
@@ -301,7 +344,7 @@ function groupsOf(
 
 function AttentionStrip({ groups }: { groups: Group[] }) {
   return (
-    <ul className="grid grid-cols-2 overflow-hidden rounded-lg border border-line sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+    <ul className="grid grid-cols-2 overflow-hidden rounded-lg border border-line sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-9">
       {groups.map((group) => (
         <li
           key={group.key}
@@ -455,9 +498,10 @@ function DecisionsTab() {
               title="All clear"
               className="rounded-lg border border-line py-10"
             >
-              No paid order waits to be prepared, no refund or return waits for
-              a decision, no product runs low, every message went out and no
-              quotation request waits for prices.
+              No paid order waits to be prepared, no refund, return or problem
+              report waits for a decision, no review waits to be read, no
+              product runs low, every message went out and no quotation request
+              waits for prices.
             </EmptyState>
           ) : (
             <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">

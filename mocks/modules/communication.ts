@@ -10,6 +10,7 @@ import type {
   NotificationStatus,
 } from "../../src/lib/api/types/index.ts";
 import type { Db } from "../db.ts";
+import { accountsAttention } from "./accounts.ts";
 import { quotationAttention } from "./quotations.ts";
 import {
   orderNeedsRefund,
@@ -521,6 +522,7 @@ export function registerCommunication(router: Router): void {
         items: newest(failedMessages).map(withoutData),
       },
       quotations: quotationAttention(db),
+      ...accountsAttention(db),
     });
   });
 }

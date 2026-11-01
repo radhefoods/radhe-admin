@@ -23,6 +23,11 @@ import type {
   Settings,
   StockMovement,
 } from "../src/lib/api/types/index.ts";
+import type {
+  IssueRecord,
+  ReferralRecord,
+  ReviewRecord,
+} from "./modules/accounts.ts";
 import type { BlogCategoryRecord, BlogPostRecord } from "./modules/blog.ts";
 import type {
   DiscountCodeRecord,
@@ -223,6 +228,10 @@ export interface Db {
   /** Discount codes of the retail shop (26) and their uses by orders. */
   discountCodes: DiscountCodeRecord[];
   discountUses: DiscountUseRecord[];
+  /** Referrals (27), product reviews (28) and problem reports (29). */
+  referrals: ReferralRecord[];
+  reviews: ReviewRecord[];
+  issues: IssueRecord[];
   /** Pictures uploaded while the mock runs, by the key in their address. */
   files: Map<string, StoredFile>;
   counters: {
@@ -252,7 +261,7 @@ export function emptyDb(config: MockConfig): Db {
         defaultMethod: "radhe_delivery",
         estimate: { en: "2 to 4 working days", de: "2 bis 4 Werktage" },
       },
-      returnPolicy: { windowDays: 14 },
+      returnPolicy: { windowDays: 14, issueWindowDays: 14 },
       company: {
         name: "Radhe Foods",
         addressLines: [],
@@ -283,6 +292,9 @@ export function emptyDb(config: MockConfig): Db {
     wholesaleStockMovements: [],
     discountCodes: [],
     discountUses: [],
+    referrals: [],
+    reviews: [],
+    issues: [],
     files: new Map(),
     counters: {
       order: 1000,

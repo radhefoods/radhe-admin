@@ -20,6 +20,7 @@ import type {
   LegalType,
   PaymentSettings,
   PaymentsInput,
+  ReturnPolicyInput,
   Settings,
   UpdateLegalDocumentInput,
 } from "../types";
@@ -65,10 +66,11 @@ export function settingsApi({ request }: SessionTransport) {
         method: "PUT",
         body: input,
       }),
-    putReturnPolicy: (windowDays: number) =>
+    /** The return window and the window for problem reports, in days (0 switches either off). */
+    putReturnPolicy: (input: ReturnPolicyInput) =>
       request<Pick<Settings, "returnPolicy">>(`${base}/return-policy`, {
         method: "PUT",
-        body: { windowDays },
+        body: input,
       }),
     putCompany: (input: CompanyInput) =>
       request<{ company: CompanySettings }>(`${base}/company`, {

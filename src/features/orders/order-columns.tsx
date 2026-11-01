@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Column } from "@/components/data/data-table";
+import { GuestBadge } from "@/components/domain/customer";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { DateTime, Money, TwoLine } from "@/components/domain/values";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +44,7 @@ export function orderColumns(): Column<OrderSummary>[] {
           primary={
             <span className="inline-flex flex-wrap items-center gap-1.5">
               <OrderNumber order={row.original} />
+              <GuestBadge isGuest={row.original.isGuest} />
               <DiscountBadge code={row.original.discountCode} />
             </span>
           }
@@ -133,6 +135,7 @@ export function OrderCard({ order }: { order: OrderSummary }) {
           <span className="text-base font-semibold text-ink">
             {order.orderNumber}
           </span>
+          <GuestBadge isGuest={order.isGuest} />
           <DiscountBadge code={order.discountCode} />
         </span>
         <Money cents={order.finalTotal} className="font-semibold" />

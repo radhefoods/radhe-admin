@@ -1,13 +1,9 @@
 import { z } from "zod";
-import type {
-  CustomerStatus,
-  CustomerStatusInput,
-  SignupMethod,
-} from "@/lib/api/types";
+import type { CustomerStatusInput } from "@/lib/api/types";
 
 // The rule of the API for the one thing the panel can change about a
 // customer (documentation, 4): the account status, with an optional reason
-// that is stored when blocking.
+// that is stored when blocking. A closed account cannot be changed at all.
 
 export const BLOCK_REASON_MAX = 500;
 
@@ -19,7 +15,7 @@ export const blockReasonSchema = z
 
 /** What `PATCH /customers/{id}/status` gets. A reason is only stored when blocking. */
 export function toStatusInput(
-  status: CustomerStatus,
+  status: CustomerStatusInput["status"],
   reason = "",
 ): CustomerStatusInput {
   const text = reason.trim();
@@ -27,10 +23,3 @@ export function toStatusInput(
     ? { status, reason: text }
     : { status };
 }
-
-// --- Words -------------------------------------------------------------------
-
-export const SIGNUP_METHOD_LABEL: Record<SignupMethod, string> = {
-  email_otp: "Email code",
-  google: "Google",
-};

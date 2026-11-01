@@ -6,7 +6,12 @@ import { DateTime } from "@/components/domain/values";
 import { Skeleton } from "@/components/ui/surface";
 import type { AnalyticsQuery } from "@/lib/api/types";
 import { formatMoney } from "@/lib/format/money";
-import { LOCALE_LABEL, plural } from "@/lib/format/names";
+import {
+  LOCALE_LABEL,
+  personEmail,
+  personName,
+  plural,
+} from "@/lib/format/names";
 import { routes } from "@/lib/routes";
 import { formatCount, formatPercent, KpiTile, Section } from "./kpi";
 import { useAnalyticsCustomers } from "./queries";
@@ -141,11 +146,12 @@ export function CustomersSection({
                               href={routes.customer(entry.customer.id)}
                               className="truncate font-semibold text-accent-text hover:underline"
                             >
-                              {entry.customer.name ?? entry.customer.email}
+                              {personName(entry.customer)}
                             </Link>
-                            {entry.customer.name ? (
+                            {entry.customer.name &&
+                            personEmail(entry.customer) ? (
                               <span className="truncate text-13 text-ink-subtle">
-                                {entry.customer.email}
+                                {personEmail(entry.customer)}
                               </span>
                             ) : null}
                           </span>

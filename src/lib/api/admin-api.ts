@@ -1,3 +1,4 @@
+import { issuesApi, referralsApi, reviewsApi } from "./endpoints/accounts";
 import { adminUsersApi, authApi, rolesApi } from "./endpoints/auth";
 import { analyticsApi } from "./endpoints/analytics";
 import { bannersApi } from "./endpoints/banners";
@@ -59,6 +60,9 @@ export function createAdminApi(transport: SessionTransport) {
     wholesaleProducts: wholesaleProductsApi(transport),
     wholesaleSheets: wholesaleSheetsApi(transport),
     discounts: discountsApi(transport),
+    referrals: referralsApi(transport),
+    reviews: reviewsApi(transport),
+    issues: issuesApi(transport),
   };
 }
 

@@ -1,7 +1,12 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Ellipsis, ExternalLink, ShoppingBag } from "lucide-react";
+import {
+  Ellipsis,
+  ExternalLink,
+  MessageSquareWarning,
+  ShoppingBag,
+} from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
@@ -9,6 +14,8 @@ import {
   ActionButton,
   RequirePermission,
 } from "@/components/domain/permission";
+import { GuestBadge } from "@/components/domain/customer";
+import { Stars } from "@/components/domain/stars";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { Timeline, type TimelineEntry } from "@/components/domain/timeline";
 import {
@@ -50,6 +57,8 @@ import {
   DELIVERY_METHOD_LABEL,
   LOCALE_LABEL,
   addressLines,
+  isDeletedAccount,
+  personEmail,
   personName,
 } from "@/lib/format/names";
 import { routes, withQuery } from "@/lib/routes";
@@ -72,6 +81,7 @@ import {
   OrderStatusDialog,
 } from "./order-dialogs";
 import { OrderItemsCard } from "./order-items";
+import { useOrderIssues } from "@/features/issues/queries";
 import { OrderPaymentCard } from "./order-payment";
 import { useOrder, useOrderActions, type OrderActions } from "./queries";
 
@@ -310,7 +320,108 @@ function DeliveryCard({
   );
 }
 
-/** Returns and messages that belong to the order. */
+/** The stars the customer gave after the delivery (28): never public. */
+function FeedbackCard({ order }: { order: OrderDetail }) {
+  if (order.status !== "delivered" && order.status !== "returned") return null;
+  const { feedback } = order;
+  return (
+    <Card>
+      <CardHeader
+        title="Feedback of the customer"
+        description="Given once after the delivery, in the shop. Only the team sees it."
+      />
+      <CardBody>
+        {feedback ? (
+          <dl className="grid gap-4 sm:grid-cols-2">
+            <Fact label="The shopping">
+              <Stars value={feedback.rating} label="The shopping" size="md" />
+            </Fact>
+            <Fact label="The delivery">
+              {feedback.deliveryRating ? (
+                <Stars
+                  value={feedback.deliveryRating}
+                  label="The delivery"
+                  size="md"
+                />
+              ) : (
+                <span className="text-ink-subtle">Not rated</span>
+              )}
+            </Fact>
+            <Fact label="The customer wrote" className="sm:col-span-2">
+              {feedback.comment ? (
+                <span className="whitespace-pre-line">
+                  “{feedback.comment}”
+                </span>
+              ) : (
+                <span className="text-ink-subtle">Nothing</span>
+              )}
+            </Fact>
+            <Fact label="Given">
+              <DateTime value={feedback.at} />
+            </Fact>
+          </dl>
+        ) : (
+          <p className="text-13 text-ink-muted">
+            The customer has not given feedback on this order.
+          </p>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+/** The problem reports of the order (29), next to its returns. */
+function IssuesCard({ order }: { order: OrderDetail }) {
+  const issues = useOrderIssues(order.orderNumber).data;
+  if (!issues || issues.items.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader
+        title="Problem reports"
+        actions={
+          <Link
+            href={withQuery(routes.issues, {
+              orderNumber: order.orderNumber,
+              status: "all",
+            })}
+            className="text-13 font-medium text-accent-text hover:underline"
+          >
+            All
+          </Link>
+        }
+      />
+      <ul className="divide-y divide-line">
+        {issues.items.map((issue) => (
+          <li key={issue.id}>
+            <Link
+              href={routes.issue(issue.id)}
+              className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-sunken/70 sm:px-5"
+            >
+              <MessageSquareWarning
+                aria-hidden="true"
+                className="size-4 shrink-0 text-ink-subtle"
+              />
+              <span className="font-semibold text-accent-text">
+                {issue.issueNumber}
+              </span>
+              <StatusBadge kind="issue" value={issue.status} />
+              <span className="truncate text-13 text-ink-muted">
+                {issue.problems.map((problem) => humanize(problem)).join(", ")}
+              </span>
+              <DateTime
+                value={issue.reportedAt}
+                short
+                className="ml-auto text-13 text-ink-muted"
+              />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+/** Returns, problem reports and messages that belong to the order. */
 function Related({ order }: { order: OrderDetail }) {
   const can = useCan();
   const returns = useQuery({
@@ -352,6 +463,8 @@ function Related({ order }: { order: OrderDetail }) {
           </ul>
         </Card>
       ) : null}
+
+      <IssuesCard order={order} />
 
       {messages ? (
         <Card>
@@ -474,6 +587,7 @@ export function OrderView() {
           <>
             <StatusBadge kind="order" value={data.status} />
             <StatusBadge kind="payment" value={data.paymentStatus} />
+            <GuestBadge isGuest={data.isGuest} />
           </>
         }
         description={
@@ -520,12 +634,22 @@ export function OrderView() {
           <div className="flex min-w-0 flex-col gap-6">
             <OrderItemsCard order={data} actions={actions} />
             <OrderPaymentCard order={data} actions={actions} />
+            <FeedbackCard order={data} />
             <Related order={data} />
           </div>
 
           <div className="flex min-w-0 flex-col gap-6">
             <Card>
-              <CardHeader title="Customer" />
+              <CardHeader
+                title="Customer"
+                description={
+                  isDeletedAccount(data.customer)
+                    ? "The customer closed the account: the personal details are gone. The order stays for the books."
+                    : data.isGuest
+                      ? "Ordered without an account. The emails about the order carry the link that opens it."
+                      : undefined
+                }
+              />
               <CardBody>
                 <dl className="grid gap-4">
                   <Fact label="Name">
@@ -540,21 +664,23 @@ export function OrderView() {
                       personName(data.customer)
                     )}
                   </Fact>
-                  <Fact label="Email">
-                    <span className="flex items-center gap-1">
-                      <a
-                        href={`mailto:${data.customer.email}`}
-                        className="truncate hover:underline"
-                      >
-                        {data.customer.email}
-                      </a>
-                      <CopyButton
-                        value={data.customer.email}
-                        label="Copy the email address"
-                      />
-                    </span>
-                  </Fact>
-                  {data.customer.phone ? (
+                  {personEmail(data.customer) ? (
+                    <Fact label="Email">
+                      <span className="flex items-center gap-1">
+                        <a
+                          href={`mailto:${personEmail(data.customer)}`}
+                          className="truncate hover:underline"
+                        >
+                          {personEmail(data.customer)}
+                        </a>
+                        <CopyButton
+                          value={personEmail(data.customer) ?? ""}
+                          label="Copy the email address"
+                        />
+                      </span>
+                    </Fact>
+                  ) : null}
+                  {data.customer.phone && !isDeletedAccount(data.customer) ? (
                     <Fact label="Phone">
                       <a
                         href={`tel:${data.customer.phone}`}

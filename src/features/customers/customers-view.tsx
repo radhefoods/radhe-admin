@@ -11,6 +11,7 @@ import {
   type SortOption,
 } from "@/components/data/filter-bar";
 import { LoadMore } from "@/components/data/pagination";
+import { CUSTOMER_KIND_LABEL, KindBadge } from "@/components/domain/customer";
 import { RequirePermission } from "@/components/domain/permission";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { DateTime, TwoLine } from "@/components/domain/values";
@@ -18,21 +19,19 @@ import { PageBody, PageHeader } from "@/components/shell/page";
 import { Button } from "@/components/ui/button";
 import { Alert, EmptyState } from "@/components/ui/surface";
 import { errorMessage } from "@/lib/api/error-text";
-import type {
-  Customer,
-  CustomerSortField,
-  CustomerStatus,
-  SortParam,
+import {
+  CUSTOMER_KINDS,
+  CUSTOMER_STATUSES,
+  type Customer,
+  type CustomerSortField,
+  type SortParam,
 } from "@/lib/api/types";
 import { formatDate } from "@/lib/format/dates";
-import { LOCALE_LABEL, personName } from "@/lib/format/names";
+import { LOCALE_LABEL, isDeletedAccount, personName } from "@/lib/format/names";
 import { param, useUrlState } from "@/lib/hooks/use-url-state";
 import { routes } from "@/lib/routes";
 import { CUSTOMER_STATUS, statusOptions } from "@/lib/status";
 import { useCustomerCount, useCustomers } from "./queries";
-import { SIGNUP_METHOD_LABEL } from "./schemas";
-
-const STATUSES: readonly CustomerStatus[] = ["active", "blocked"];
 
 /** The orders of the list the API offers (4). */
 const SORTS: readonly SortOption<SortParam<CustomerSortField>>[] = [
@@ -44,9 +43,24 @@ const SORTS: readonly SortOption<SortParam<CustomerSortField>>[] = [
 ];
 const SORT_VALUES = SORTS.map((option) => option.value);
 
+const KIND_OPTIONS = CUSTOMER_KINDS.map((kind) => ({
+  value: kind,
+  label: CUSTOMER_KIND_LABEL[kind],
+}));
+
 /** The name when the customer gave one; the email stands in otherwise. */
 function hasName(customer: Customer): boolean {
   return Boolean(customer.firstName?.trim() || customer.lastName?.trim());
+}
+
+/** What stands under the name: the email, or when the account was closed. */
+function secondLine(customer: Customer): string | null {
+  if (isDeletedAccount(customer)) {
+    return customer.deletedAt
+      ? `Closed ${formatDate(customer.deletedAt)}`
+      : "Closed by the customer";
+  }
+  return hasName(customer) ? customer.email : "No name given";
 }
 
 /** An opt-in as a word with a mark: never the colour alone. */
@@ -63,6 +77,9 @@ export function OptIn({ value }: { value: boolean }) {
 
 /** What the customer opted in to, as words: "News, WhatsApp". */
 function OptIns({ customer }: { customer: Customer }) {
+  if (isDeletedAccount(customer)) {
+    return <span className="text-ink-subtle">—</span>;
+  }
   const { marketingOptIn, whatsappOptIn } = customer.communication;
   const given = [
     marketingOptIn ? "News" : null,
@@ -77,7 +94,7 @@ function OptIns({ customer }: { customer: Customer }) {
 
 // From `lg` on the table is not allowed to scroll sideways (its header
 // sticks to the page), so the columns shown at each width must fit it:
-// language, sign-up and opt-ins share two columns and wait for `xl`.
+// language and opt-ins wait for `xl`.
 const columns: Column<Customer>[] = [
   {
     id: "customer",
@@ -92,7 +109,7 @@ const columns: Column<Customer>[] = [
             {personName(row.original)}
           </Link>
         }
-        secondary={hasName(row.original) ? row.original.email : "No name given"}
+        secondary={secondLine(row.original)}
       />
     ),
     meta: { skeleton: "w-44", className: "max-w-56 min-[1440px]:max-w-72" },
@@ -105,17 +122,15 @@ const columns: Column<Customer>[] = [
     ),
   },
   {
+    id: "kind",
+    header: "Kind",
+    cell: ({ row }) => <KindBadge kind={row.original.kind} />,
+    meta: { from: "md", skeleton: "w-16" },
+  },
+  {
     id: "language",
-    header: "Language, sign-up",
-    cell: ({ row }) => (
-      <TwoLine
-        primary={LOCALE_LABEL[row.original.locale] ?? row.original.locale}
-        secondary={
-          SIGNUP_METHOD_LABEL[row.original.signupMethod] ??
-          row.original.signupMethod
-        }
-      />
-    ),
+    header: "Language",
+    cell: ({ row }) => LOCALE_LABEL[row.original.locale] ?? row.original.locale,
     meta: { from: "xl", skeleton: "w-16" },
   },
   {
@@ -141,13 +156,16 @@ const columns: Column<Customer>[] = [
       row.original.lastLoginAt ? (
         <DateTime value={row.original.lastLoginAt} short />
       ) : (
-        <span className="text-ink-subtle">Never</span>
+        <span className="text-ink-subtle">
+          {row.original.kind === "guest" ? "Guests do not sign in" : "Never"}
+        </span>
       ),
-    meta: { from: "md", skeleton: "w-24" },
+    meta: { from: "lg", skeleton: "w-24" },
   },
 ];
 
 function CustomerCard({ customer }: { customer: Customer }) {
+  const second = secondLine(customer);
   return (
     <Link
       href={routes.customer(customer.id)}
@@ -157,14 +175,13 @@ function CustomerCard({ customer }: { customer: Customer }) {
         <span className="truncate text-base font-semibold text-ink">
           {personName(customer)}
         </span>
-        {hasName(customer) ? (
-          <span className="truncate text-sm text-ink-muted">
-            {customer.email}
-          </span>
+        {second && second !== "No name given" ? (
+          <span className="truncate text-sm text-ink-muted">{second}</span>
         ) : null}
       </span>
       <span className="flex flex-wrap items-center gap-1.5">
         <StatusBadge kind="customer" value={customer.status} />
+        <KindBadge kind={customer.kind} />
         <span className="ml-auto text-13 text-ink-subtle">
           Since {formatDate(customer.createdAt)}
         </span>
@@ -175,7 +192,8 @@ function CustomerCard({ customer }: { customer: Customer }) {
 
 export function CustomersView() {
   const [state, setState, clear] = useUrlState({
-    status: param.oneOf(STATUSES),
+    status: param.oneOf(CUSTOMER_STATUSES),
+    kind: param.oneOf(CUSTOMER_KINDS),
     q: param.text(100),
     sort: param.oneOf(SORT_VALUES),
     // Links from elsewhere may still name the beginning of an email.
@@ -183,11 +201,11 @@ export function CustomersView() {
   });
   const q = state.q.trim() || undefined;
   const email = q || state.email.length < 2 ? undefined : state.email;
-  const filters = { status: state.status, q, email };
+  const filters = { status: state.status, kind: state.kind, q, email };
   const customers = useCustomers({ ...filters, sort: state.sort });
   const count = useCustomerCount(filters);
   const rows = customers.data?.pages.flatMap((page) => page.items);
-  const filtered = Boolean(state.status || q || email);
+  const filtered = Boolean(state.status || state.kind || q || email);
   const sortLabel =
     SORTS.find((option) => option.value === state.sort)?.label ??
     "newest first";
@@ -196,7 +214,7 @@ export function CustomersView() {
     <RequirePermission permission="customers.read">
       <PageHeader
         title="Customers"
-        description="Everyone with an account in the shop, newest first. Customers keep their own details; here you look them up and block or unblock an account."
+        description="Everyone who has an account in the shop or ordered as a guest, newest first. Customers keep their own details; here you look them up and block or unblock an account."
       />
       <PageBody className="gap-3">
         <FilterBar active={filtered || Boolean(state.sort)} onClear={clear}>
@@ -211,6 +229,12 @@ export function CustomersView() {
             value={state.status}
             options={statusOptions(CUSTOMER_STATUS)}
             onChange={(status) => setState({ status })}
+          />
+          <FilterSelect
+            label="Kind"
+            value={state.kind}
+            options={KIND_OPTIONS}
+            onChange={(kind) => setState({ kind })}
           />
           <SortSelect
             value={state.sort}
@@ -239,7 +263,9 @@ export function CustomersView() {
                     ? `No customer's email begins with "${email}"`
                     : state.status
                       ? `No customer is ${CUSTOMER_STATUS[state.status].label.toLowerCase()}`
-                      : "No customer yet"
+                      : state.kind
+                        ? `No ${CUSTOMER_KIND_LABEL[state.kind].toLowerCase()} customer`
+                        : "No customer yet"
               }
               action={
                 filtered ? (
@@ -249,9 +275,9 @@ export function CustomersView() {
             >
               {q || email
                 ? "The search looks at the name, the email and the phone; every word must begin one of them."
-                : state.status
-                  ? "Choose another status or clear the filter."
-                  : "Customers appear here as soon as they create an account in the shop."}
+                : state.status || state.kind
+                  ? "Choose another filter or clear it."
+                  : "Customers appear here as soon as they create an account or order as a guest in the shop."}
             </EmptyState>
           }
           footer={

@@ -570,14 +570,16 @@ export function orderSummary(order: OrderRecord): OrderSummary {
     status: order.status,
     paymentStatus: order.paymentStatus,
     placedAt: order.placedAt,
-    // The summary names the customer (0.9).
+    // The summary names the customer (0.9); a closed account has no name left (4).
     customer: {
       ...order.customer,
-      name:
-        [order.customer.firstName, order.customer.lastName]
-          .filter((part) => part && part.trim() !== "")
-          .join(" ") || null,
+      name: order.customer.deleted
+        ? (order.customer.name ?? "Deleted account")
+        : [order.customer.firstName, order.customer.lastName]
+            .filter((part) => part && part.trim() !== "")
+            .join(" ") || null,
     },
+    isGuest: order.isGuest,
     discountCode: order.discount?.code ?? null,
     total: order.totals.total,
     finalTotal: order.finalTotals.total,
@@ -617,6 +619,7 @@ export function orderDetail(
     allowedStatuses: ORDER_ALLOWED[order.status],
     cancellation: order.cancellation,
     consent: order.consent,
+    feedback: order.feedback,
     statusHistory: order.statusHistory,
     updatedAt: order.updatedAt,
   };
@@ -853,7 +856,7 @@ function customerBlock(order: OrderRecord): InvoiceDetail["customer"] {
       ...(address.additionalLine ? [address.additionalLine] : []),
       `${address.postalCode} ${address.city}`,
     ],
-    email: order.customer.email,
+    email: order.customer.email ?? "",
   };
 }
 

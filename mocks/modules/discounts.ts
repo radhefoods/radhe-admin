@@ -221,7 +221,7 @@ export function reserveDiscountUse(
     codeId: code.id,
     code: code.code,
     customerId: order.customer.id,
-    customerEmail: order.customer.email,
+    customerEmail: order.customer.email ?? `deleted:${order.customer.id}`,
     orderId: order.id,
     orderNumber: order.orderNumber,
     amount,

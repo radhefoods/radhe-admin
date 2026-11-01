@@ -581,7 +581,8 @@ function customersOf(
     string,
     {
       name: string | null;
-      email: string;
+      email: string | null;
+      deleted?: boolean;
       orders: number;
       revenue: number;
       last: string;
@@ -592,13 +593,15 @@ function customersOf(
     { orders: number; revenue: number }
   >();
   for (const order of paidOrders(db, range)) {
-    const name =
-      [order.customer.firstName, order.customer.lastName]
-        .filter((part) => part && part.trim() !== "")
-        .join(" ") || null;
+    const name = order.customer.deleted
+      ? (order.customer.name ?? "Deleted account")
+      : [order.customer.firstName, order.customer.lastName]
+          .filter((part) => part && part.trim() !== "")
+          .join(" ") || null;
     const entry = top.get(order.customer.id) ?? {
       name,
       email: order.customer.email,
+      ...(order.customer.deleted ? { deleted: true } : {}),
       orders: 0,
       revenue: 0,
       last: order.payment.paidAt as string,

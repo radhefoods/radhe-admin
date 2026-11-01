@@ -7,18 +7,47 @@ import type {
   TranslatedOptional,
 } from "@/lib/api/types";
 
-/** `Priya Shah`, or the email when the customer gave no name. */
-export function personName(
-  person:
-    | { firstName?: string | null; lastName?: string | null; email?: string }
-    | null
-    | undefined,
-): string {
+export const DELETED_ACCOUNT = "Deleted account";
+
+/** A customer, or a reference to one, as every record of the API names them (0.9, 4). */
+export interface PersonLike {
+  firstName?: string | null;
+  lastName?: string | null;
+  /** The full name a reference carries instead of the parts. */
+  name?: string | null;
+  email?: string | null;
+  /** On a reference: the account was closed. */
+  deleted?: boolean;
+  /** On the customer object itself. */
+  status?: string;
+}
+
+/** Whether the customer closed the account (4): no personal fields are left. */
+export function isDeletedAccount(
+  person: PersonLike | null | undefined,
+): boolean {
+  return Boolean(person && (person.deleted || person.status === "deleted"));
+}
+
+/**
+ * `Priya Shah`, the email when the customer gave no name, or "Deleted
+ * account" once the account was closed.
+ */
+export function personName(person: PersonLike | null | undefined): string {
   if (!person) return "—";
+  if (isDeletedAccount(person)) return DELETED_ACCOUNT;
   const name = [person.firstName, person.lastName]
     .filter((part) => part && part.trim() !== "")
     .join(" ");
-  return name || person.email || "—";
+  return name || person.name?.trim() || person.email || "—";
+}
+
+/** The email to write to, or `null` once the account was closed. */
+export function personEmail(
+  person: PersonLike | null | undefined,
+): string | null {
+  if (!person || isDeletedAccount(person)) return null;
+  return person.email || null;
 }
 
 /** `VV` for the avatar. */

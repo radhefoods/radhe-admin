@@ -172,8 +172,13 @@ export interface AnalyticsProducts {
 }
 
 export interface TopCustomer {
-  /** The name and email as they are on the orders. */
-  customer: { id: Id; name: string | null; email: string };
+  /** The name and email as they are on the orders; both gone once the account was closed (4). */
+  customer: {
+    id: Id;
+    name: string | null;
+    email: string | null;
+    deleted?: boolean;
+  };
   orders: number;
   revenue: Cents;
   averageOrderValue: Cents;

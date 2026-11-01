@@ -6,14 +6,17 @@ import type {
   DiscountState,
   DiscountUseState,
   InvoiceType,
+  IssueStatus,
   LegalStatus,
   NotificationStatus,
   OrderStatus,
   PaymentStatus,
   ProductStatus,
   QuotationStatus,
+  ReferralStatus,
   RefundStatus,
   ReturnStatus,
+  ReviewStatus,
 } from "@/lib/api/types";
 
 /**
@@ -105,9 +108,36 @@ export const PRODUCT_STATUS = table<ProductStatus>({
   archived: "neutral",
 });
 
-export const CUSTOMER_STATUS = table<CustomerStatus>({
-  active: "success",
-  blocked: "danger",
+/** A deleted account was closed by the customer: nothing to do, grey (4). */
+export const CUSTOMER_STATUS = table<CustomerStatus>(
+  { active: "success", blocked: "danger", deleted: "neutral" },
+  { deleted: "Deleted account" },
+);
+
+/**
+ * An open report waits for a person; one in review is being looked at;
+ * resolved is done; rejected and cancelled are over (29).
+ */
+export const ISSUE_STATUS = table<IssueStatus>({
+  open: "attention",
+  in_review: "moving",
+  resolved: "success",
+  rejected: "neutral",
+  cancelled: "neutral",
+});
+
+/** A pending review waits for a person; a published one is in the shop (28). */
+export const REVIEW_STATUS = table<ReviewStatus>({
+  pending: "attention",
+  published: "success",
+  rejected: "neutral",
+});
+
+/** Registered waits for the first delivered order; qualified counts; void does not (27). */
+export const REFERRAL_STATUS = table<ReferralStatus>({
+  registered: "planned",
+  qualified: "success",
+  void: "neutral",
 });
 
 export const ADMIN_STATUS = table<AdminStatus>({
@@ -191,6 +221,9 @@ export const STATUS_TABLES = {
   quotation: QUOTATION_STATUS,
   discount: DISCOUNT_STATE,
   discountUse: DISCOUNT_USE_STATE,
+  issue: ISSUE_STATUS,
+  review: REVIEW_STATUS,
+  referral: REFERRAL_STATUS,
 } as const;
 
 export type StatusKind = keyof typeof STATUS_TABLES;

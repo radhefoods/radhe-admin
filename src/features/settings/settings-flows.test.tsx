@@ -267,6 +267,12 @@ describe("orders and returns", () => {
     expect(
       screen.getByText("Return requests are switched off"),
     ).toBeInTheDocument();
+    // The window for problem reports travels in the same body (5).
+    const reportDays = screen.getByRole("textbox", {
+      name: /Days to report a problem/,
+    });
+    await user.clear(reportDays);
+    await user.type(reportDays, "21");
     await user.click(
       screen.getByRole("button", { name: "Save the return window" }),
     );
@@ -274,7 +280,7 @@ describe("orders and returns", () => {
       expect(writes()).toContainEqual({
         method: "PUT",
         path: "/v1/admin/settings/return-policy",
-        body: { windowDays: 0 },
+        body: { windowDays: 0, issueWindowDays: 21 },
       }),
     );
 
@@ -284,6 +290,7 @@ describe("orders and returns", () => {
     expect(settings.delivery.defaultMethod).toBe("dhl");
     expect(settings.delivery.estimate.de).toBe("3 bis 5 Werktage");
     expect(settings.returnPolicy.windowDays).toBe(0);
+    expect(settings.returnPolicy.issueWindowDays).toBe(21);
   });
 
   it("explains every cancellation rule", async () => {

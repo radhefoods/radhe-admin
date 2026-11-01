@@ -20,3 +20,6 @@ export * from "./blog";
 export * from "./quotations";
 export * from "./wholesale";
 export * from "./discounts";
+export * from "./referrals";
+export * from "./reviews";
+export * from "./issues";

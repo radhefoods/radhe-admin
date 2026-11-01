@@ -62,11 +62,16 @@ export interface AdminRef {
   name: string;
 }
 
-/** A customer next to the id that names them (0.9). */
+/**
+ * A customer next to the id that names them (0.9). Once the account is
+ * closed (4), `deleted` is `true`, `name` is "Deleted account" and `email`
+ * is `null`: the panel shows the words and no link to write to.
+ */
 export interface CustomerRef {
   id: Id;
   name: string | null;
-  email: string;
+  email: string | null;
+  deleted?: boolean;
 }
 
 export interface ListResult<T> {

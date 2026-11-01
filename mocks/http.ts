@@ -33,9 +33,12 @@ export function fail(
 /** Who an id names (0.9): set by the app for the database it runs on. */
 export interface People {
   admin: (id: string) => { id: string; name: string } | null;
-  customer: (
-    id: string,
-  ) => { id: string; name: string | null; email: string } | null;
+  customer: (id: string) => {
+    id: string;
+    name: string | null;
+    email: string | null;
+    deleted?: boolean;
+  } | null;
 }
 
 let people: People | null = null;

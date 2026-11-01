@@ -7,14 +7,17 @@ import type {
   FaqQuery,
   Id,
   InvoiceQuery,
+  IssueQuery,
   LegalType,
   NotificationQuery,
   OrderQuery,
   PageQuery,
   ProductQuery,
   QuotationQuery,
+  ReferralQuery,
   RefundQuery,
   ReturnQuery,
+  ReviewQuery,
   WholesaleProductQuery,
   WholesaleStockMovementQuery,
 } from "./types";
@@ -142,6 +145,27 @@ export const queryKeys = {
     list: (query: QuotationQuery) => ["quotations", "list", query] as const,
     detail: (id: Id) => ["quotations", "detail", id] as const,
   },
+  /** Referrals (27): lists and counts only. */
+  referrals: {
+    all: ["referrals"] as const,
+    list: (query: ReferralQuery = {}) => ["referrals", "list", query] as const,
+    count: (query: ReferralQuery = {}) =>
+      ["referrals", "count", query] as const,
+  },
+  /** Product reviews (28). */
+  reviews: {
+    all: ["reviews"] as const,
+    list: (query: ReviewQuery = {}) => ["reviews", "list", query] as const,
+    count: (query: ReviewQuery = {}) => ["reviews", "count", query] as const,
+    detail: (id: Id) => ["reviews", "detail", id] as const,
+  },
+  /** Problem reports (29). */
+  issues: {
+    all: ["issues"] as const,
+    list: (query: IssueQuery = {}) => ["issues", "list", query] as const,
+    count: (query: IssueQuery = {}) => ["issues", "count", query] as const,
+    detail: (id: Id) => ["issues", "detail", id] as const,
+  },
   /** Discount codes of the retail shop (26). */
   discounts: {
     all: ["discounts"] as const,
@@ -221,4 +245,16 @@ export const invalidation = {
   wholesale: [queryKeys.wholesale.all, queryKeys.quotations.all],
   /** A discount code: its list and its page. Orders keep what they were made with. */
   discount: [queryKeys.discounts.all],
+  /** A decided or answered review: its lists, the start page, the product's rating. */
+  review: [queryKeys.reviews.all, queryKeys.attention, queryKeys.products.all],
+  /** A decided problem report: a refund corrects the order and queues the money, as a return does. */
+  issue: [
+    queryKeys.issues.all,
+    queryKeys.orders.all,
+    queryKeys.products.all,
+    queryKeys.invoices.all,
+    queryKeys.refunds.all,
+    queryKeys.attention,
+    queryKeys.notifications.all,
+  ],
 } as const satisfies Record<string, readonly Key[]>;

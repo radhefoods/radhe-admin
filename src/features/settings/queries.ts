@@ -11,6 +11,7 @@ import type {
   DeliveryFeeTier,
   DeliverySettings,
   PaymentsInput,
+  ReturnPolicyInput,
   Settings,
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
@@ -67,8 +68,8 @@ export function useSaveDelivery() {
 }
 
 export function useSaveReturnPolicy() {
-  return useSaveGroup((windowDays: number) =>
-    api.settings.putReturnPolicy(windowDays),
+  return useSaveGroup((input: ReturnPolicyInput) =>
+    api.settings.putReturnPolicy(input),
   );
 }
 

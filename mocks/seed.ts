@@ -35,6 +35,7 @@ import {
   vatOf,
 } from "./domain.ts";
 import { newId } from "./http.ts";
+import { seedAccounts } from "./modules/accounts.ts";
 import { seedBlog } from "./modules/blog.ts";
 import { seedFaq } from "./modules/faq.ts";
 import {
@@ -87,6 +88,8 @@ export const ALL_PERMISSIONS = [
   "wholesale.manage",
   "discounts.read",
   "discounts.manage",
+  "reviews.read",
+  "reviews.manage",
 ];
 
 /** The sign-ins of the demo. Every admin also accepts the code 000000. */
@@ -586,7 +589,7 @@ export function seed(options: SeedOptions): Db {
   const orderManager = role(
     "order_manager",
     "Order manager",
-    "Handles orders and returns; reads the rest.",
+    "Handles orders, returns, problem reports and reviews; reads the rest.",
     [
       "orders.read",
       "orders.manage",
@@ -596,6 +599,8 @@ export function seed(options: SeedOptions): Db {
       "notifications.read",
       "quotations.read",
       "quotations.manage",
+      "reviews.read",
+      "reviews.manage",
     ],
   );
   const catalogueEditor = role(
@@ -946,6 +951,10 @@ export function seed(options: SeedOptions): Db {
     const whatsapp = rng.chance(0.4);
     const marketing = rng.chance(0.55);
     const email = `${slugify(firstName)}.${slugify(lastName)}${index > 29 ? index : ""}@example.com`;
+    // Two draws the sign-up fields of before used: kept, so that the rest of
+    // the demo (orders, methods, names in the tests) stays exactly as it was.
+    rng.chance(0.3);
+    rng.chance(0.3);
     db.customers.push({
       id: newId(created),
       email,
@@ -953,7 +962,7 @@ export function seed(options: SeedOptions): Db {
       lastName,
       phone: rng.chance(0.8) ? phone : null,
       locale: rng.chance(0.55) ? "de" : "en",
-      hasGoogleLogin: rng.chance(0.3),
+      kind: "registered",
       communication: {
         whatsappNumber: whatsapp ? phone : null,
         whatsappOptIn: whatsapp,
@@ -966,8 +975,10 @@ export function seed(options: SeedOptions): Db {
       status: "active",
       blockedReason: null,
       blockedAt: null,
-      signupMethod: rng.chance(0.3) ? "google" : "email_otp",
+      deletedAt: null,
       emailVerifiedAt: iso(created),
+      referralCode: null,
+      referredBy: null,
       lastLoginAt: iso(now - rng.int(1, 30) * DAY),
       updatedAt: iso(created + DAY),
       addresses: [
@@ -1099,6 +1110,8 @@ export function seed(options: SeedOptions): Db {
         lastName: customer.lastName ?? undefined,
         ...(customer.phone ? { phone: customer.phone } : {}),
       },
+      isGuest: customer.kind === "guest",
+      feedback: null,
       currency: "EUR",
       delivery: {
         method: method ?? db.settings.delivery.defaultMethod,
@@ -2055,6 +2068,8 @@ export function seed(options: SeedOptions): Db {
   // --- The wholesale catalogue (25) and its quotations (24) ------------------
   seedWholesale(db, now, owner.id);
   seedQuotations(db, now, owner);
+  // --- Guests, a closed account, referrals, reviews, problem reports (27–29) --
+  seedAccounts(db, now, owner, rng);
 
   return db;
 }

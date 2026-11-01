@@ -50,11 +50,24 @@ export interface PaymentsInput {
   checkoutMinutes: number;
 }
 
+/** Days after the delivery; 0 switches the requests, or the reports, off. */
+export interface ReturnPolicy {
+  windowDays: number;
+  /** How long a customer may report a problem with a delivered order (29). */
+  issueWindowDays: number;
+}
+
+/** `PUT /settings/return-policy`: `issueWindowDays` defaults to `windowDays`. */
+export interface ReturnPolicyInput {
+  windowDays: number;
+  issueWindowDays?: number;
+}
+
 export interface Settings {
   deliveryFee: { tiers: DeliveryFeeTier[] };
   orderPolicy: { customerCancellation: CustomerCancellation };
   delivery: DeliverySettings;
-  returnPolicy: { windowDays: number };
+  returnPolicy: ReturnPolicy;
   company: CompanySettings;
   payments: PaymentSettings;
   /** Whether the server has Stripe keys and WhatsApp credentials (5). */

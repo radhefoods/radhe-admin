@@ -10,6 +10,7 @@ export const RESOURCES = [
   "customers",
   "catalog",
   "discounts",
+  "reviews",
   "content",
   "analytics",
   "notifications",
@@ -44,7 +45,7 @@ export const RESOURCE_LABELS: Record<
   orders: {
     label: "Orders",
     covers:
-      "Orders and their status, actions on chosen orders, returns, the Today overview",
+      "Orders and their status, actions on chosen orders, returns, problem reports, the Today overview",
   },
   quotations: {
     label: "Wholesale quotations",
@@ -62,7 +63,7 @@ export const RESOURCE_LABELS: Record<
   },
   customers: {
     label: "Customers",
-    covers: "Customer accounts and blocking",
+    covers: "Customer accounts and blocking, the referrals",
   },
   catalog: {
     label: "Catalogue",
@@ -72,6 +73,11 @@ export const RESOURCE_LABELS: Record<
   discounts: {
     label: "Discount codes",
     covers: "The promotional codes of the retail shop and their uses",
+  },
+  reviews: {
+    label: "Product reviews",
+    covers:
+      "What customers wrote about products: publish, reject, answer in public, delete",
   },
   content: {
     label: "Content",

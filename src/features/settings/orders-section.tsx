@@ -17,6 +17,7 @@ import {
   DELIVERY_METHODS,
   type CustomerCancellation,
   type DeliverySettings,
+  type ReturnPolicy,
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
 import { DELIVERY_METHOD_LABEL, plural } from "@/lib/format/names";
@@ -219,35 +220,55 @@ function DeliveryForm({ saved }: { saved: DeliverySettings }) {
   );
 }
 
-// --- Return window (PUT return-policy) -----------------------------------------
+// --- Return window and problem reports (PUT return-policy) -----------------------
 
-const returnSchema = z.object({ windowDays: zInt({ min: 0, max: 365 }) });
+// Both windows go in one body (5): the API keeps them together.
+const returnSchema = z.object({
+  windowDays: zInt({ min: 0, max: 365 }),
+  issueWindowDays: zInt({ min: 0, max: 365 }),
+});
 
-function ReturnWindowForm({ saved }: { saved: number }) {
-  const defaults = { windowDays: String(saved) };
+function returnDefaults(saved: ReturnPolicy) {
+  return {
+    windowDays: String(saved.windowDays),
+    issueWindowDays: String(saved.issueWindowDays),
+  };
+}
+
+function ReturnWindowForm({ saved }: { saved: ReturnPolicy }) {
+  const defaults = returnDefaults(saved);
   const form = useZodForm(returnSchema, { defaultValues: defaults });
   useFollowSaved(form, defaults);
   const save = useSaveReturnPolicy();
   const { onSubmit, state, pending } = useSubmit(form, async (values) => {
-    const result = await save.mutateAsync(values.windowDays);
-    form.reset({ windowDays: String(result.returnPolicy.windowDays) });
+    const result = await save.mutateAsync(values);
+    form.reset(returnDefaults(result.returnPolicy));
+    const { windowDays, issueWindowDays } = result.returnPolicy;
     notify.success(
-      "Return window saved",
-      result.returnPolicy.windowDays === 0
-        ? "Return requests are switched off."
-        : `Customers have ${plural(result.returnPolicy.windowDays, "day")} after delivery.`,
+      "Return and report windows saved",
+      `${
+        windowDays === 0
+          ? "Return requests are switched off"
+          : `Returns up to ${plural(windowDays, "day")} after delivery`
+      }; ${
+        issueWindowDays === 0
+          ? "problem reports are switched off."
+          : `problem reports up to ${plural(issueWindowDays, "day")}.`
+      }`,
     );
   });
 
   const typed = returnSchema.safeParse({
     windowDays: form.watch("windowDays"),
+    issueWindowDays: form.watch("issueWindowDays"),
   });
   const days = typed.success ? typed.data.windowDays : null;
+  const issueDays = typed.success ? typed.data.issueWindowDays : null;
 
   return (
     <SettingsFormCard
-      title="Returns"
-      description="How long after delivery a customer can ask to return products."
+      title="Returns and problem reports"
+      description="How long after delivery a customer can ask to return products, and how long they can report a problem with the order."
       onSubmit={onSubmit}
       state={state}
       pending={pending}
@@ -272,10 +293,34 @@ function ReturnWindowForm({ saved }: { saved: number }) {
           required
         />
       </SettingRow>
+      <SettingRow
+        explanation={
+          issueDays === 0
+            ? "With 0 days no customer can report a problem in the shop."
+            : issueDays !== null
+              ? `A customer can report damaged, missing or wrong products up to ${plural(issueDays, "day")} after the delivery, with photos. At most five reports per order.`
+              : "The days count from the delivery of the order."
+        }
+      >
+        <UnitField
+          form={form}
+          name="issueWindowDays"
+          label="Days to report a problem"
+          unit="days"
+          hint="0 to 365 days. 0 switches problem reports off."
+          required
+        />
+      </SettingRow>
       {days === 0 ? (
         <Alert tone="warning" title="Return requests are switched off">
           Customers cannot ask for a return while the window is 0 days. Returns
           that were already requested stay as they are.
+        </Alert>
+      ) : null}
+      {issueDays === 0 ? (
+        <Alert tone="warning" title="Problem reports are switched off">
+          Customers cannot report a problem while the window is 0 days. Reports
+          that were already made stay as they are.
         </Alert>
       ) : null}
     </SettingsFormCard>
@@ -290,7 +335,7 @@ export function OrdersSection() {
     <div className="flex max-w-3xl flex-col gap-6">
       <CancellationForm saved={settings.orderPolicy.customerCancellation} />
       <DeliveryForm saved={settings.delivery} />
-      <ReturnWindowForm saved={settings.returnPolicy.windowDays} />
+      <ReturnWindowForm saved={settings.returnPolicy} />
     </div>
   );
 }

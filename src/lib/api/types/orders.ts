@@ -72,14 +72,29 @@ export const ADJUSTMENT_REASONS = [
 ] as const;
 export type AdjustmentReason = (typeof ADJUSTMENT_REASONS)[number];
 
+/**
+ * The customer of an order. Once the account is closed (4), `deleted` is
+ * `true`, `name` is "Deleted account" and `email` is `null`.
+ */
 export interface OrderCustomer {
   id: Id;
-  email: string;
+  email: string | null;
   firstName?: string;
   lastName?: string;
   phone?: string;
   /** On a summary: the full name, or `null` when none was given (0.9). */
   name?: string | null;
+  deleted?: boolean;
+}
+
+/** The stars a customer gave once, after the delivery (28). Never public. */
+export interface OrderFeedback {
+  /** 1 to 5, for the shopping. */
+  rating: number;
+  /** 1 to 5, for the delivery; `null` when not given. */
+  deliveryRating: number | null;
+  comment: string | null;
+  at: IsoDateTime;
 }
 
 export interface OrderDelivery {
@@ -99,6 +114,8 @@ export interface OrderSummary {
   paymentStatus: PaymentStatus;
   placedAt: IsoDateTime;
   customer: OrderCustomer;
+  /** Ordered without an account, with an email and a token (4). */
+  isGuest: boolean;
   /** The discount code the order was made with (26), else `null`. */
   discountCode: string | null;
   /** The agreed bill. */
@@ -239,6 +256,8 @@ export interface OrderDetail extends OrderSummary {
   allowedStatuses: SettableOrderStatus[];
   cancellation: OrderCancellation | null;
   consent: OrderConsent;
+  /** Given once by the customer after the delivery (28); `null` until then. */
+  feedback: OrderFeedback | null;
   statusHistory: OrderHistoryEntry[];
   updatedAt: IsoDateTime;
 }
