@@ -45,6 +45,11 @@ import {
   type DiscountCodeRecord,
 } from "./modules/discounts.ts";
 import { seedQuotations } from "./modules/quotations.ts";
+import {
+  redeemCoins,
+  seedRewardsFinish,
+  seedRewardsStart,
+} from "./modules/rewards.ts";
 import { seedWholesale } from "./modules/wholesale.ts";
 import { completeRefund } from "./modules/payments.ts";
 import {
@@ -90,6 +95,8 @@ export const ALL_PERMISSIONS = [
   "discounts.manage",
   "reviews.read",
   "reviews.manage",
+  "rewards.read",
+  "rewards.manage",
 ];
 
 /** The sign-ins of the demo. Every admin also accepts the code 000000. */
@@ -601,6 +608,7 @@ export function seed(options: SeedOptions): Db {
       "quotations.manage",
       "reviews.read",
       "reviews.manage",
+      "rewards.read",
     ],
   );
   const catalogueEditor = role(
@@ -1015,6 +1023,16 @@ export function seed(options: SeedOptions): Db {
   /** The pack sizes that can be bought now, with their product. */
   // The discount codes exist before the orders: some orders are made with one (26).
   const codes = seedDiscountCodes(db, now, owner);
+  // The loyalty program runs before the orders too: deliveries earn coins
+  // and some orders are paid partly with them (30). Every seventh buyer
+  // becomes a guest later (`seedAccounts`); guests have no coins.
+  const willBeGuest = (customer: Customer) =>
+    buyers.indexOf(customer) % 7 === 3;
+  seedRewardsStart(
+    db,
+    buyers.filter((customer) => !willBeGuest(customer)),
+    now,
+  );
 
   const sellable = () =>
     orderable.flatMap((product) =>
@@ -1028,6 +1046,7 @@ export function seed(options: SeedOptions): Db {
     placedAt: number,
     method?: DeliveryMethod,
     wanted?: DiscountCodeRecord,
+    coins = 0,
   ): OrderRecord => {
     db.counters.order += 1;
     const lines = rng.int(1, 4);
@@ -1205,6 +1224,10 @@ export function seed(options: SeedOptions): Db {
     if (code && discount > 0) {
       reserveDiscountUse(db, order, code, discount, placedAt);
     }
+    // The customer chose to redeem coins at checkout (30).
+    if (coins > 0 && !willBeGuest(customer)) {
+      redeemCoins(db, order, coins, customer, placedAt);
+    }
     return order;
   };
 
@@ -1255,8 +1278,15 @@ export function seed(options: SeedOptions): Db {
     plan: Plan,
     placedAt: number,
     code?: DiscountCodeRecord,
+    coins = 0,
   ): OrderRecord => {
-    const order = placeOrder(rng.pick(buyers), placedAt, pickMethod(), code);
+    const order = placeOrder(
+      rng.pick(buyers),
+      placedAt,
+      pickMethod(),
+      code,
+      coins,
+    );
     const paidAt = placedAt + rng.int(4, 12) * 60_000;
     if (plan === "pending") return order;
     if (plan === "failed") {
@@ -1334,6 +1364,9 @@ export function seed(options: SeedOptions): Db {
     20: codes.welcome,
     22: codes.diwali,
   };
+  // Which orders were paid partly with coins (30): a few late deliveries,
+  // a confirmed one, and the order that still waits for its payment.
+  const coinsOf: Record<number, number> = { 9: 59, 15: 80, 21: 100 };
   const delivered: OrderRecord[] = [];
   for (let index = 0; index < 24; index += 1) {
     delivered.push(
@@ -1341,6 +1374,7 @@ export function seed(options: SeedOptions): Db {
         "delivered",
         now - (50 - index * 1.7) * DAY - rng.int(1, 9) * HOUR,
         codeOf[index],
+        coinsOf[index],
       ),
     );
   }
@@ -1368,11 +1402,12 @@ export function seed(options: SeedOptions): Db {
         "confirmed",
         now - (40 - index * 7) * HOUR - rng.int(5, 50) * 60_000,
         index === 2 ? codes.diwali : undefined,
+        index === 1 ? 75 : 0,
       ),
     );
   }
   walk("failed", now - 3 * HOUR);
-  const pending = walk("pending", now - 20 * 60_000, codes.diwali);
+  const pending = walk("pending", now - 20 * 60_000, codes.diwali, 40);
   void givenUp;
   void pending;
 
@@ -2069,6 +2104,8 @@ export function seed(options: SeedOptions): Db {
   seedQuotations(db, now, owner);
   // --- Guests, a closed account, referrals, reviews, problem reports (27–29) --
   seedAccounts(db, now, owner, rng);
+  // --- Points and rewards (30): the coins of reviews and referrals, an adjustment --
+  seedRewardsFinish(db, owner, now);
 
   return db;
 }

@@ -29,6 +29,11 @@ import {
 } from "../http.ts";
 import type { Router } from "../router.ts";
 import { DAY, HOUR, iso } from "../time.ts";
+import {
+  earnReviewCoins,
+  reconcileOrderRewards,
+  reverseReviewCoins,
+} from "./rewards.ts";
 import { releaseUnits } from "./stock.ts";
 
 /** The referral as stored: the two customers are named on reading (0.9). */
@@ -184,6 +189,7 @@ export function applyIssueRefund(
   const credited = before - order.finalTotals.total;
   if (credited > 0) {
     issueCreditNote(db, order, credited, "adjustment", now, record.issueNumber);
+    reconcileOrderRewards(db, order, record.issueNumber, now);
   }
   return credited;
 }
@@ -255,6 +261,8 @@ export function registerAccounts(router: Router): void {
       const review = reviewById(ctx.db, ctx.params.id ?? "");
       review.status = "published";
       review.publishedAt = review.publishedAt ?? iso(ctx.now);
+      // A published review earns its coins once (30).
+      earnReviewCoins(ctx.db, review, ctx.now);
       review.moderation = {
         adminId: ctx.admin.id,
         at: iso(ctx.now),
@@ -274,6 +282,8 @@ export function registerAccounts(router: Router): void {
       const review = reviewById(ctx.db, ctx.params.id ?? "");
       review.status = "rejected";
       review.publishedAt = null;
+      // A review taken off the shop gives its coins back (30).
+      reverseReviewCoins(ctx.db, review, ctx.now);
       review.moderation = {
         adminId: ctx.admin.id,
         at: iso(ctx.now),
@@ -313,6 +323,7 @@ export function registerAccounts(router: Router): void {
   router.delete(`${reviews}/:id`, { permission: "reviews.manage" }, (ctx) => {
     const review = reviewById(ctx.db, ctx.params.id ?? "");
     ctx.db.reviews = ctx.db.reviews.filter((entry) => entry.id !== review.id);
+    reverseReviewCoins(ctx.db, review, ctx.now);
     return noContent();
   });
 

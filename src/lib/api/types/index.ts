@@ -23,3 +23,4 @@ export * from "./discounts";
 export * from "./referrals";
 export * from "./reviews";
 export * from "./issues";
+export * from "./rewards";

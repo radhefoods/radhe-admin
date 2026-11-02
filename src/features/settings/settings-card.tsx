@@ -5,6 +5,7 @@ import { ActionButton } from "@/components/domain/permission";
 import { FormError, type SubmitState } from "@/components/form/form";
 import { Card, CardBody, CardHeader } from "@/components/ui/surface";
 import { useCan } from "@/lib/auth/auth-provider";
+import type { Permission } from "@/lib/auth/permissions";
 import { cn } from "@/lib/cn";
 
 /**
@@ -65,6 +66,7 @@ export function SettingsFormCard({
   pending,
   dirty,
   saveLabel,
+  permission = "settings.manage",
   children,
   className,
 }: {
@@ -77,10 +79,12 @@ export function SettingsFormCard({
   dirty: boolean;
   /** What the button does: "Save the company details". */
   saveLabel: string;
+  /** What saving needs; the shop settings by default. */
+  permission?: Permission;
   children: ReactNode;
   className?: string;
 }) {
-  const manage = useCan()("settings.manage");
+  const manage = useCan()(permission);
   return (
     <Card className={className}>
       <form onSubmit={onSubmit} noValidate>
@@ -98,7 +102,7 @@ export function SettingsFormCard({
                 : "No unsaved changes."}
           </p>
           <ActionButton
-            permission="settings.manage"
+            permission={permission}
             type="submit"
             variant="primary"
             loading={pending}

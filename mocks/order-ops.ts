@@ -3,6 +3,7 @@
 // walks orders through the same steps.
 
 import { settleDiscountUse } from "./modules/discounts.ts";
+import { earnOrderCoins, settleRewards } from "./modules/rewards.ts";
 import type {
   CancellationReason,
   DeliveryMethod,
@@ -47,7 +48,11 @@ export function setOrderStatus(
     order.delivery.dispatchedAt = iso(now);
     order.delivery.deliveredAt = null;
   }
-  if (to === "delivered") order.delivery.deliveredAt = iso(now);
+  if (to === "delivered") {
+    order.delivery.deliveredAt = iso(now);
+    // The delivery earns the coins on the goods paid for (30).
+    earnOrderCoins(db, order, now);
+  }
   // A step back clears what no longer holds.
   if (to === "processing" || to === "confirmed") {
     order.delivery.dispatchedAt = null;
@@ -201,8 +206,9 @@ export function settleOrder(
     now + 2000,
   );
   order.paymentStatus = "paid";
-  // The payment counts the use of a discount code (26).
+  // The payment counts the use of a discount code (26) and spends the coins (30).
   settleDiscountUse(db, order, "used", now + 2000);
+  settleRewards(db, order, "spent", now + 2000);
   const customer = customerOf(db, order);
   if (customer) {
     queueMessage(
@@ -281,9 +287,12 @@ export function cancelOrder(
   order.status = "cancelled";
   order.cancellation = { ...cancellation, at: iso(now) };
   giveBackStock(db, order, now);
-  // An order given up unpaid gives its use of a discount code back (26).
-  if (order.payment.paidAmount === 0)
+  // An order given up unpaid gives its use of a discount code back (26)
+  // and releases its coins (30).
+  if (order.payment.paidAmount === 0) {
     settleDiscountUse(db, order, "released", now);
+    settleRewards(db, order, "released", now);
+  }
   order.payment.checkoutUrl = null;
   order.payment.checkoutExpiresAt = null;
   order.pendingUntil = null;

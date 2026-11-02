@@ -39,12 +39,12 @@ describe("the list of roles", () => {
     renderPanel(<RolesView />);
     const manager = await rowOf("Order manager");
     expect(manager).toHaveTextContent("order_manager");
-    expect(manager).toHaveTextContent("10 of 29");
+    expect(manager).toHaveTextContent("11 of 31");
     expect(manager).toHaveTextContent(
       "Manages Orders, Wholesale quotations, Order reviews.",
     );
     expect(manager).toHaveTextContent(
-      "Reads Payments, Customers, Catalogue, Communication.",
+      "Reads Payments, Customers, Catalogue, Points and rewards, Communication.",
     );
     await waitFor(() =>
       expect(manager).toHaveTextContent("Jan Former, Nisha Patel"),
@@ -55,7 +55,7 @@ describe("the list of roles", () => {
     expect(superAdmin).toHaveTextContent("System");
     expect(superAdmin).toHaveTextContent("Everything");
     expect(superAdmin).toHaveTextContent("Vrushabh Vasoya");
-    expect(await rowOf("Viewer")).toHaveTextContent("15 of 29");
+    expect(await rowOf("Viewer")).toHaveTextContent("16 of 31");
   });
 
   it("says that it cannot tell who has a role without the right to read the team", async () => {
@@ -139,7 +139,7 @@ describe("creating a role", () => {
       },
     });
     expect(roleByKey("payment_clerk").isSystem).toBe(false);
-    expect(await rowOf("Payment clerk")).toHaveTextContent("3 of 29");
+    expect(await rowOf("Payment clerk")).toHaveTextContent("3 of 31");
   });
 
   it("warns about manage without read, because the pages need read", async () => {
@@ -269,6 +269,7 @@ describe("editing a role", () => {
           "quotations.manage",
           "reviews.read",
           "reviews.manage",
+          "rewards.read",
         ],
       },
     });

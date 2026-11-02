@@ -220,6 +220,9 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
     "The report cannot take this step from where it is now. It was loaded again.",
   ISSUE_QUANTITY_INVALID:
     "The units are not possible: at most what was reported, and something must be refunded.",
+  // points and rewards
+  REWARDS_AMOUNT_INVALID: "An adjustment moves at least one coin.",
+  REWARDS_SETTINGS_INVALID: "The campaign must end after it starts.",
   QUOTATION_STATUS_INVALID:
     "The quotation is not in a status that allows this. The page was loaded again.",
 };

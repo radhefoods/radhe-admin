@@ -56,6 +56,7 @@ import {
 } from "@/features/referrals/referral-columns";
 import { useReviews } from "@/features/reviews/queries";
 import { ReviewCard, reviewColumns } from "@/features/reviews/review-columns";
+import { AccountDetail } from "@/features/rewards/account-detail";
 import { errorMessage } from "@/lib/api/error-text";
 import { hasErrorCode } from "@/lib/api/errors";
 import type { Customer, CustomerAddress } from "@/lib/api/types";
@@ -85,7 +86,7 @@ const orderTableColumns = orderColumns().filter(
 const referralTableColumns = referralColumns(["referrer", "code"]);
 const reviewTableColumns = reviewColumns(["customer", "author"]);
 
-const TABS = ["orders", "referrals", "reviews"] as const;
+const TABS = ["orders", "referrals", "reviews", "coins"] as const;
 
 function Missing({ children }: { children: ReactNode }) {
   return <span className="text-ink-subtle">{children}</span>;
@@ -579,7 +580,8 @@ export function CustomerView() {
   const tabs = TABS.filter(
     (tab) =>
       (tab !== "orders" || can("orders.read")) &&
-      (tab !== "reviews" || can("reviews.read")),
+      (tab !== "reviews" || can("reviews.read")) &&
+      (tab !== "coins" || can("rewards.read")),
   );
   const tab = tabs.includes(state.tab) ? state.tab : (tabs[0] ?? "referrals");
 
@@ -726,6 +728,9 @@ export function CustomerView() {
                   {tabs.includes("reviews") ? (
                     <TabsTrigger value="reviews">Reviews</TabsTrigger>
                   ) : null}
+                  {tabs.includes("coins") ? (
+                    <TabsTrigger value="coins">Coins</TabsTrigger>
+                  ) : null}
                 </TabsList>
                 {tabs.includes("orders") ? (
                   <TabsContent value="orders">
@@ -738,6 +743,15 @@ export function CustomerView() {
                 {tabs.includes("reviews") ? (
                   <TabsContent value="reviews">
                     <Reviews customer={data} />
+                  </TabsContent>
+                ) : null}
+                {tabs.includes("coins") ? (
+                  <TabsContent value="coins">
+                    <AccountDetail
+                      customerId={data.id}
+                      customer={data}
+                      compact
+                    />
                   </TabsContent>
                 ) : null}
               </Tabs>

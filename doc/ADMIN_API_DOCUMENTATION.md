@@ -38,6 +38,7 @@ For the Next.js Admin Panel. Generated from the implemented NestJS backend (`rad
 27. Referrals
 28. Order reviews
 29. Problem reports
+30. Points and rewards (loyalty coins)
 
 Added on 2026-11-01 (`doc/CUSTOMER_ACCOUNTS.md` has the long version): guest orders and deleted accounts (sections 4 and 9), referrals (27), reviews (28), problem reports (29), the attention overview with reports and reviews (15), `issueWindowDays` in the return policy (5), the permissions `reviews.read` and `reviews.manage`.
 
@@ -2330,3 +2331,24 @@ After a delivery, within `returnPolicy.issueWindowDays`, a customer reports what
 The report: `id`, `issueNumber`, `orderId`, `orderNumber`, `customerId`, `customer`, `status`, `reportedAt`, `decidedAt`, `items[] { productId, variantId, sku, name, packSize, quantity, refundedQuantity, unitPrice, vatRate }`, `reportedAmount` (cents of the reported units), `problems`, `description`, `images[]` (as product images), `preferredResolution`, `resolution { type, amount (cents credited), note, adminId, admin, at }`, `internalNote`, `statusHistory[]`, `updatedAt`.
 
 **Permissions:** `orders.read` to look, `orders.manage` to decide. **Errors:** `404 ISSUE_NOT_FOUND`, `409 ISSUE_TRANSITION_NOT_ALLOWED`, `400 ISSUE_QUANTITY_INVALID` (more than reported, or nothing to refund), `400 ORDER_ITEM_NOT_FOUND`.
+
+## 30. Points and rewards (loyalty coins)
+
+Added on 2026-11-02 (`doc/REWARDS.md` has the long version). Customers collect **coins** for delivered orders (coins per euro of goods paid, at delivery), the verified sign-up, referrals that qualify and published reviews, and redeem them on the checkout page: each coin takes a percentage of the goods off (`percentPerCoin`, 0.01 = 100 coins are 1 %). The admin sets every rule; the program is off until switched on. Every movement is a ledger row with a key, written once; the balance is the sum.
+
+| Endpoint | Body / query | Answer |
+|---|---|---|
+| `GET /v1/admin/rewards/settings` | | `{ settings }`: `enabled`; `earning { order { enabled, coinsPerEuro }, welcome { enabled, coins }, referral { inviter, invitee }, review, campaign { enabled, multiplier, startsAt, endsAt, name } }`; `redemption { enabled, percentPerCoin, minCoins, minRedeemValue, minOrderValue, maxCoinsPerOrder, maxDiscount, combinableWithDiscountCodes }` (cents; `null` = off); `expiry { enabled, inactivityMonths }` |
+| `PUT /v1/admin/rewards/settings` | the whole document | `{ settings }`; `400 REWARDS_SETTINGS_INVALID` when the campaign ends before it starts |
+| `GET /v1/admin/rewards/summary` | | `{ accounts, accountsWithBalance, coinsOutstanding, coinsReserved, last30Days { earned, redeemed, returned, reversed, adjusted, expired, ordersWithCoins } }` |
+| `GET /v1/admin/rewards/accounts` | `customerId`, `withBalance`, `limit`, `cursor`, `sort` (`available`, `lastActivityAt`, `createdAt`) | `{ items, nextCursor }` |
+| `GET /v1/admin/rewards/accounts/{customerId}` | | `{ account, transactions }` (the latest 50); `404 CUSTOMER_NOT_FOUND` |
+| `POST /v1/admin/rewards/accounts/{customerId}/adjust` | `{ coins (signed), reason: goodwill \| correction \| misuse \| other, note? }` | `201 { account, transaction }`; `400 REWARDS_AMOUNT_INVALID` for 0 |
+| `GET /v1/admin/rewards/transactions` | `customerId`, `type`, `orderNumber`, `limit`, `cursor`, `sort` (`createdAt`, `type`) | `{ items, nextCursor }` |
+| `GET /v1/admin/rewards/transactions/count` | the same filters | `{ total }` |
+
+**Account:** `id`, `customerId`, `customer`, `available` (never below 0), `balance` (exact, below 0 after coins were taken back), `reserved` (held by unpaid orders), `earnedTotal`, `redeemedTotal`, `lastActivityAt`, `expiresAt`, `createdAt`, `updatedAt`. **Transaction:** `id`, `type` (`order`, `welcome`, `referral_inviter`, `referral_invitee`, `review`, `redeem`, `redeem_return`, `reversal`, `adjustment`, `expiry`), signed `coins`, `state` (`done`; `reserved`, `spent`, `released` for `redeem`), `orderId`, `orderNumber`, `reference`, `rate`, `reason`, `note`, `customerId`, `customer`, `adminId`, `admin`, `key`, `at`.
+
+**Orders** carry `rewards { coins, amount, percentPerCoin, state: reserved | used | released }` when coins were redeemed, `items[].rewardAmount`, `totals.rewards` and `finalTotals.rewards`; invoices and credit notes a negative line "Coins redeemed (59)" per VAT rate and `totals.rewards`. A credit of goods gives the coins of those goods back and shrinks what the order earned; a cancelled paid order gives all coins back.
+
+**Permissions:** `rewards.read` to look, `rewards.manage` to set the rules and adjust by hand. `POST /v1/jobs/run` also answers `rewards { expired }`.

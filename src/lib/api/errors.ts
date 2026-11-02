@@ -163,6 +163,9 @@ export const API_ERROR_CODES = [
   "ISSUE_NOT_FOUND",
   "ISSUE_TRANSITION_NOT_ALLOWED",
   "ISSUE_QUANTITY_INVALID",
+  // points and rewards (30)
+  "REWARDS_AMOUNT_INVALID",
+  "REWARDS_SETTINGS_INVALID",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];

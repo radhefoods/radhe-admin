@@ -32,6 +32,7 @@ describe("the rows of the matrix", () => {
       "catalog",
       "discounts",
       "reviews",
+      "rewards",
       "content",
       "analytics",
       "notifications",
@@ -41,7 +42,7 @@ describe("the rows of the matrix", () => {
       "roles",
     ]);
     // Analytics is read only (17.1): the manage column stays empty.
-    expect(catalogue.rows[9]).toMatchObject({
+    expect(catalogue.rows[10]).toMatchObject({
       resource: "analytics",
       read: "analytics.read",
       manage: null,
@@ -249,14 +250,14 @@ describe("what a role allows", () => {
     ).toEqual({
       everything: false,
       granted: 4,
-      total: 29,
+      total: 31,
       manages: ["Orders"],
       readsOnly: ["Customers"],
       managesBlind: ["Payments"],
     });
     const superAdmin = summarizeAccess(["*"], catalogue);
     expect(superAdmin.everything).toBe(true);
-    expect(superAdmin.granted).toBe(29);
+    expect(superAdmin.granted).toBe(31);
     expect(summarizeAccess(["orders.*"], catalogue).manages).toEqual([
       "Orders",
     ]);

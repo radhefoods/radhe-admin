@@ -36,6 +36,7 @@ import {
 } from "../order-ops.ts";
 import type { Router } from "../router.ts";
 import { iso } from "../time.ts";
+import { reconcileOrderRewards } from "./rewards.ts";
 import { releaseUnits, restockReturn } from "./stock.ts";
 
 const ORDER_STATUSES = [
@@ -486,6 +487,12 @@ export function registerOrders(router: Router): void {
             ctx.now,
             `${item.sku}: ${input.reason}`,
           );
+          reconcileOrderRewards(
+            ctx.db,
+            order,
+            `${item.sku}:${input.reason}`,
+            ctx.now,
+          );
         }
       }
       return json({ order: orderDetail(ctx.db, order, ctx.now) });
@@ -780,6 +787,7 @@ export function registerOrders(router: Router): void {
         ctx.now,
         record.returnNumber,
       );
+      reconcileOrderRewards(ctx.db, order, record.returnNumber, ctx.now);
       // Nothing was kept: the order counts as returned.
       if (
         order.items.every(

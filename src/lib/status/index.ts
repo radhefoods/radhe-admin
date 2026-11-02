@@ -9,6 +9,7 @@ import type {
   IssueStatus,
   LegalStatus,
   NotificationStatus,
+  OrderRewardsState,
   OrderStatus,
   PaymentStatus,
   ProductStatus,
@@ -17,6 +18,7 @@ import type {
   RefundStatus,
   ReturnStatus,
   ReviewStatus,
+  RewardTransactionState,
 } from "@/lib/api/types";
 
 /**
@@ -205,6 +207,32 @@ export const INVOICE_TYPE = table<InvoiceType>({
   credit_note: "moving",
 });
 
+/** A row of the coin ledger (30): a redemption waits for the payment, the rest is done. */
+export const REWARD_TRANSACTION_STATE = table<RewardTransactionState>(
+  {
+    done: "success",
+    reserved: "attention",
+    spent: "success",
+    released: "neutral",
+  },
+  {
+    done: "Done",
+    reserved: "Waiting for payment",
+    spent: "Spent",
+    released: "Given back",
+  },
+);
+
+/** The coins redeemed on an order (30), like the use of a discount code. */
+export const REWARD_USE_STATE = table<OrderRewardsState>(
+  { reserved: "attention", used: "success", released: "neutral" },
+  {
+    reserved: "Waiting for payment",
+    used: "Spent",
+    released: "Given back unpaid",
+  },
+);
+
 export const STATUS_TABLES = {
   order: ORDER_STATUS,
   payment: PAYMENT_STATUS,
@@ -224,6 +252,8 @@ export const STATUS_TABLES = {
   issue: ISSUE_STATUS,
   review: REVIEW_STATUS,
   referral: REFERRAL_STATUS,
+  rewardTransaction: REWARD_TRANSACTION_STATE,
+  rewardUse: REWARD_USE_STATE,
 } as const;
 
 export type StatusKind = keyof typeof STATUS_TABLES;

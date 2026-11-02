@@ -13,6 +13,7 @@ import type {
 } from "./common";
 import type { PackSize } from "./catalog";
 import type { OrderDiscount } from "./discounts";
+import type { OrderRewards } from "./rewards";
 import type { LegalType } from "./legal";
 import type { PaymentBlock, PaymentStatus } from "./payments";
 
@@ -142,6 +143,8 @@ export interface OrderItem {
   vatAmount: Cents;
   /** Cents the discount code took off this line (26); 0 without one. */
   discountAmount: Cents;
+  /** Cents the redeemed coins took off this line (30); absent on orders from before the program. */
+  rewardAmount?: Cents;
   deliveredQuantity: number;
   returnedQuantity: number;
   finalLineTotal: Cents;
@@ -160,6 +163,8 @@ export interface Totals {
   subtotal: Cents;
   /** What the discount code took off the goods (26); 0 without one. */
   discount: Cents;
+  /** What the redeemed coins took off the goods (30); 0 without any. */
+  rewards: Cents;
   deliveryFee: Cents;
   total: Cents;
   netTotal: Cents;
@@ -236,6 +241,8 @@ export interface OrderDetail extends OrderSummary {
   finalTotals: Totals;
   /** The discount code the order was made with (26), else `null`. */
   discount: OrderDiscount | null;
+  /** The coins redeemed on the order (30); absent or `null` without any. */
+  rewards?: OrderRewards | null;
   adjustments: OrderAdjustment[];
   deliveryAddress: DeliveryAddress;
   /** The customer's note at checkout. */

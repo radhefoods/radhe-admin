@@ -43,6 +43,9 @@ export const routes = {
   referrals: "/referrals" as Route,
   reviews: "/reviews" as Route,
   review: (id: Id) => `/reviews/${id}` as Route,
+  /** Points and rewards (30): one page with tabs, and a page per account. */
+  rewards: "/rewards" as Route,
+  rewardAccount: (customerId: Id) => `/rewards/accounts/${customerId}` as Route,
 
   products: "/catalogue/products" as Route,
   productNew: "/catalogue/products/new" as Route,

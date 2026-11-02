@@ -45,6 +45,14 @@ function TotalsBlock({
           </dd>
         </div>
       ) : null}
+      {totals.rewards > 0 ? (
+        <div className="flex justify-between gap-6">
+          <dt>Coins redeemed</dt>
+          <dd>
+            <Money cents={-totals.rewards} />
+          </dd>
+        </div>
+      ) : null}
       <div className="flex justify-between gap-6">
         <dt>Delivery</dt>
         <dd>
@@ -119,6 +127,36 @@ function DiscountBlock({ order }: { order: OrderDetail }) {
           : discount.state === "used"
             ? "The use is counted; a cancellation or refund does not give it back."
             : "The order was given up unpaid; the use went back to the code."}
+      </span>
+    </CardBody>
+  );
+}
+
+/** The coins redeemed on the order (30): how many, what they took off, and whether they are spent. */
+function RewardsBlock({ order }: { order: OrderDetail }) {
+  const rewards = order.rewards;
+  if (!rewards) return null;
+  return (
+    <CardBody
+      role="region"
+      aria-label="Coins redeemed"
+      className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line text-13"
+    >
+      <span className="text-ink-muted">Coins redeemed</span>
+      <span className="font-semibold text-ink tabular">
+        {rewards.coins.toLocaleString("en")}
+      </span>
+      <span className="tabular">
+        (<Money cents={-rewards.amount} />) · {rewards.percentPerCoin} % per
+        coin
+      </span>
+      <StatusBadge kind="rewardUse" value={rewards.state} />
+      <span className="text-ink-subtle">
+        {rewards.state === "reserved"
+          ? "The coins are held until the order is paid."
+          : rewards.state === "used"
+            ? "The coins are spent; goods credited later give their share back."
+            : "The order was given up unpaid; the coins went back to the customer."}
       </span>
     </CardBody>
   );
@@ -244,6 +282,11 @@ export function OrderItemsCard({
                         <Money cents={-item.discountAmount} /> discount
                       </span>
                     ) : null}
+                    {(item.rewardAmount ?? 0) > 0 ? (
+                      <span className="block text-13 text-ink-subtle">
+                        <Money cents={-(item.rewardAmount ?? 0)} /> coins
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-4 py-2.5 text-right sm:px-5">
                     {changeable ? (
@@ -265,6 +308,7 @@ export function OrderItemsCard({
         </table>
       </ScrollX>
       {order.discount ? <DiscountBlock order={order} /> : null}
+      <RewardsBlock order={order} />
       <CardBody className="flex flex-col gap-4 border-t border-line sm:flex-row sm:justify-end sm:gap-10">
         {differs ? (
           <div className="sm:w-64">

@@ -19,6 +19,7 @@ import {
 } from "./endpoints/orders";
 import { faqGroupsApi, faqsApi } from "./endpoints/faq";
 import { quotationsApi } from "./endpoints/quotations";
+import { rewardsApi } from "./endpoints/rewards";
 import { customersApi, legalApi, settingsApi } from "./endpoints/shop";
 import {
   wholesaleCategoriesApi,
@@ -63,6 +64,7 @@ export function createAdminApi(transport: SessionTransport) {
     referrals: referralsApi(transport),
     reviews: reviewsApi(transport),
     issues: issuesApi(transport),
+    rewards: rewardsApi(transport),
   };
 }
 

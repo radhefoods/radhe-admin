@@ -11,6 +11,7 @@ export const RESOURCES = [
   "catalog",
   "discounts",
   "reviews",
+  "rewards",
   "content",
   "analytics",
   "notifications",
@@ -78,6 +79,11 @@ export const RESOURCE_LABELS: Record<
     label: "Order reviews",
     covers:
       "What customers wrote about their delivered orders: publish, reject, answer in public, delete",
+  },
+  rewards: {
+    label: "Points and rewards",
+    covers:
+      "The loyalty coins: the rules, the accounts and the ledger; adjustments by hand",
   },
   content: {
     label: "Content",

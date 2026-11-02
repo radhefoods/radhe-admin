@@ -18,6 +18,8 @@ import type {
   RefundQuery,
   ReturnQuery,
   ReviewQuery,
+  RewardAccountQuery,
+  RewardTransactionQuery,
   WholesaleProductQuery,
   WholesaleStockMovementQuery,
 } from "./types";
@@ -159,6 +161,19 @@ export const queryKeys = {
     count: (query: ReviewQuery = {}) => ["reviews", "count", query] as const,
     detail: (id: Id) => ["reviews", "detail", id] as const,
   },
+  /** Points and rewards (30): the rules, the overview, the accounts, the ledger. */
+  rewards: {
+    all: ["rewards"] as const,
+    settings: ["rewards", "settings"] as const,
+    summary: ["rewards", "summary"] as const,
+    accounts: (query: RewardAccountQuery = {}) =>
+      ["rewards", "accounts", query] as const,
+    account: (customerId: Id) => ["rewards", "account", customerId] as const,
+    transactions: (query: RewardTransactionQuery = {}) =>
+      ["rewards", "transactions", query] as const,
+    transactionCount: (query: RewardTransactionQuery = {}) =>
+      ["rewards", "transaction-count", query] as const,
+  },
   /** Problem reports (29). */
   issues: {
     all: ["issues"] as const,
@@ -247,6 +262,8 @@ export const invalidation = {
   discount: [queryKeys.discounts.all],
   /** A decided or answered review: its lists and the start page. */
   review: [queryKeys.reviews.all, queryKeys.attention],
+  /** Coins adjusted by hand: the account, the lists, the overview. */
+  rewards: [queryKeys.rewards.all],
   /** A decided problem report: a refund corrects the order and queues the money, as a return does. */
   issue: [
     queryKeys.issues.all,

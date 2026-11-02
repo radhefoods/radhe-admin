@@ -19,6 +19,7 @@ import type {
   PriceChange,
   ProductDetail,
   Refund,
+  RewardsSettings,
   Role,
   Settings,
   StockMovement,
@@ -35,6 +36,10 @@ import type {
 } from "./modules/discounts.ts";
 import type { FaqGroupRecord, FaqRecord } from "./modules/faq.ts";
 import type { QuotationRecord } from "./modules/quotations.ts";
+import type {
+  RewardAccountRecord,
+  RewardTransactionRecord,
+} from "./modules/rewards.ts";
 import type {
   WholesaleCategoryRecord,
   WholesaleProductRecord,
@@ -232,6 +237,10 @@ export interface Db {
   referrals: ReferralRecord[];
   reviews: ReviewRecord[];
   issues: IssueRecord[];
+  /** Points and rewards (30): the rules, one account per customer, the ledger. */
+  rewardsSettings: RewardsSettings;
+  rewardAccounts: RewardAccountRecord[];
+  rewardTransactions: RewardTransactionRecord[];
   /** Pictures uploaded while the mock runs, by the key in their address. */
   files: Map<string, StoredFile>;
   counters: {
@@ -245,6 +254,38 @@ export interface Db {
     wholesaleSku: number;
   };
 }
+
+/** The defaults in the code (REWARDS.md, section 2): the program is off. */
+const DEFAULT_REWARDS_SETTINGS: RewardsSettings = {
+  enabled: false,
+  earning: {
+    order: { enabled: true, coinsPerEuro: 1 },
+    welcome: { enabled: false, coins: 0 },
+    referral: {
+      inviter: { enabled: true, coins: 100 },
+      invitee: { enabled: false, coins: 50 },
+    },
+    review: { enabled: false, coins: 0 },
+    campaign: {
+      enabled: false,
+      multiplier: 2,
+      startsAt: null,
+      endsAt: null,
+      name: null,
+    },
+  },
+  redemption: {
+    enabled: true,
+    percentPerCoin: 0.01,
+    minCoins: null,
+    minRedeemValue: null,
+    minOrderValue: null,
+    maxCoinsPerOrder: null,
+    maxDiscount: 500,
+    combinableWithDiscountCodes: true,
+  },
+  expiry: { enabled: false, inactivityMonths: 12 },
+};
 
 export function emptyDb(config: MockConfig): Db {
   return {
@@ -295,6 +336,9 @@ export function emptyDb(config: MockConfig): Db {
     referrals: [],
     reviews: [],
     issues: [],
+    rewardsSettings: DEFAULT_REWARDS_SETTINGS,
+    rewardAccounts: [],
+    rewardTransactions: [],
     files: new Map(),
     counters: {
       order: 1000,

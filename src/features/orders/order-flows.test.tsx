@@ -467,6 +467,7 @@ describe("correcting what was delivered", () => {
       currency: "EUR" as const,
       subtotal: total - deliveryFee,
       discount: 0,
+      rewards: 0,
       deliveryFee,
       total,
       netTotal: 0,

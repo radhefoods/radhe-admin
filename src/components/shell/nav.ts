@@ -3,6 +3,7 @@ import {
   Bell,
   BookOpenText,
   CircleHelp,
+  Coins,
   CreditCard,
   FileText,
   FolderTree,
@@ -184,6 +185,19 @@ export const NAVIGATION: NavGroup[] = [
         requires: "reviews.read",
         count: (a) => ({ count: a.reviews.pending, tone: "attention" }),
         keywords: "ratings stars products publish reject reply moderation",
+      },
+    ],
+  },
+  {
+    label: "Rewards",
+    items: [
+      {
+        label: "Points & Rewards",
+        href: routes.rewards,
+        icon: Coins,
+        requires: "rewards.read",
+        keywords:
+          "loyalty coins points balance ledger redeem earn welcome campaign expiry adjust",
       },
     ],
   },

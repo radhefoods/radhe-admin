@@ -82,8 +82,10 @@ const STATUS_TITLES: Record<StatusKind, string> = {
   discount: "Discount code",
   discountUse: "Use of a discount code",
   issue: "Problem report",
-  review: "Product review",
+  review: "Order review",
   referral: "Referral",
+  rewardTransaction: "Coin movement",
+  rewardUse: "Coins redeemed on an order",
 };
 
 const demoSchema = z.object({

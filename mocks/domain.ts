@@ -390,14 +390,16 @@ export function totalsOf(
   deliveryFee: number,
   /** What a discount code took off the goods (26). */
   discount = 0,
+  /** What the redeemed coins took off the goods (30). */
+  rewards = 0,
 ): Totals {
   const byRate = new Map<number, number>();
   for (const line of lines) {
     byRate.set(line.vatRate, (byRate.get(line.vatRate) ?? 0) + line.gross);
   }
   const goods = lines.reduce((sum, line) => sum + line.gross, 0);
-  // The goods before the discount; VAT is on what is paid.
-  const subtotal = goods + discount;
+  // The goods before the discount and the coins; VAT is on what is paid.
+  const subtotal = goods + discount + rewards;
   if (deliveryFee > 0) {
     const main =
       [...byRate.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 700;
@@ -416,6 +418,7 @@ export function totalsOf(
     currency: "EUR",
     subtotal,
     discount,
+    rewards,
     deliveryFee,
     total,
     netTotal: total - vatTotal,
@@ -430,12 +433,19 @@ export function totalsOf(
  */
 export function recomputeFinal(order: OrderRecord): void {
   let discount = 0;
+  let rewards = 0;
   for (const item of order.items) {
     const kept = Math.max(0, item.deliveredQuantity - item.returnedQuantity);
-    // A kept unit is paid at its unit price less its part of the line's discount (26).
+    // A kept unit is paid at its unit price less its part of the line's
+    // discount (26) and of the coins (30).
     const share = discountOfUnits(item, kept);
+    const coinShare =
+      item.quantity === 0
+        ? 0
+        : Math.round(((item.rewardAmount ?? 0) * kept) / item.quantity);
     discount += share;
-    item.finalLineTotal = kept * item.unitPrice - share;
+    rewards += coinShare;
+    item.finalLineTotal = kept * item.unitPrice - share - coinShare;
   }
   const kept = order.items.some((item) => item.finalLineTotal > 0);
   order.finalTotals = totalsOf(
@@ -445,6 +455,7 @@ export function recomputeFinal(order: OrderRecord): void {
     })),
     kept ? order.totals.deliveryFee : 0,
     discount,
+    rewards,
   );
 }
 
@@ -611,6 +622,7 @@ export function orderDetail(
     totals: order.totals,
     finalTotals: order.finalTotals,
     discount: order.discount,
+    rewards: order.rewards ?? null,
     adjustments: order.adjustments,
     deliveryAddress: order.deliveryAddress,
     note: order.note,
@@ -901,6 +913,31 @@ function discountLines(
     }));
 }
 
+/** The redeemed coins as one negative line per VAT rate (30). */
+function rewardLines(
+  order: OrderRecord,
+  language: "en" | "de",
+): InvoiceDetail["lines"] {
+  if (!order.rewards || order.totals.rewards === 0) return [];
+  const byRate = new Map<number, number>();
+  for (const item of order.items) {
+    const amount = item.rewardAmount ?? 0;
+    if (amount === 0) continue;
+    byRate.set(item.vatRate, (byRate.get(item.vatRate) ?? 0) + amount);
+  }
+  return [...byRate.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([vatRate, amount]) => ({
+      description: `${language === "de" ? "Eingelöste Coins" : "Coins redeemed"} (${order.rewards?.coins})`,
+      sku: null,
+      quantity: 1,
+      unitPrice: -amount,
+      vatRate,
+      vatPercent: vatRate / 100,
+      lineTotal: -amount,
+    }));
+}
+
 export function issueInvoice(
   db: Db,
   order: OrderRecord,
@@ -936,6 +973,7 @@ export function issueInvoice(
       })),
       // The discount as one negative line per VAT rate (26, section 3).
       ...discountLines(order, language),
+      ...rewardLines(order, language),
       ...(order.totals.deliveryFee > 0
         ? [
             {
