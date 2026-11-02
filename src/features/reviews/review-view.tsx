@@ -11,7 +11,7 @@ import {
 } from "@/components/domain/permission";
 import { Stars } from "@/components/domain/stars";
 import { StatusBadge } from "@/components/domain/status-badge";
-import { DateTime, Thumb, useAdminNames } from "@/components/domain/values";
+import { DateTime, useAdminNames } from "@/components/domain/values";
 import { ReasonField } from "@/components/form/reason-field";
 import { PageBody, PageHeader, gutter } from "@/components/shell/page";
 import { Button } from "@/components/ui/button";
@@ -37,7 +37,6 @@ import {
   REVIEW_NOTE_MAX,
   REVIEW_REPLY_MAX,
   reviewActions,
-  reviewProductName,
   reviewTitle,
 } from "./rules";
 
@@ -62,7 +61,6 @@ function Decide({
     if (!open) setNote("");
     onOpenChange(open);
   };
-  const product = reviewProductName(review.product);
 
   if (decision === "approve") {
     return (
@@ -70,8 +68,9 @@ function Decide({
         open
         onOpenChange={reset}
         title="Publish this review?"
-        description={`The shop shows it on the page of ${product}, and the product's rating follows. The customer is not told.`}
+        description="The shop shows it among what customers say, with the stars, the words, the author's name and the month. The customer is not told."
         facts={[
+          { label: "Order", value: review.orderNumber },
           { label: "Rating", value: `${review.rating} of 5` },
           { label: "By", value: review.authorName },
         ]}
@@ -80,7 +79,7 @@ function Decide({
           await actions.approve.mutateAsync();
           notify.success(
             "Review published",
-            `It is on the page of ${product}.`,
+            "It is among what customers say in the shop.",
           );
         }}
       />
@@ -97,7 +96,7 @@ function Decide({
             ? "Take this review off the shop?"
             : "Reject this review?"
         }
-        description="The customer reads your note in their account, next to the review. Say what to change, so they can rewrite it."
+        description="The customer reads your note in their account, next to the review. A review is written once: the customer cannot rewrite it, but may write a new one if you delete this one."
         tone="danger"
         confirmLabel={
           review.status === "published" ? "Take it off" : "Reject the review"
@@ -131,7 +130,7 @@ function Decide({
         open
         onOpenChange={reset}
         title="Delete this review?"
-        description="The review disappears for good, from the shop and from the customer's account. Rejecting it with a note is the kinder way when the text can be rewritten."
+        description="The review disappears for good, from the shop and from the customer's account. The customer may review the order again afterwards. Rejecting it with a note keeps it on record instead."
         tone="danger"
         requireText="DELETE"
         confirmLabel="Delete the review"
@@ -271,7 +270,7 @@ export function ReviewView() {
             "VALIDATION_FAILED",
           ) ? (
             <EmptyState icon={<Star />} title="This review does not exist">
-              It may have been deleted, or the customer took it back.
+              It may have been deleted, or the customer closed the account.
             </EmptyState>
           ) : (
             <Alert
@@ -302,7 +301,6 @@ export function ReviewView() {
   }
 
   const allowed = reviewActions(data.status);
-  const product = reviewProductName(data.product);
   const customer = customerOf(data.customerId, data.customer);
 
   return (
@@ -314,11 +312,6 @@ export function ReviewView() {
         description={
           <>
             Written <DateTime value={data.writtenAt} />
-            {data.editedAt ? (
-              <>
-                , rewritten <DateTime value={data.editedAt} />
-              </>
-            ) : null}
             {" · "}
             {LOCALE_LABEL[data.locale] ?? data.locale}
           </>
@@ -357,7 +350,7 @@ export function ReviewView() {
         {data.status === "pending" ? (
           <Alert tone="time" title="Waiting for your decision">
             The shop does not show this review until you publish it. Reject it
-            with a note when the text should change.
+            with a note when it should not be shown.
           </Alert>
         ) : null}
         {data.status === "rejected" && data.moderation ? (
@@ -377,15 +370,10 @@ export function ReviewView() {
             <Card>
               <CardHeader
                 title="The review"
-                description="As the customer wrote it. Reviews are never edited here."
+                description="As the customer wrote it about the order as a whole. Reviews are never edited here."
               />
               <CardBody className="flex flex-col gap-3">
                 <Stars value={data.rating} size="md" />
-                {data.title ? (
-                  <p className="text-base font-semibold text-ink">
-                    {data.title}
-                  </p>
-                ) : null}
                 <p className="text-sm whitespace-pre-line text-ink">
                   {data.text}
                 </p>
@@ -407,31 +395,16 @@ export function ReviewView() {
               <CardHeader title="About" />
               <CardBody>
                 <dl className="grid gap-4">
-                  <Fact label="Product">
-                    <span className="flex items-center gap-2.5">
-                      <Thumb src={data.product.imageUrl} size={40} />
-                      <Link
-                        href={routes.product(data.productId)}
-                        className="font-medium text-accent-text hover:underline"
-                      >
-                        {product}
-                      </Link>
-                    </span>
+                  <Fact label="Order">
+                    <Link
+                      href={routes.order(data.orderId)}
+                      className="font-medium text-accent-text hover:underline"
+                    >
+                      {data.orderNumber}
+                    </Link>
                   </Fact>
                   <Fact label="Customer">
                     <CustomerName customer={customer} />
-                  </Fact>
-                  <Fact label="Order">
-                    {data.orderId && data.orderNumber ? (
-                      <Link
-                        href={routes.order(data.orderId)}
-                        className="font-medium text-accent-text hover:underline"
-                      >
-                        {data.orderNumber}
-                      </Link>
-                    ) : (
-                      <span className="text-ink-subtle">Not named</span>
-                    )}
                   </Fact>
                   {data.publishedAt ? (
                     <Fact label="Published">

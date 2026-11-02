@@ -228,7 +228,7 @@ export interface Db {
   /** Discount codes of the retail shop (26) and their uses by orders. */
   discountCodes: DiscountCodeRecord[];
   discountUses: DiscountUseRecord[];
-  /** Referrals (27), product reviews (28) and problem reports (29). */
+  /** Referrals (27), order reviews (28) and problem reports (29). */
   referrals: ReferralRecord[];
   reviews: ReviewRecord[];
   issues: IssueRecord[];

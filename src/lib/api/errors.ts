@@ -157,7 +157,7 @@ export const API_ERROR_CODES = [
   "DISCOUNT_SCHEDULE_INVALID",
   "DISCOUNT_CODE_TAKEN",
   "DISCOUNT_IN_USE",
-  // product reviews (28)
+  // order reviews (28)
   "REVIEW_NOT_FOUND",
   // problem reports (29)
   "ISSUE_NOT_FOUND",

@@ -1,16 +1,8 @@
-import type { Review, ReviewProduct, ReviewStatus } from "@/lib/api/types";
-import { translated } from "@/lib/format/names";
+import type { Review, ReviewStatus } from "@/lib/api/types";
 
 /** The API's limits for what the admin writes (28). */
 export const REVIEW_NOTE_MAX = 1000;
 export const REVIEW_REPLY_MAX = 2000;
-
-/** The product's name, whichever way the API gives it next to a review. */
-export function reviewProductName(product: ReviewProduct): string {
-  return typeof product.name === "string"
-    ? product.name
-    : translated(product.name);
-}
 
 /**
  * What the admin can do with a review by its status (28): publish what is
@@ -24,7 +16,7 @@ export function reviewActions(status: ReviewStatus): {
   return { approve: status !== "published", reject: status !== "rejected" };
 }
 
-/** "Priya S. on Chakki Atta", the title of a review's page. */
+/** "Priya S. on RF-1084", the title of a review's page. */
 export function reviewTitle(review: Review): string {
-  return `${review.authorName} on ${reviewProductName(review.product)}`;
+  return `${review.authorName} on ${review.orderNumber}`;
 }

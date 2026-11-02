@@ -1,4 +1,4 @@
-// Sections 27 (referrals), 28 (product reviews) and 29 (problem reports).
+// Sections 27 (referrals), 28 (order reviews) and 29 (problem reports).
 
 import type { Query } from "../http";
 import type { SessionTransport } from "../session";
@@ -50,7 +50,7 @@ export function reviewsApi({ request }: SessionTransport) {
       }),
     get: (id: Id, signal?: AbortSignal) =>
       request<ReviewAnswer>(`${base}/${id}`, { signal }),
-    /** Publishes the review; the product's rating follows. */
+    /** Publishes the review: the shop shows it among what customers say. */
     approve: (id: Id) =>
       request<ReviewAnswer>(`${base}/${id}/approve`, { method: "POST" }),
     /** The note is shown to the customer; a published review is taken off the shop. */
@@ -67,6 +67,7 @@ export function reviewsApi({ request }: SessionTransport) {
       }),
     removeReply: (id: Id) =>
       request<ReviewAnswer>(`${base}/${id}/reply`, { method: "DELETE" }),
+    /** The customer may review the order again afterwards. */
     remove: (id: Id) => request<void>(`${base}/${id}`, { method: "DELETE" }),
   };
 }

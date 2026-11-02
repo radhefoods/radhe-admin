@@ -619,7 +619,6 @@ export function orderDetail(
     allowedStatuses: ORDER_ALLOWED[order.status],
     cancellation: order.cancellation,
     consent: order.consent,
-    feedback: order.feedback,
     statusHistory: order.statusHistory,
     updatedAt: order.updatedAt,
   };

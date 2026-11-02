@@ -1,4 +1,5 @@
-// Section 28: product reviews. doc/CUSTOMER_ACCOUNTS.md section 8 has the rules.
+// Section 28: order reviews. doc/ORDER_REVIEWS.md has the rules: a customer
+// reviews a delivered order as a whole, once, with stars and words.
 
 import type {
   AdminRef,
@@ -8,7 +9,6 @@ import type {
   IsoDateTime,
   Locale,
   SortParam,
-  Translated,
 } from "./common";
 
 /** Every review waits (`pending`) until the admin publishes or rejects it. */
@@ -20,14 +20,6 @@ export const REVIEW_STATUSES: readonly ReviewStatus[] = [
 ];
 
 export const REVIEW_RATINGS = [1, 2, 3, 4, 5] as const;
-
-/** The product next to the review, as the catalogue names it today. */
-export interface ReviewProduct {
-  id: Id;
-  slug: string;
-  name: Translated | string;
-  imageUrl: string | null;
-}
 
 export interface ReviewModeration {
   adminId: Id | null;
@@ -47,16 +39,14 @@ export interface ReviewReply {
 
 export interface Review {
   id: Id;
-  productId: Id;
-  product: ReviewProduct;
+  /** The delivered order the review is about; one review per order. */
+  orderId: Id;
+  orderNumber: string;
   customerId: Id;
   customer?: CustomerRef | null;
-  /** The delivered order the review is written for, when the customer named one. */
-  orderId: Id | null;
-  orderNumber: string | null;
   /** 1 to 5. */
   rating: number;
-  title: string | null;
+  /** 10 to 2000 characters; written once, never edited by the customer. */
   text: string;
   locale: Locale;
   /** The first name and the initial of the last name: "Priya S.". */
@@ -66,8 +56,6 @@ export interface Review {
   moderation: ReviewModeration | null;
   reply: ReviewReply | null;
   writtenAt: IsoDateTime;
-  /** A rewritten review waits again. */
-  editedAt: IsoDateTime | null;
   updatedAt: IsoDateTime;
 }
 
@@ -76,8 +64,9 @@ export type ReviewSortField = (typeof REVIEW_SORT_FIELDS)[number];
 
 export interface ReviewQuery extends CursorQuery {
   status?: ReviewStatus;
-  productId?: Id;
   customerId?: Id;
+  /** The review of one order, for the box on the order page. */
+  orderNumber?: string;
   rating?: number;
   /** Default `createdAt:desc`. */
   sort?: SortParam<ReviewSortField>;

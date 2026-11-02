@@ -5,6 +5,7 @@ import { DataTable } from "@/components/data/data-table";
 import {
   FilterBar,
   FilterSelect,
+  SearchField,
   SortSelect,
   type SortOption,
 } from "@/components/data/filter-bar";
@@ -25,6 +26,9 @@ import { routes } from "@/lib/routes";
 import { REVIEW_STATUS, statusOptions } from "@/lib/status";
 import { useReviewCount, useReviews } from "./queries";
 import { ReviewCard, reviewColumns } from "./review-columns";
+
+/** An order number, with or without its prefix. */
+const ORDER_NUMBER = /^(?:rf[\s-]?|#)?(\d{3,9})$/i;
 
 /** The orders of the list the API offers (28). */
 const SORTS: readonly SortOption<SortParam<ReviewSortField>>[] = [
@@ -50,26 +54,27 @@ export function ReviewsView() {
   const [state, setState, clear] = useUrlState({
     status: param.oneOfOr(STATUS_CHOICES, "pending"),
     rating: param.oneOf(RATINGS),
-    productId: param.id(),
+    orderNumber: param.text(20),
     customerId: param.id(),
     sort: param.oneOf(SORT_VALUES),
   });
+  const text = state.orderNumber.trim();
+  const number = ORDER_NUMBER.exec(text);
+  const understood = text === "" || number !== null;
   const status = state.status === "all" ? undefined : state.status;
   const filters = {
     status,
     rating: state.rating ? Number(state.rating) : undefined,
-    productId: state.productId,
+    orderNumber: number ? `RF-${number[1]}` : undefined,
     customerId: state.customerId,
   };
-  const reviews = useReviews({ ...filters, sort: state.sort });
-  const count = useReviewCount(filters);
+  const reviews = useReviews({ ...filters, sort: state.sort }, understood);
+  const count = useReviewCount(filters, understood);
   const rows = reviews.data?.pages.flatMap((page) => page.items);
   const filtered = Boolean(
-    state.status !== "pending" ||
-    state.rating ||
-    state.productId ||
-    state.customerId,
+    state.status !== "pending" || state.rating || text || state.customerId,
   );
+  const waiting = status === "pending" && !state.rating && !text;
   const sortLabel =
     SORTS.find((option) => option.value === state.sort)?.label ??
     "newest first";
@@ -78,10 +83,16 @@ export function ReviewsView() {
     <RequirePermission permission="reviews.read">
       <PageHeader
         title="Reviews"
-        description="What customers wrote about products they received. Every review waits here until you publish it or reject it with a note to the customer; a published review that is rewritten waits again. You can answer in public."
+        description="What customers wrote about an order they received: stars and words, once per delivered order. Every review waits here until you publish it, so the shop shows it among what customers say, or reject it with a note to the customer. You can answer in public."
       />
       <PageBody className="gap-3">
         <FilterBar active={filtered || Boolean(state.sort)} onClear={clear}>
+          <SearchField
+            label="Review of an order"
+            placeholder="Order number, RF-1084"
+            value={state.orderNumber}
+            onChange={(orderNumber) => setState({ orderNumber })}
+          />
           <FilterSelect
             label="Status"
             value={state.status}
@@ -107,7 +118,7 @@ export function ReviewsView() {
         <DataTable
           caption={`Reviews, ${sortLabel.toLowerCase()}`}
           columns={columns}
-          data={rows}
+          data={understood ? rows : []}
           getRowId={(review) => review.id}
           refreshing={reviews.isPlaceholderData}
           error={reviews.error}
@@ -118,16 +129,18 @@ export function ReviewsView() {
             <EmptyState
               icon={<Star />}
               title={
-                status === "pending" && !state.rating
-                  ? "No review waits to be read"
-                  : status
-                    ? `No review is ${REVIEW_STATUS[status].label.toLowerCase()}`
-                    : filtered
-                      ? "No review matches"
-                      : "No review yet"
+                !understood
+                  ? "This is not an order number"
+                  : waiting
+                    ? "No review waits to be read"
+                    : status && !text
+                      ? `No review is ${REVIEW_STATUS[status].label.toLowerCase()}`
+                      : filtered
+                        ? "No review matches"
+                        : "No review yet"
               }
               action={
-                filtered ? (
+                !understood ? null : filtered ? (
                   <Button onClick={clear}>Clear the filters</Button>
                 ) : (
                   <Button onClick={() => setState({ status: "all" })}>
@@ -136,11 +149,13 @@ export function ReviewsView() {
                 )
               }
             >
-              {status === "pending" && !state.rating
-                ? "Every review customers write appears here first, until you publish or reject it."
-                : filtered
-                  ? "Change the filters or clear them."
-                  : "Customers write a review for a product of a delivered order, in the shop."}
+              {!understood
+                ? "A review is found by the number of its order, like RF-1084."
+                : waiting
+                  ? "Every review customers write appears here first, until you publish or reject it."
+                  : filtered
+                    ? "Change the filters or clear them."
+                    : "Customers write one review about a delivered order, in the shop."}
             </EmptyState>
           }
           footer={

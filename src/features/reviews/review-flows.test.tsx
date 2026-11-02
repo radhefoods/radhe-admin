@@ -6,7 +6,7 @@ import { installTestApi, type TestApi } from "@/test/api";
 import { renderPanel, testNavigation } from "@/test/render";
 import { ReviewView } from "./review-view";
 import { ReviewsView } from "./reviews-view";
-import { reviewProductName, reviewTitle } from "./rules";
+import { reviewTitle } from "./rules";
 
 let api: TestApi;
 
@@ -36,7 +36,7 @@ beforeEach(async () => {
 });
 
 describe("the list of reviews", () => {
-  it("starts on what waits, shows the product with its stars, and can show all", async () => {
+  it("starts on what waits, shows the order, the customer and the stars, and can show all", async () => {
     const { user } = renderPanel(<ReviewsView />, { path: "/reviews" });
     const pending = reviews().filter((entry) => entry.status === "pending");
     expect(
@@ -48,21 +48,22 @@ describe("the list of reviews", () => {
     const table = screen.getByRole("table", { name: "Reviews, newest first" });
     const first = pending[0]!;
     const row = within(table)
-      .getByRole("link", {
-        name: first.title ?? `${first.rating} of 5 stars`,
-      })
+      .getByRole("link", { name: first.text })
       .closest("tr")!;
+    expect(within(row).getByRole("link", { name: first.text })).toHaveAttribute(
+      "href",
+      `/reviews/${first.id}`,
+    );
     expect(
-      within(row).getByRole("link", {
-        name: reviewProductName(first.product),
-      }),
-    ).toHaveAttribute("href", `/catalogue/products/${first.productId}`);
+      within(row).getByRole("link", { name: first.orderNumber }),
+    ).toHaveAttribute("href", `/orders/${first.orderId}`);
     expect(
       within(row).getByRole("img", {
         name: `Rating: ${first.rating} of 5 stars`,
       }),
     ).toBeInTheDocument();
     expect(within(row).getByText("Pending")).toBeInTheDocument();
+    expect(within(table).queryByText("Product")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^Status/ }));
     await user.click(await screen.findByRole("menuitem", { name: "All" }));
@@ -72,6 +73,19 @@ describe("the list of reviews", () => {
     expect(testNavigation.location).toBe("/reviews?status=all");
     expect(api.calls.map((call) => call.path)).toContain(
       "/v1/admin/reviews?limit=25",
+    );
+  });
+
+  it("finds the review of an order by its number", async () => {
+    const review = reviews()[0]!;
+    renderPanel(<ReviewsView />, {
+      path: `/reviews?status=all&orderNumber=${review.orderNumber.slice(3)}`,
+    });
+    expect(
+      await screen.findByText("1 review, that is all"),
+    ).toBeInTheDocument();
+    expect(api.calls.map((call) => call.path)).toContain(
+      `/v1/admin/reviews?orderNumber=${review.orderNumber}&limit=25`,
     );
   });
 

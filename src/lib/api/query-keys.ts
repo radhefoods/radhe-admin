@@ -152,7 +152,7 @@ export const queryKeys = {
     count: (query: ReferralQuery = {}) =>
       ["referrals", "count", query] as const,
   },
-  /** Product reviews (28). */
+  /** Order reviews (28). */
   reviews: {
     all: ["reviews"] as const,
     list: (query: ReviewQuery = {}) => ["reviews", "list", query] as const,
@@ -245,8 +245,8 @@ export const invalidation = {
   wholesale: [queryKeys.wholesale.all, queryKeys.quotations.all],
   /** A discount code: its list and its page. Orders keep what they were made with. */
   discount: [queryKeys.discounts.all],
-  /** A decided or answered review: its lists, the start page, the product's rating. */
-  review: [queryKeys.reviews.all, queryKeys.attention, queryKeys.products.all],
+  /** A decided or answered review: its lists and the start page. */
+  review: [queryKeys.reviews.all, queryKeys.attention],
   /** A decided problem report: a refund corrects the order and queues the money, as a return does. */
   issue: [
     queryKeys.issues.all,

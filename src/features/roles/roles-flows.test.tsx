@@ -41,7 +41,7 @@ describe("the list of roles", () => {
     expect(manager).toHaveTextContent("order_manager");
     expect(manager).toHaveTextContent("10 of 29");
     expect(manager).toHaveTextContent(
-      "Manages Orders, Wholesale quotations, Product reviews.",
+      "Manages Orders, Wholesale quotations, Order reviews.",
     );
     expect(manager).toHaveTextContent(
       "Reads Payments, Customers, Catalogue, Communication.",

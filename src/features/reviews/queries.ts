@@ -43,6 +43,20 @@ export function useReviewCount(
   });
 }
 
+/**
+ * The review of one order, for the box on the order page (28): one per
+ * order, so the first item is the review. Needs `reviews.read`.
+ */
+export function useOrderReview(orderNumber: string, enabled = true) {
+  const query: ReviewQuery = { orderNumber };
+  return useQuery({
+    queryKey: queryKeys.reviews.list(query),
+    queryFn: async ({ signal }) =>
+      (await api.reviews.list(query, signal)).items[0] ?? null,
+    enabled,
+  });
+}
+
 export function useReview(id: Id) {
   return useQuery({
     queryKey: queryKeys.reviews.detail(id),

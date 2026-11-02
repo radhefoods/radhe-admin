@@ -39,7 +39,7 @@ export const routes = {
 
   customers: "/customers" as Route,
   customer: (id: Id) => `/customers/${id}` as Route,
-  /** Referrals (27) and product reviews (28). */
+  /** Referrals (27) and order reviews (28). */
   referrals: "/referrals" as Route,
   reviews: "/reviews" as Route,
   review: (id: Id) => `/reviews/${id}` as Route,

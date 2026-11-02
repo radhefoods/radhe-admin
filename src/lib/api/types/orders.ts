@@ -87,16 +87,6 @@ export interface OrderCustomer {
   deleted?: boolean;
 }
 
-/** The stars a customer gave once, after the delivery (28). Never public. */
-export interface OrderFeedback {
-  /** 1 to 5, for the shopping. */
-  rating: number;
-  /** 1 to 5, for the delivery; `null` when not given. */
-  deliveryRating: number | null;
-  comment: string | null;
-  at: IsoDateTime;
-}
-
 export interface OrderDelivery {
   method: DeliveryMethod;
   trackingNumber: string | null;
@@ -256,8 +246,6 @@ export interface OrderDetail extends OrderSummary {
   allowedStatuses: SettableOrderStatus[];
   cancellation: OrderCancellation | null;
   consent: OrderConsent;
-  /** Given once by the customer after the delivery (28); `null` until then. */
-  feedback: OrderFeedback | null;
   statusHistory: OrderHistoryEntry[];
   updatedAt: IsoDateTime;
 }

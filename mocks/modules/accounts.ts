@@ -1,6 +1,6 @@
-// Sections 27 (referrals), 28 (product reviews) and 29 (problem reports),
+// Sections 27 (referrals), 28 (order reviews) and 29 (problem reports),
 // with the guests and closed accounts of section 4 that they rest on.
-// doc/CUSTOMER_ACCOUNTS.md has the long version.
+// doc/CUSTOMER_ACCOUNTS.md and doc/ORDER_REVIEWS.md have the long version.
 
 import { z } from "zod";
 import type {
@@ -221,13 +221,13 @@ export function registerAccounts(router: Router): void {
   const reviews = "/v1/admin/reviews";
   const filteredReviews = (ctx: { db: Db; query: URLSearchParams }) => {
     const status = enumParam(ctx.query, "status", REVIEW_STATUSES);
-    const productId = idParam(ctx.query, "productId");
+    const orderNumber = ctx.query.get("orderNumber");
     const customerId = idParam(ctx.query, "customerId");
     const rating = ctx.query.get("rating");
     return ctx.db.reviews.filter(
       (entry) =>
         (!status || entry.status === status) &&
-        (!productId || entry.productId === productId) &&
+        (!orderNumber || entry.orderNumber === orderNumber) &&
         (!customerId || entry.customerId === customerId) &&
         (!rating || entry.rating === Number(rating)),
     );
@@ -601,9 +601,9 @@ interface Rng {
 }
 
 /**
- * Guests, a closed account, referral codes and referrals, reviews, order
- * feedback and problem reports, on top of the customers and orders that
- * exist. Runs after the orders and returns are seeded.
+ * Guests, a closed account, referral codes and referrals, order reviews
+ * and problem reports, on top of the customers and orders that exist.
+ * Runs after the orders and returns are seeded.
  */
 export function seedAccounts(
   db: Db,
@@ -702,76 +702,46 @@ export function seedAccounts(
     });
   });
 
-  // --- Order feedback and reviews (8) -----------------------------------------
+  // --- Order reviews (ORDER_REVIEWS.md) ---------------------------------------
   const delivered = db.orders
     .filter((order) => order.status === "delivered")
     .sort((a, b) => a.placedAt.localeCompare(b.placedAt));
-  const comments = [
-    "Everything arrived fresh and well packed.",
-    "Schnelle Lieferung, gerne wieder.",
-    null,
-    "The box was a bit battered but the food was fine.",
-    null,
-    "Great spices, the atta is as good as at home.",
-  ];
-  delivered.forEach((order, index) => {
-    if (index % 3 !== 1) return;
-    const deliveredAt = Date.parse(
-      order.delivery.deliveredAt ?? order.placedAt,
-    );
-    order.feedback = {
-      rating: rng.int(3, 5),
-      deliveryRating: index % 2 === 0 ? rng.int(2, 5) : null,
-      comment: comments[(index / 3) % comments.length] ?? null,
-      at: iso(deliveredAt + rng.int(3, 40) * HOUR),
-    };
-  });
-
-  const texts: { rating: number; title: string | null; text: string }[] = [
+  const texts: { rating: number; text: string }[] = [
     {
       rating: 5,
-      title: "Just like home",
-      text: "The flour makes soft rotis every time. We have ordered it three times now and it has always been fresh.",
+      text: "Everything arrived fresh and well packed. The flour makes soft rotis every time; we have ordered three times now and it has always been like this.",
     },
     {
       rating: 4,
-      title: "Good quality, big pack",
-      text: "Very good quality. The 5 kg bag is a lot for two people, a smaller one would be nice.",
+      text: "Very good quality and a quick delivery. The 5 kg bag is a lot for two people, a smaller one would be nice.",
     },
     {
       rating: 2,
-      title: "Arrived late",
-      text: "The product itself is fine, but the parcel took a week and the delivery person was rude.",
+      text: "The products themselves are fine, but the parcel took a week and the delivery person was rude.",
     },
     {
       rating: 5,
-      title: null,
-      text: "Sehr aromatisch, genau wie auf dem Markt in Mumbai. Klare Empfehlung.",
+      text: "Sehr aromatisch, genau wie auf dem Markt in Mumbai. Schnelle Lieferung, gerne wieder.",
     },
     {
       rating: 3,
-      title: "Okay",
-      text: "Decent, but I have had better. The packaging could be more generous.",
+      text: "Decent, but I have had better. The box was a bit battered and the packaging could be more generous.",
     },
     {
       rating: 5,
-      title: "Perfect for dal",
-      text: "Cooks quickly and tastes wonderful. Will buy again with the next order.",
+      text: "Great spices, the atta is as good as at home. Will order again next month.",
     },
     {
       rating: 1,
-      title: "Not fresh",
-      text: "The pack smelled stale when I opened it. I expected better from Radhe Foods.",
+      text: "One pack smelled stale when I opened it. I expected better from Radhe Foods.",
     },
     {
       rating: 4,
-      title: "Tasty",
-      text: "Good value for the price, nice flavour. Four stars because the lid was hard to open.",
+      text: "Good value for the price, nice flavour. Four stars because one lid was hard to open.",
     },
     {
       rating: 5,
-      title: "Lovely",
-      text: "Beautiful colour and smell. My mother approves, which says everything.",
+      text: "Beautiful colours and smells, everything was there. My mother approves, which says everything.",
     },
   ];
   const statuses: ReviewStatus[] = [
@@ -785,7 +755,6 @@ export function seedAccounts(
     "published",
     "pending",
   ];
-  const reviewed = new Set<string>();
   let written = 0;
   for (const order of delivered) {
     if (written >= texts.length) break;
@@ -793,13 +762,7 @@ export function seedAccounts(
     const customer = db.customers.find(
       (entry) => entry.id === order.customer.id,
     );
-    const item = order.items.find(
-      (entry) => !reviewed.has(`${order.customer.id}:${entry.productId}`),
-    );
-    if (!customer || !item) continue;
-    const product = db.products.find((entry) => entry.id === item.productId);
-    if (!product) continue;
-    reviewed.add(`${order.customer.id}:${item.productId}`);
+    if (!customer) continue;
     const body = texts[written]!;
     const status = statuses[written]!;
     const deliveredAt = Date.parse(
@@ -813,18 +776,10 @@ export function seedAccounts(
     const decided = status !== "pending" && decidedAt < now;
     db.reviews.push({
       id: newId(writtenAt),
-      productId: product.id,
-      product: {
-        id: product.id,
-        slug: product.slug.en,
-        name: product.name,
-        imageUrl: product.images[0]?.sizes.small.url ?? null,
-      },
-      customerId: customer.id,
       orderId: order.id,
       orderNumber: order.orderNumber,
+      customerId: customer.id,
       rating: body.rating,
-      title: body.title,
       text: body.text,
       locale: customer.locale,
       authorName: authorName(customer),
@@ -849,7 +804,6 @@ export function seedAccounts(
             }
           : null,
       writtenAt: iso(writtenAt),
-      editedAt: written === 2 ? iso(writtenAt + DAY) : null,
       updatedAt: iso(decided ? decidedAt : writtenAt),
     });
     written += 1;

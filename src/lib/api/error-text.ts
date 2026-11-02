@@ -212,7 +212,7 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   DISCOUNT_CODE_TAKEN: "Another discount code has this text.",
   DISCOUNT_IN_USE:
     "Orders were made with this code. It keeps its text and stays for the order history; switch it off instead.",
-  // product reviews
+  // order reviews
   REVIEW_NOT_FOUND: "This review does not exist (any more).",
   // problem reports
   ISSUE_NOT_FOUND: "This problem report does not exist (any more).",

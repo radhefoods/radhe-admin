@@ -304,7 +304,7 @@ function groupsOf(
             href: withQuery(routes.reviews, { status: "pending" }),
             detail:
               attention.reviews.pending > 0
-                ? "Customers wrote about products they received. Publish each review, or reject it with a note."
+                ? "Customers wrote about orders they received. Publish each review, or reject it with a note."
                 : "Every review was read.",
             // The overview carries the count only (15): the list has the reviews.
             rows: [],

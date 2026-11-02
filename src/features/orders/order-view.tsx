@@ -82,6 +82,7 @@ import {
 } from "./order-dialogs";
 import { OrderItemsCard } from "./order-items";
 import { useOrderIssues } from "@/features/issues/queries";
+import { useOrderReview } from "@/features/reviews/queries";
 import { OrderPaymentCard } from "./order-payment";
 import { useOrder, useOrderActions, type OrderActions } from "./queries";
 
@@ -320,51 +321,38 @@ function DeliveryCard({
   );
 }
 
-/** The stars the customer gave after the delivery (28): never public. */
-function FeedbackCard({ order }: { order: OrderDetail }) {
-  if (order.status !== "delivered" && order.status !== "returned") return null;
-  const { feedback } = order;
+/**
+ * The customer's review of the order (28): stars and words, written once
+ * after the delivery, published or not. Nothing is shown without a review.
+ */
+function OrderReviewCard({ order }: { order: OrderDetail }) {
+  const can = useCan();
+  const review = useOrderReview(order.orderNumber, can("reviews.read")).data;
+  if (!review) return null;
   return (
     <Card>
       <CardHeader
-        title="Feedback of the customer"
-        description="Given once after the delivery, in the shop. Only the team sees it."
+        title="Review"
+        description="What the customer wrote about this order, for the shop."
+        actions={
+          <Link
+            href={routes.review(review.id)}
+            className="text-13 font-medium text-accent-text hover:underline"
+          >
+            Open the review
+          </Link>
+        }
       />
-      <CardBody>
-        {feedback ? (
-          <dl className="grid gap-4 sm:grid-cols-2">
-            <Fact label="The shopping">
-              <Stars value={feedback.rating} label="The shopping" size="md" />
-            </Fact>
-            <Fact label="The delivery">
-              {feedback.deliveryRating ? (
-                <Stars
-                  value={feedback.deliveryRating}
-                  label="The delivery"
-                  size="md"
-                />
-              ) : (
-                <span className="text-ink-subtle">Not rated</span>
-              )}
-            </Fact>
-            <Fact label="The customer wrote" className="sm:col-span-2">
-              {feedback.comment ? (
-                <span className="whitespace-pre-line">
-                  “{feedback.comment}”
-                </span>
-              ) : (
-                <span className="text-ink-subtle">Nothing</span>
-              )}
-            </Fact>
-            <Fact label="Given">
-              <DateTime value={feedback.at} />
-            </Fact>
-          </dl>
-        ) : (
-          <p className="text-13 text-ink-muted">
-            The customer has not given feedback on this order.
-          </p>
-        )}
+      <CardBody className="flex flex-col gap-3">
+        <span className="flex flex-wrap items-center gap-3">
+          <Stars value={review.rating} size="md" />
+          <StatusBadge kind="review" value={review.status} />
+        </span>
+        <p className="text-sm whitespace-pre-line text-ink">“{review.text}”</p>
+        <p className="text-13 text-ink-muted">
+          {review.authorName}, <DateTime value={review.writtenAt} />
+          {review.reply ? ". Answered by Radhe Foods." : "."}
+        </p>
       </CardBody>
     </Card>
   );
@@ -464,6 +452,7 @@ function Related({ order }: { order: OrderDetail }) {
         </Card>
       ) : null}
 
+      <OrderReviewCard order={order} />
       <IssuesCard order={order} />
 
       {messages ? (
@@ -634,7 +623,6 @@ export function OrderView() {
           <div className="flex min-w-0 flex-col gap-6">
             <OrderItemsCard order={data} actions={actions} />
             <OrderPaymentCard order={data} actions={actions} />
-            <FeedbackCard order={data} />
             <Related order={data} />
           </div>
 

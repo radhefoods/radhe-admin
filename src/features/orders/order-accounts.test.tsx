@@ -32,7 +32,7 @@ beforeEach(async () => {
   await api.signIn();
 });
 
-describe("guests, closed accounts, feedback and reports on an order", () => {
+describe("guests, closed accounts, the review and the reports on an order", () => {
   it("marks a guest order in the list and on its page", async () => {
     const guest = find((entry) => entry.isGuest, "guest order");
     renderPanel(<OrdersList />, {
@@ -71,22 +71,57 @@ describe("guests, closed accounts, feedback and reports on an order", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the feedback of a delivered order, and says when there is none", async () => {
-    const rated = find(
-      (entry) => entry.status === "delivered" && entry.feedback !== null,
-      "delivered order with feedback",
+  it("shows the review of a delivered order with a link to its page", async () => {
+    const review = api.mock.db().reviews[0];
+    if (!review) throw new Error("No review in the demo data");
+    const order = find(
+      (entry) => entry.id === review.orderId,
+      "order with a review",
     );
-    await open(rated);
+    await open(order);
     expect(
-      screen.getByRole("img", {
-        name: `The shopping: ${rated.feedback!.rating} of 5 stars`,
+      await screen.findByRole("img", {
+        name: `Rating: ${review.rating} of 5 stars`,
       }),
     ).toBeInTheDocument();
-    if (rated.feedback!.comment) {
-      expect(
-        screen.getByText(`“${rated.feedback!.comment}”`),
-      ).toBeInTheDocument();
-    }
+    expect(screen.getByText(`“${review.text}”`)).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Open the review" }),
+    ).toHaveAttribute("href", `/reviews/${review.id}`);
+    expect(api.calls.map((call) => call.path)).toContain(
+      `/v1/admin/reviews?orderNumber=${order.orderNumber}`,
+    );
+  });
+
+  it("shows no review box without a review, and asks for none without the permission", async () => {
+    const reviewed = new Set(
+      api.mock.db().reviews.map((entry) => entry.orderId),
+    );
+    const plain = find(
+      (entry) => entry.status === "delivered" && !reviewed.has(entry.id),
+      "delivered order without a review",
+    );
+    await open(plain);
+    await screen.findByText("Customer", { selector: "h2, h3" });
+    expect(screen.queryByText("Review")).not.toBeInTheDocument();
+
+    const review = api.mock.db().reviews[0]!;
+    const order = find(
+      (entry) => entry.id === review.orderId,
+      "order with a review",
+    );
+    api.calls.length = 0;
+    renderPanel(<OrderView />, {
+      params: { id: order.id },
+      permissions: ["orders.read", "customers.read"],
+    });
+    await screen.findByRole("heading", {
+      level: 1,
+      name: new RegExp(order.orderNumber),
+    });
+    expect(
+      api.calls.some((call) => call.path.startsWith("/v1/admin/reviews")),
+    ).toBe(false);
   });
 
   it("lists the problem reports of the order next to its returns", async () => {

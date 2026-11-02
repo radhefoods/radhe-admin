@@ -31,7 +31,7 @@ test("an open report is taken on and refunded, and the order shows the credit", 
 test("a pending review is published from its page", async ({ page }) => {
   await signIn(page, "owner", "/reviews");
   const table = page.getByRole("table", { name: /^Reviews/ });
-  await table.getByRole("row").nth(1).getByRole("link").nth(1).click();
+  await table.getByRole("row").nth(1).locator('a[href^="/reviews/"]').click();
   await page.getByRole("button", { name: "Publish" }).click();
   await page.getByRole("button", { name: "Publish the review" }).click();
   await expect(page.getByText("Published").first()).toBeVisible();
@@ -61,7 +61,7 @@ test("a viewer reads reports and reviews and changes nothing", async ({
 }) => {
   await signIn(page, "viewer", "/reviews");
   const table = page.getByRole("table", { name: /^Reviews/ });
-  await table.getByRole("row").nth(1).getByRole("link").nth(1).click();
+  await table.getByRole("row").nth(1).locator('a[href^="/reviews/"]').click();
   await expect(page.getByRole("button", { name: "Publish" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Reject" })).toBeDisabled();
   await page.goto("/issues");

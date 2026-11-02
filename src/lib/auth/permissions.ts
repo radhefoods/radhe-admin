@@ -75,9 +75,9 @@ export const RESOURCE_LABELS: Record<
     covers: "The promotional codes of the retail shop and their uses",
   },
   reviews: {
-    label: "Product reviews",
+    label: "Order reviews",
     covers:
-      "What customers wrote about products: publish, reject, answer in public, delete",
+      "What customers wrote about their delivered orders: publish, reject, answer in public, delete",
   },
   content: {
     label: "Content",

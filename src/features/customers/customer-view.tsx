@@ -516,7 +516,7 @@ function Referrals({ customer }: { customer: Customer }) {
   );
 }
 
-/** What this customer wrote about products (28), newest first. */
+/** What this customer wrote about their delivered orders (28), newest first. */
 function Reviews({ customer }: { customer: Customer }) {
   const reviews = useReviews({ customerId: customer.id });
   const rows = reviews.data?.pages.flatMap((page) => page.items);
@@ -551,7 +551,7 @@ function Reviews({ customer }: { customer: Customer }) {
           <EmptyState icon={<Star />} title="No review yet" className="py-10">
             {isDeletedAccount(customer)
               ? "The reviews of a closed account are deleted."
-              : "A review appears here when the customer writes one for a product of a delivered order."}
+              : "A review appears here when the customer writes one about a delivered order."}
           </EmptyState>
         }
         footer={

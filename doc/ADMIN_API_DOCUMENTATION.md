@@ -36,7 +36,7 @@ For the Next.js Admin Panel. Generated from the implemented NestJS backend (`rad
 25. Wholesale catalogue (B2B)
 26. Discount codes (retail shop)
 27. Referrals
-28. Product reviews
+28. Order reviews
 29. Problem reports
 
 Added on 2026-11-01 (`doc/CUSTOMER_ACCOUNTS.md` has the long version): guest orders and deleted accounts (sections 4 and 9), referrals (27), reviews (28), problem reports (29), the attention overview with reports and reviews (15), `issueWindowDays` in the return policy (5), the permissions `reviews.read` and `reviews.manage`.
@@ -1995,7 +1995,7 @@ Stripe's webhook (header `stripe-signature`, verified with the webhook secret; t
 | Wholesale quotations | `quotations.read` | `quotations.manage` |
 | Wholesale catalogue (categories, products, SKUs, stock, import/export) | `wholesale.read` | `wholesale.manage` |
 | Discount codes of the retail shop | `discounts.read` | `discounts.manage` |
-| Product reviews | `reviews.read` | `reviews.manage` |
+| Order reviews | `reviews.read` | `reviews.manage` |
 | Problem reports | `orders.read` | `orders.manage` |
 | Referrals | `customers.read` | |
 
@@ -2295,26 +2295,24 @@ Customers invite others with a code (8 characters, made on first use, `referralC
 
 **Permission:** `customers.read`.
 
-## 28. Product reviews
+## 28. Order reviews
 
-A customer writes one review per product of a delivered order (rating 1 to 5, title, text); it waits (`pending`) until the admin publishes it (`published`) or rejects it with a note to the customer (`rejected`). A published review that the customer rewrites waits again. The rating of a product (`rating { average, count }` in the catalogue) follows its published reviews. The admin may answer in public.
+Changed on 2026-11-02. A customer reviews a delivered order as a whole, once (rating 1 to 5 and a text, both required); it waits (`pending`) until the admin publishes it (`published`, shown in the shop among what customers say) or rejects it with a note to the customer (`rejected`). The admin may answer in public and may delete. Reviews are not about products, and no product carries a rating. `doc/ORDER_REVIEWS.md` has the long version.
 
 | Endpoint | Body / query | Answer |
 |---|---|---|
-| `GET /v1/admin/reviews` | `status`, `productId`, `customerId`, `rating`, `limit`, `cursor`, `sort` (`createdAt`, `status`, `rating`) | `{ items, nextCursor }` |
+| `GET /v1/admin/reviews` | `status`, `customerId`, `orderNumber`, `rating`, `limit`, `cursor`, `sort` (`createdAt`, `status`, `rating`) | `{ items, nextCursor }` |
 | `GET /v1/admin/reviews/count` | the same filters | `{ total }` |
 | `GET /v1/admin/reviews/{id}` | | `{ review }` |
-| `POST /v1/admin/reviews/{id}/approve` | | `{ review }`, published; the product's rating follows |
+| `POST /v1/admin/reviews/{id}/approve` | | `{ review }`, published |
 | `POST /v1/admin/reviews/{id}/reject` | `{ note }` (shown to the customer) | `{ review }`; a published review is taken off the shop |
 | `POST /v1/admin/reviews/{id}/reply` | `{ text }` | `{ review }`, the answer shown under the review; answering again replaces it |
 | `DELETE /v1/admin/reviews/{id}/reply` | | `{ review }` |
-| `DELETE /v1/admin/reviews/{id}` | | `204` |
+| `DELETE /v1/admin/reviews/{id}` | | `204`; the customer may review the order again |
 
-The review: `id`, `productId`, `product { id, slug, name, imageUrl }`, `customerId`, `customer`, `orderId`, `orderNumber`, `rating`, `title`, `text`, `locale`, `authorName` ("Priya S."), `status`, `publishedAt`, `moderation { adminId, admin, at, note }`, `reply { text, adminId, admin, at }`, `writtenAt`, `editedAt`, `updatedAt`.
+The review: `id`, `orderId`, `orderNumber`, `customerId`, `customer`, `rating`, `text`, `locale`, `authorName` ("Priya S."), `status`, `publishedAt`, `moderation { adminId, admin, at, note }`, `reply { text, adminId, admin, at }`, `writtenAt`, `updatedAt`.
 
-**Permissions:** `reviews.read` to look, `reviews.manage` to decide, answer and delete. **Errors:** `404 REVIEW_NOT_FOUND`.
-
-Order feedback (stars for the shopping and the delivery, a comment), given once by the customer after the delivery, is on the order detail as `feedback { rating, deliveryRating, comment, at }` and never public.
+**Permissions:** `reviews.read` to look, `reviews.manage` to decide, answer and delete. **Errors:** `404 REVIEW_NOT_FOUND`. The order detail no longer carries a `feedback` block.
 
 ## 29. Problem reports
 

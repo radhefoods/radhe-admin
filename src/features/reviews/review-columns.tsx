@@ -5,72 +5,34 @@ import type { Column } from "@/components/data/data-table";
 import { CustomerCell, customerOf } from "@/components/domain/customer";
 import { Stars } from "@/components/domain/stars";
 import { StatusBadge } from "@/components/domain/status-badge";
-import { DateTime, Thumb, TwoLine } from "@/components/domain/values";
+import { DateTime } from "@/components/domain/values";
 import type { Review } from "@/lib/api/types";
 import { routes } from "@/lib/routes";
-import { reviewProductName } from "./rules";
 
 /** The customer of a review with the id the review carries (0.9). */
 function reviewCustomer(review: Review) {
   return customerOf(review.customerId, review.customer);
 }
 
-function ReviewLink({ review }: { review: Review }) {
-  return (
-    <Link
-      href={routes.review(review.id)}
-      className="font-semibold text-accent-text hover:underline"
-    >
-      {review.title?.trim() || `${review.rating} of 5 stars`}
-    </Link>
-  );
-}
-
 /**
- * The columns of a review list (28). The customer page leaves the
- * customer out: it is the customer whose page it is.
+ * The columns of a review list (28): the order, who wrote it, the stars,
+ * the words. The customer page leaves the customer out: it is the customer
+ * whose page it is. The order page has no list; it shows the one review.
  */
 export function reviewColumns(leaveOut: string[] = []): Column<Review>[] {
   const columns: Column<Review>[] = [
     {
-      id: "product",
-      header: "Product",
+      id: "order",
+      header: "Order",
       cell: ({ row }) => (
-        <span className="flex min-w-0 items-center gap-2.5">
-          <Thumb src={row.original.product.imageUrl} size={36} />
-          <TwoLine
-            primary={
-              <Link
-                href={routes.product(row.original.productId)}
-                className="font-medium hover:underline"
-              >
-                {reviewProductName(row.original.product)}
-              </Link>
-            }
-            secondary={<Stars value={row.original.rating} />}
-          />
-        </span>
+        <Link
+          href={routes.order(row.original.orderId)}
+          className="font-semibold text-accent-text hover:underline"
+        >
+          {row.original.orderNumber}
+        </Link>
       ),
-      meta: { skeleton: "w-40", className: "max-w-60" },
-    },
-    {
-      id: "review",
-      header: "Review",
-      cell: ({ row }) => (
-        <span className="flex min-w-0 flex-col">
-          <ReviewLink review={row.original} />
-          <span className="line-clamp-2 text-13 text-ink-muted">
-            {row.original.text}
-          </span>
-        </span>
-      ),
-      meta: { className: "max-w-80 min-w-48 whitespace-normal" },
-    },
-    {
-      id: "author",
-      header: "Author",
-      cell: ({ row }) => row.original.authorName,
-      meta: { from: "xl", skeleton: "w-20" },
+      meta: { skeleton: "w-20" },
     },
     {
       id: "customer",
@@ -81,30 +43,34 @@ export function reviewColumns(leaveOut: string[] = []): Column<Review>[] {
       meta: { from: "lg", skeleton: "w-32", className: "max-w-48" },
     },
     {
-      id: "order",
-      header: "Order",
-      cell: ({ row }) =>
-        row.original.orderId && row.original.orderNumber ? (
-          <Link
-            href={routes.order(row.original.orderId)}
-            className="hover:underline"
-          >
-            {row.original.orderNumber}
-          </Link>
-        ) : (
-          <span className="text-ink-subtle">—</span>
-        ),
-      meta: { from: "md", skeleton: "w-16" },
+      id: "rating",
+      header: "Stars",
+      cell: ({ row }) => <Stars value={row.original.rating} />,
+      meta: { skeleton: "w-20" },
+    },
+    {
+      id: "review",
+      header: "Review",
+      cell: ({ row }) => (
+        <Link
+          href={routes.review(row.original.id)}
+          className="line-clamp-2 text-13 text-ink hover:underline"
+        >
+          {row.original.text}
+        </Link>
+      ),
+      meta: { className: "max-w-96 min-w-48 whitespace-normal" },
+    },
+    {
+      id: "author",
+      header: "Author",
+      cell: ({ row }) => row.original.authorName,
+      meta: { from: "xl", skeleton: "w-20" },
     },
     {
       id: "written",
       header: "Written",
-      cell: ({ row }) => (
-        <TwoLine
-          primary={<DateTime value={row.original.writtenAt} short />}
-          secondary={row.original.editedAt ? "Rewritten" : null}
-        />
-      ),
+      cell: ({ row }) => <DateTime value={row.original.writtenAt} short />,
       meta: { from: "sm", skeleton: "w-24" },
     },
     {
@@ -126,18 +92,12 @@ export function ReviewCard({ review }: { review: Review }) {
       className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 active:bg-sunken"
     >
       <span className="flex items-center gap-2.5">
-        <Thumb src={review.product.imageUrl} size={36} />
-        <span className="flex min-w-0 flex-col">
-          <span className="truncate text-sm font-semibold text-ink">
-            {reviewProductName(review.product)}
-          </span>
-          <Stars value={review.rating} />
+        <span className="text-sm font-semibold text-ink">
+          {review.orderNumber}
         </span>
+        <Stars value={review.rating} />
         <StatusBadge kind="review" value={review.status} className="ml-auto" />
       </span>
-      {review.title ? (
-        <span className="text-sm font-medium text-ink">{review.title}</span>
-      ) : null}
       <span className="line-clamp-3 text-13 text-ink-muted">{review.text}</span>
       <span className="text-13 text-ink-subtle">
         {review.authorName} · <DateTime value={review.writtenAt} short />

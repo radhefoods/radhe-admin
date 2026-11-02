@@ -1111,7 +1111,6 @@ export function seed(options: SeedOptions): Db {
         ...(customer.phone ? { phone: customer.phone } : {}),
       },
       isGuest: customer.kind === "guest",
-      feedback: null,
       currency: "EUR",
       delivery: {
         method: method ?? db.settings.delivery.defaultMethod,
