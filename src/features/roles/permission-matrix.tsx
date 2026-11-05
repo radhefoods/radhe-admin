@@ -78,7 +78,7 @@ export function PermissionMatrix({
         </Alert>
       ) : null}
 
-      <div className="overflow-x-auto rounded-lg border border-line">
+      <div className="glass-inset overflow-x-auto rounded-lg">
         <table className="w-full border-separate border-spacing-0 text-sm">
           <caption className="sr-only">
             Permissions of the role, by resource

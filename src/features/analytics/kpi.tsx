@@ -104,8 +104,8 @@ export function KpiTile({
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-col gap-0.5 rounded-lg border border-line bg-surface",
-        compact ? "px-3.5 py-2.5" : "px-4 py-3.5",
+        "glow-tile glass-card flex min-w-0 flex-col gap-0.5 rounded-xl",
+        compact ? "px-3.5 py-3" : "px-4 py-3.5",
       )}
     >
       <p className="truncate text-13 font-medium text-ink-muted">{label}</p>
@@ -139,7 +139,10 @@ export function FigureTile({
   tone?: "attention" | "danger";
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 rounded-lg border border-line bg-surface px-3.5 py-2.5">
+    <div
+      data-tone={tone}
+      className="glow-tile glass-card flex min-w-0 flex-col gap-0.5 rounded-xl px-3.5 py-3"
+    >
       <p className="truncate text-13 font-medium text-ink-muted">{label}</p>
       <p
         className={cn(

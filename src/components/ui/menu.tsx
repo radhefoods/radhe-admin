@@ -10,7 +10,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 const surfaceClass =
-  "z-50 rounded-lg border border-line bg-surface text-ink shadow-pop outline-none data-[state=open]:animate-pop-in data-[state=closed]:animate-pop-out";
+  "z-50 rounded-xl glass-float text-ink outline-none data-[state=open]:animate-pop-in data-[state=closed]:animate-pop-out";
 
 // --- Dropdown menu ----------------------------------------------------------
 
@@ -37,7 +37,7 @@ export function DropdownMenuContent({
 }
 
 const itemClass =
-  "flex min-h-8 cursor-pointer items-center gap-2 rounded-sm px-2.5 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-sunken data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-ink-subtle";
+  "flex min-h-8 cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-100 outline-none select-none data-[highlighted]:bg-accent-soft data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-ink-subtle";
 
 export function DropdownMenuItem({
   className,
@@ -158,7 +158,7 @@ export function Tooltip({
           side={side}
           align={align}
           sideOffset={6}
-          className="z-[60] max-w-64 rounded-md bg-ink px-2.5 py-1.5 text-xs leading-snug font-medium text-surface shadow-pop data-[state=closed]:animate-fade-out data-[state=delayed-open]:animate-fade-in"
+          className="z-[60] max-w-64 rounded-lg bg-ink/95 px-2.5 py-1.5 text-xs leading-snug font-medium text-surface shadow-pop backdrop-blur-sm data-[state=closed]:animate-fade-out data-[state=delayed-open]:animate-fade-in"
         >
           {content}
         </TooltipPrimitive.Content>

@@ -329,7 +329,7 @@ export function CategoryProductsView() {
           <div
             role="status"
             aria-label="Loading the products"
-            className="flex flex-col divide-y divide-line rounded-lg border border-line"
+            className="glass-inset flex flex-col divide-y divide-line rounded-lg"
           >
             {Array.from({ length: 6 }, (_, index) => (
               <div key={index} className="flex items-center gap-3 px-3.5 py-3">
@@ -340,7 +340,7 @@ export function CategoryProductsView() {
             ))}
           </div>
         ) : rows.length === 0 ? (
-          <div className="rounded-lg border border-line">
+          <div className="glass-inset rounded-lg">
             <EmptyState
               icon={<ListOrdered />}
               title={`No products directly in ${name}`}
@@ -357,7 +357,7 @@ export function CategoryProductsView() {
           </div>
         ) : (
           <>
-            <div className="rounded-lg border border-line">
+            <div className="glass-inset rounded-lg">
               <div
                 aria-hidden="true"
                 className={cn(

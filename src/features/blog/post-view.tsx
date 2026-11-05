@@ -43,7 +43,7 @@ export function PostView({ readSize }: { readSize?: SizeReader }) {
           <PageHeader title="Post" back={back} />
           <div className={gutter}>
             {gone ? (
-              <div className="rounded-lg border border-line">
+              <div className="glass-inset rounded-lg">
                 <EmptyState
                   icon={<Newspaper />}
                   title="This post does not exist"

@@ -10,7 +10,7 @@ export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogClose = DialogPrimitive.Close;
 
 const overlayClass =
-  "fixed inset-0 z-50 bg-scrim data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out";
+  "fixed inset-0 z-50 bg-scrim backdrop-blur-xs data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out";
 
 const sizes = {
   sm: "sm:max-w-md",
@@ -43,8 +43,8 @@ export function DialogContent({
       <DialogPrimitive.Overlay className={overlayClass} />
       <DialogPrimitive.Content
         className={cn(
-          "fixed z-50 flex max-h-[calc(100dvh-1rem)] w-full flex-col bg-surface shadow-float outline-none",
-          "inset-x-0 bottom-0 rounded-t-2xl sm:inset-auto sm:top-1/2 sm:left-1/2 sm:max-h-[calc(100dvh-4rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl",
+          "edge-brand glass-float fixed z-50 flex max-h-[calc(100dvh-1rem)] w-full flex-col outline-none",
+          "inset-x-0 bottom-0 rounded-t-2xl sm:inset-auto sm:top-1/2 sm:left-1/2 sm:max-h-[calc(100dvh-4rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl",
           "data-[state=closed]:animate-pop-out data-[state=open]:animate-pop-in",
           sizes[size],
           className,
@@ -55,7 +55,7 @@ export function DialogContent({
         {hideClose ? null : (
           <DialogPrimitive.Close
             aria-label="Close"
-            className="absolute top-3.5 right-3.5 flex size-8 items-center justify-center rounded-md text-ink-subtle hover:bg-sunken hover:text-ink"
+            className="absolute top-3.5 right-3.5 z-10 flex size-8 items-center justify-center rounded-md text-ink-subtle transition-[background-color,color,scale] hover:bg-ink/6 hover:text-ink active:scale-90"
           >
             <X className="size-4" />
           </DialogPrimitive.Close>
@@ -138,7 +138,7 @@ export function SheetContent({
       <DialogPrimitive.Overlay className={overlayClass} />
       <DialogPrimitive.Content
         className={cn(
-          "fixed inset-y-0 z-50 flex w-full max-w-[min(100vw,32rem)] flex-col bg-surface shadow-float outline-none",
+          "glass-float fixed inset-y-0 z-50 flex w-full max-w-[min(100vw,32rem)] flex-col outline-none",
           side === "right"
             ? "right-0 data-[state=closed]:animate-sheet-out data-[state=open]:animate-sheet-in"
             : "left-0 data-[state=closed]:animate-drawer-out data-[state=open]:animate-drawer-in",

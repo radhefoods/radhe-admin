@@ -8,13 +8,10 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
-/** A framed area on the work surface. No shadow: nothing floats here. */
+/** A pane of glass on the work surface: translucent, lit along its top, lifted a little. */
 export function Card({ className, ...props }: ComponentProps<"section">) {
   return (
-    <section
-      className={cn("rounded-lg border border-line bg-surface", className)}
-      {...props}
-    />
+    <section className={cn("glass-card rounded-xl", className)} {...props} />
   );
 }
 
@@ -67,7 +64,7 @@ export function Kbd({ className, ...props }: ComponentProps<"kbd">) {
   return (
     <kbd
       className={cn(
-        "inline-flex h-5 min-w-5 items-center justify-center rounded-xs border border-line-strong bg-surface px-1 font-mono text-2xs text-ink-muted",
+        "inline-flex h-5 min-w-5 items-center justify-center rounded-xs border border-line-strong bg-surface/80 px-1 font-mono text-2xs text-ink-muted shadow-card",
         className,
       )}
       {...props}
@@ -126,7 +123,7 @@ export function Alert({
     <div
       role={tone === "danger" ? "alert" : "status"}
       className={cn(
-        "flex gap-3 rounded-lg border px-3.5 py-3 text-sm",
+        "flex gap-3 rounded-xl border px-3.5 py-3 text-sm shadow-card",
         box,
         className,
       )}
@@ -174,7 +171,7 @@ export function EmptyState({
       {icon ? (
         <div
           aria-hidden="true"
-          className="flex size-11 items-center justify-center rounded-full bg-sunken text-ink-subtle [&_svg]:size-5"
+          className="flex size-12 items-center justify-center rounded-full bg-accent-soft text-accent-text ring-8 ring-accent-soft/40 [&_svg]:size-5"
         >
           {icon}
         </div>
@@ -219,7 +216,7 @@ export function FactRows({
   return (
     <dl
       className={cn(
-        "divide-y divide-line overflow-hidden rounded-lg border border-line",
+        "glass-inset divide-y divide-line overflow-hidden rounded-lg",
         className,
       )}
     >

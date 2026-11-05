@@ -149,8 +149,8 @@ function Entries({
   return (
     <div
       className={cn(
-        "flex min-h-[34px] w-full flex-wrap items-center gap-1.5 rounded-md border border-line-strong bg-surface px-1.5 py-1 shadow-card transition-[border-color]",
-        "focus-within:border-accent focus-within:outline-2 focus-within:outline-offset-0 focus-within:outline-accent hover:border-ink-subtle",
+        "flex min-h-[34px] w-full flex-wrap items-center gap-1.5 rounded-md border border-line-strong bg-surface/80 px-1.5 py-1 shadow-card transition-[border-color,box-shadow,background-color] duration-150",
+        "focus-within:border-accent focus-within:bg-surface focus-within:shadow-focus focus-within:outline-2 focus-within:outline-offset-0 focus-within:outline-accent hover:border-ink-subtle",
         control["aria-invalid"] && "border-danger-dot",
         disabled && "bg-sunken",
       )}

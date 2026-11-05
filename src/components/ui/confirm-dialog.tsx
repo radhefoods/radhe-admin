@@ -96,11 +96,11 @@ export function ConfirmDialog({
   return (
     <AlertPrimitive.Root open={open} onOpenChange={change}>
       <AlertPrimitive.Portal>
-        <AlertPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim data-[state=closed]:animate-fade-out data-[state=open]:animate-fade-in" />
+        <AlertPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim backdrop-blur-xs data-[state=closed]:animate-fade-out data-[state=open]:animate-fade-in" />
         <AlertPrimitive.Content
           className={cn(
-            "fixed z-50 flex max-h-[calc(100dvh-1rem)] w-full flex-col gap-4 overflow-y-auto bg-surface p-5 shadow-float outline-none sm:p-6",
-            "inset-x-0 bottom-0 rounded-t-2xl pb-safe sm:inset-auto sm:top-1/2 sm:left-1/2 sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:pb-6",
+            "edge-brand glass-float fixed z-50 flex max-h-[calc(100dvh-1rem)] w-full flex-col gap-4 overflow-y-auto p-5 outline-none sm:p-6",
+            "inset-x-0 bottom-0 rounded-t-2xl pb-safe sm:inset-auto sm:top-1/2 sm:left-1/2 sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-6",
             "data-[state=closed]:animate-pop-out data-[state=open]:animate-pop-in",
           )}
         >

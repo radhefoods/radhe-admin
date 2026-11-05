@@ -30,7 +30,7 @@ function StockList({
       <h3 className="text-13 font-semibold text-ink">{title}</h3>
       <ul
         aria-label={title}
-        className="divide-y divide-line rounded-lg border border-line text-13"
+        className="glass-inset divide-y divide-line rounded-lg text-13"
       >
         {lines.map((line) => (
           <li
@@ -176,7 +176,7 @@ export function InventorySection({
               </h3>
               <ul
                 aria-label="Slow movers"
-                className="divide-y divide-line rounded-lg border border-line text-13"
+                className="glass-inset divide-y divide-line rounded-lg text-13"
               >
                 {data.slowMovers.items.map((entry) => (
                   <li

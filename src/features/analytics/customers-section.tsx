@@ -107,7 +107,7 @@ export function CustomersSection({
               <h3 className="text-13 font-semibold text-ink">
                 Top customers by revenue
               </h3>
-              <div className="overflow-x-auto rounded-lg border border-line">
+              <div className="glass-inset overflow-x-auto rounded-lg">
                 <table className="w-full text-sm">
                   <caption className="sr-only">
                     Top customers of the period

@@ -31,7 +31,7 @@ export function PageHeader({
     <header
       className={cn(
         gutter,
-        "flex flex-wrap items-end justify-between gap-x-6 gap-y-3 pt-5 pb-4 sm:pt-7",
+        "flex animate-rise-in flex-wrap items-end justify-between gap-x-6 gap-y-3 pt-5 pb-4 sm:pt-7",
         className,
       )}
     >
@@ -39,14 +39,17 @@ export function PageHeader({
         {back ? (
           <Link
             href={back.href}
-            className="-ml-1 inline-flex items-center gap-0.5 self-start rounded-sm text-13 font-medium text-ink-muted hover:text-ink"
+            className="group -ml-1 inline-flex items-center gap-0.5 self-start rounded-sm text-13 font-medium text-ink-muted transition-colors hover:text-accent-text"
           >
-            <ChevronLeft aria-hidden="true" className="size-4" />
+            <ChevronLeft
+              aria-hidden="true"
+              className="size-4 transition-transform duration-150 group-hover:-translate-x-0.5"
+            />
             {back.label}
           </Link>
         ) : null}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          <h1 className="font-display text-2xl leading-tight text-ink sm:text-[1.75rem]">
+          <h1 className="text-gradient font-display text-2xl leading-tight text-ink sm:text-[1.75rem]">
             {title}
           </h1>
           {badges}
@@ -68,7 +71,11 @@ export function PageHeader({
 export function PageBody({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
-      className={cn(gutter, "flex flex-col gap-6 pb-12", className)}
+      className={cn(
+        gutter,
+        "flex animate-rise-in flex-col gap-6 pb-12",
+        className,
+      )}
       {...props}
     />
   );

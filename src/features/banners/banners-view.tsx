@@ -354,7 +354,7 @@ export function BannersView({
           <div
             role="status"
             aria-label="Loading the banners"
-            className="flex flex-col divide-y divide-line rounded-lg border border-line"
+            className="glass-inset flex flex-col divide-y divide-line rounded-lg"
           >
             {Array.from({ length: 4 }, (_, index) => (
               <div key={index} className="flex items-center gap-3 px-3.5 py-3">
@@ -365,7 +365,7 @@ export function BannersView({
             ))}
           </div>
         ) : items.length === 0 ? (
-          <div className="rounded-lg border border-line">
+          <div className="glass-inset rounded-lg">
             <EmptyState
               icon={<GalleryHorizontal />}
               title="No banner yet"
@@ -387,7 +387,7 @@ export function BannersView({
           </div>
         ) : (
           <>
-            <div className="rounded-lg border border-line">
+            <div className="glass-inset rounded-lg">
               <div
                 aria-hidden="true"
                 className={cn(

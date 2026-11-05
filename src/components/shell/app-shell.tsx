@@ -94,8 +94,11 @@ export function PanelGate({ children }: { children: ReactNode }) {
 
 function Splash({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-surface px-6 text-center">
-      <FeatherMark size={56} />
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-6 px-6 text-center">
+      <FeatherMark
+        size={56}
+        className="animate-rise-in drop-shadow-[0_10px_24px_rgb(var(--glow-accent)/0.35)]"
+      />
       {children}
     </div>
   );
@@ -153,7 +156,11 @@ function ReauthDialog({
   );
 }
 
-/** The frame of every page of the panel: navigation, top bar, work area. */
+/**
+ * The frame of every page of the panel: navigation, top bar, work area.
+ * From `lg` on they are three panes of glass on the lit canvas, 0.75rem
+ * apart; on a phone the bar and the work area fill the screen.
+ */
 export function AppShell({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -169,7 +176,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   return (
-    <div className="min-h-dvh bg-canvas">
+    <div className="min-h-dvh">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[70] focus:rounded-md focus:bg-accent focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-accent-fg"
@@ -180,8 +187,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Sidebar />
 
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
-        <SheetContent side="left" className="w-72 bg-canvas">
-          <div className="flex h-14 shrink-0 items-center px-4">
+        <SheetContent side="left" className="w-72">
+          <div className="flex h-16 shrink-0 items-center px-4">
             <Logo height={32} />
           </div>
           <SheetTitle className="sr-only">Navigation</SheetTitle>
@@ -194,7 +201,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </SheetContent>
       </Sheet>
 
-      <div className="flex min-h-dvh flex-col lg:pl-60">
+      <div className="flex min-h-dvh flex-col lg:pl-[16.5rem]">
         <Topbar
           onOpenMenu={() => setMenuOpen(true)}
           onOpenSearch={() => setSearchOpen(true)}
@@ -202,7 +209,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main
           id="main"
           tabIndex={-1}
-          className="flex-1 bg-surface outline-none"
+          className="glass-sheet flex-1 outline-none lg:mt-3 lg:mr-3 lg:mb-3 lg:rounded-2xl lg:border lg:border-glass-line lg:shadow-glass"
         >
           {/* Lists read their filters from the address, which suspends. */}
           <Suspense fallback={<LoadingBlock className="min-h-80" />}>

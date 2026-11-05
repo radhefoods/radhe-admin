@@ -214,7 +214,7 @@ export function CommandPalette({
                       key={result.key}
                       value={result.key}
                       onSelect={() => go(result.href)}
-                      className="flex min-h-10 cursor-pointer items-center gap-3 rounded-md px-2.5 py-1.5 text-sm data-[selected=true]:bg-sunken"
+                      className="flex min-h-10 cursor-pointer items-center gap-3 rounded-lg px-2.5 py-1.5 text-sm transition-colors duration-100 data-[selected=true]:bg-accent-soft"
                     >
                       <Icon
                         aria-hidden="true"

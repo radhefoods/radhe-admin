@@ -105,7 +105,7 @@ export function referralColumns(leaveOut: string[] = []): Column<Referral>[] {
 /** A referral as a card, for phones. */
 export function ReferralCard({ referral }: { referral: Referral }) {
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5">
+    <div className="glass-card flex flex-col gap-2 rounded-xl p-3.5">
       <span className="flex items-center justify-between gap-3">
         <span className="text-sm text-ink">
           <CustomerName customer={party(referral, "referrer")} /> invited{" "}

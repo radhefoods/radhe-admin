@@ -643,7 +643,7 @@ export function PostForm({
       <div
         className={cn(
           gutter,
-          "sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-line bg-surface/95 py-3 backdrop-blur-sm",
+          "sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-glass-line bg-glass py-3 backdrop-blur-xl",
         )}
       >
         <p className="text-13 text-ink-muted" aria-live="polite">

@@ -371,7 +371,7 @@ export function CategoriesView() {
           <div
             role="status"
             aria-label="Loading the categories"
-            className="flex flex-col divide-y divide-line rounded-lg border border-line"
+            className="glass-inset flex flex-col divide-y divide-line rounded-lg"
           >
             {Array.from({ length: 5 }, (_, index) => (
               <div key={index} className="flex items-center gap-3 px-3.5 py-3">
@@ -382,7 +382,7 @@ export function CategoriesView() {
             ))}
           </div>
         ) : items.length === 0 ? (
-          <div className="rounded-lg border border-line">
+          <div className="glass-inset rounded-lg">
             <EmptyState
               icon={<Warehouse />}
               title="No wholesale category yet"
@@ -402,7 +402,7 @@ export function CategoriesView() {
           </div>
         ) : (
           <>
-            <div className="rounded-lg border border-line">
+            <div className="glass-inset rounded-lg">
               <div
                 aria-hidden="true"
                 className={cn(

@@ -689,7 +689,7 @@ export function ProductForm({
         </Section>
       </fieldset>
 
-      <div className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-3 border-t border-line bg-surface px-4 pt-3 pb-safe sm:mx-0 sm:px-0 sm:pb-3">
+      <div className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-3 border-t border-glass-line bg-glass px-4 pt-3 pb-safe backdrop-blur-xl sm:mx-0 sm:px-0 sm:pb-3">
         <FormError state={state} />
         {report?.failed ? (
           <Alert

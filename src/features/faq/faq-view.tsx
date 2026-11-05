@@ -274,7 +274,7 @@ function GroupSection({
       ref={setNode}
       style={style}
       className={cn(
-        "rounded-lg border border-line bg-surface",
+        "glass-card rounded-xl",
         dragging && "relative z-10 shadow-pop",
       )}
     >
@@ -530,7 +530,7 @@ export function FaqView() {
             ))}
           </div>
         ) : empty ? (
-          <div className="rounded-lg border border-line">
+          <div className="glass-inset rounded-lg">
             <EmptyState
               icon={<CircleHelp />}
               title="No questions yet"

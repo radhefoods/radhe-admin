@@ -34,7 +34,7 @@ export function FilterBar({
         <button
           type="button"
           onClick={onClear}
-          className="h-8 rounded-md px-2 text-13 font-medium text-ink-muted hover:bg-sunken hover:text-ink"
+          className="h-8 rounded-md px-2 text-13 font-medium text-ink-muted transition-colors hover:bg-ink/6 hover:text-ink"
         >
           Clear all
         </button>
@@ -69,10 +69,10 @@ export function FilterSelect<T extends string>({
   return (
     <div
       className={cn(
-        "flex h-8 items-center rounded-md border text-13 font-medium",
+        "flex h-8 items-center rounded-md border text-13 font-medium transition-[border-color,background-color,box-shadow,color] duration-150",
         current
-          ? "border-transparent bg-accent-soft text-accent-text"
-          : "border-line bg-surface text-ink-muted hover:border-line-strong",
+          ? "border-accent/25 bg-accent-soft text-accent-text shadow-glow-sm"
+          : "border-line-strong bg-surface/70 text-ink-muted shadow-card hover:border-ink-subtle hover:bg-surface hover:text-ink",
         className,
       )}
     >
@@ -211,7 +211,7 @@ export function SearchField({
         autoComplete="off"
         spellCheck={false}
         aria-describedby={tooShort && hint ? `${id}-hint` : undefined}
-        className="h-8 w-full rounded-md border border-line bg-surface pr-8 pl-8 text-13 text-ink placeholder:text-ink-subtle hover:border-line-strong focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-0 [&::-webkit-search-cancel-button]:hidden"
+        className="h-8 w-full rounded-md border border-line-strong bg-surface/70 pr-8 pl-8 text-13 text-ink shadow-card transition-[border-color,box-shadow,background-color] duration-150 placeholder:text-ink-subtle hover:border-ink-subtle focus-visible:border-accent focus-visible:bg-surface focus-visible:shadow-focus focus-visible:outline-2 focus-visible:outline-offset-0 [&::-webkit-search-cancel-button]:hidden"
       />
       {text ? (
         <button

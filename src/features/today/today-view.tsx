@@ -344,7 +344,7 @@ function groupsOf(
 
 function AttentionStrip({ groups }: { groups: Group[] }) {
   return (
-    <ul className="grid grid-cols-2 overflow-hidden rounded-lg border border-line sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-9">
+    <ul className="glass-card grid grid-cols-2 overflow-hidden rounded-xl sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-9">
       {groups.map((group) => (
         <li
           key={group.key}
@@ -352,7 +352,7 @@ function AttentionStrip({ groups }: { groups: Group[] }) {
         >
           <Link
             href={group.href}
-            className="group flex h-full flex-col gap-0.5 px-4 py-3.5 transition-colors hover:bg-sunken/70"
+            className="group flex h-full flex-col gap-0.5 px-4 py-3.5 transition-colors duration-150 hover:bg-accent-soft/50"
           >
             <span className="flex items-center gap-1.5 text-13 font-medium text-ink-muted">
               <span
@@ -366,7 +366,7 @@ function AttentionStrip({ groups }: { groups: Group[] }) {
             </span>
             <span
               className={cn(
-                "font-display text-3xl leading-none tabular",
+                "origin-left font-display text-3xl leading-none tabular transition-transform duration-200 group-hover:scale-105",
                 group.count > 0 ? "text-ink" : "text-ink-subtle",
               )}
             >
@@ -381,7 +381,7 @@ function AttentionStrip({ groups }: { groups: Group[] }) {
 
 function AttentionPanel({ group }: { group: Group }) {
   return (
-    <section className="flex flex-col rounded-lg border border-line">
+    <section className="glass-card flex flex-col overflow-hidden rounded-xl">
       <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-ink">
           <span
@@ -404,7 +404,7 @@ function AttentionPanel({ group }: { group: Group }) {
           <li key={row.key}>
             <Link
               href={row.href}
-              className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-sunken/70"
+              className="flex items-center gap-3 px-4 py-2.5 transition-colors duration-150 hover:bg-accent-soft/50"
             >
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate text-sm font-semibold text-ink">
@@ -496,7 +496,7 @@ function DecisionsTab() {
             <EmptyState
               icon={<CircleCheck />}
               title="All clear"
-              className="rounded-lg border border-line py-10"
+              className="glass-card rounded-xl py-10"
             >
               No paid order waits to be prepared, no refund, return or problem
               report waits for a decision, no review waits to be read, no

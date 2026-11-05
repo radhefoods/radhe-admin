@@ -77,7 +77,7 @@ export function AccountCard({ account }: { account: RewardAccount }) {
   return (
     <Link
       href={routes.rewardAccount(account.customerId)}
-      className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface p-3.5 active:bg-sunken"
+      className="glass-card glass-lift flex flex-col gap-1.5 rounded-xl p-3.5 active:bg-sunken"
     >
       <span className="flex items-center gap-2.5">
         <span className="truncate text-sm font-semibold text-ink">

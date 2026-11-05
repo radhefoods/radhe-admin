@@ -362,7 +362,7 @@ export function LegalCompare({
 
   if (others.length === 0 || !otherId) {
     return (
-      <div className="rounded-lg border border-line">
+      <div className="glass-inset rounded-lg">
         <EmptyState
           icon={<GitCompareArrows />}
           title="Nothing to compare with yet"

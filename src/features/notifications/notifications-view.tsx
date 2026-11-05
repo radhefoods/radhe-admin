@@ -181,7 +181,7 @@ function NotificationCard({ message }: { message: Notification }) {
   return (
     <Link
       href={routes.notification(message.id)}
-      className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 active:bg-sunken"
+      className="glass-card glass-lift flex flex-col gap-2 rounded-xl p-3.5 active:bg-sunken"
     >
       <span className="flex items-start justify-between gap-3">
         <span className="text-base font-semibold text-ink">
@@ -222,7 +222,7 @@ function StatusCounts({
   return (
     <ul
       aria-label="Messages by status"
-      className="grid grid-cols-3 overflow-hidden rounded-lg border border-line bg-surface md:grid-cols-6"
+      className="glass-card grid grid-cols-3 overflow-hidden rounded-xl md:grid-cols-6"
     >
       {NOTIFICATION_STATUSES.map((status) => {
         const count = summary?.counts[status];

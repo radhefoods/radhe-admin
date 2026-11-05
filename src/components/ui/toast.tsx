@@ -25,7 +25,7 @@ export function Toaster() {
         unstyled: true,
         classNames: {
           toast:
-            "group pointer-events-auto flex w-[min(100vw-2rem,24rem)] items-start gap-3 rounded-lg border border-line bg-surface px-3.5 py-3 text-sm text-ink shadow-float",
+            "group pointer-events-auto flex w-[min(100vw-2rem,24rem)] items-start gap-3 rounded-xl glass-float px-3.5 py-3 text-sm text-ink",
           title: "font-semibold leading-snug",
           description: "mt-0.5 text-13 leading-snug text-ink-muted",
           icon: "mt-0.5 shrink-0",
@@ -33,7 +33,7 @@ export function Toaster() {
           closeButton:
             "!static order-last !ml-auto flex size-6 shrink-0 !translate-none items-center justify-center !rounded-sm !border-0 !bg-transparent !text-ink-subtle hover:!bg-sunken hover:!text-ink",
           actionButton:
-            "mt-2 inline-flex h-7 items-center rounded-md bg-accent px-2.5 text-13 font-semibold text-accent-fg",
+            "mt-2 inline-flex h-7 items-center rounded-md bg-accent bg-grad-accent px-2.5 text-13 font-semibold text-accent-fg shadow-glow",
         },
       }}
       icons={{

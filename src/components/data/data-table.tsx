@@ -173,9 +173,7 @@ export function DataTable<T extends RowData>({
 
   if (!loading && rows.length === 0) {
     return (
-      <div className={cn("rounded-lg border border-line", className)}>
-        {empty}
-      </div>
+      <div className={cn("glass-card rounded-xl", className)}>{empty}</div>
     );
   }
 
@@ -201,7 +199,7 @@ export function DataTable<T extends RowData>({
         >
           {loading
             ? Array.from({ length: 5 }, (_, index) => (
-                <li key={index} className="rounded-lg border border-line p-3.5">
+                <li key={index} className="glass-card rounded-xl p-3.5">
                   <Skeleton className="mb-2 w-24" />
                   <Skeleton className="w-40" />
                 </li>
@@ -212,7 +210,7 @@ export function DataTable<T extends RowData>({
 
       <div
         className={cn(
-          "relative overflow-x-auto rounded-lg border border-line lg:overflow-visible",
+          "glass-card relative overflow-x-auto rounded-xl lg:overflow-visible",
           card && "hidden sm:block",
         )}
       >
@@ -227,7 +225,7 @@ export function DataTable<T extends RowData>({
                 {selection ? (
                   <th
                     scope="col"
-                    className="z-10 w-10 border-b border-line bg-sunken py-2 pr-1 pl-3.5 first:rounded-tl-lg lg:sticky lg:top-14"
+                    className="z-10 w-10 border-b border-line bg-sunken py-2 pr-1 pl-3.5 first:rounded-tl-[15px] lg:sticky lg:top-[4.25rem]"
                   >
                     <Checkbox
                       aria-label="Select all rows"
@@ -253,8 +251,9 @@ export function DataTable<T extends RowData>({
                       scope="col"
                       className={cn(
                         // Below `lg` the frame scrolls sideways and would be what
-                        // the header sticks to, 3.5rem down over the first row.
-                        "z-10 border-b border-line bg-sunken px-3.5 py-2 text-xs font-semibold whitespace-nowrap text-ink-muted first:rounded-tl-lg last:rounded-tr-lg lg:sticky lg:top-14",
+                        // the header sticks to, down over the first row. From
+                        // `lg` on it stops under the top bar (0.75rem + 3.5rem).
+                        "z-10 border-b border-line bg-sunken px-3.5 py-2.5 text-xs font-semibold whitespace-nowrap text-ink-muted first:rounded-tl-[15px] last:rounded-tr-[15px] lg:sticky lg:top-[4.25rem]",
                         ALIGN[meta?.align ?? "left"],
                         meta?.from && FROM[meta.from],
                       )}
@@ -303,8 +302,11 @@ export function DataTable<T extends RowData>({
                       onClick={(event) => open(event, row.original)}
                       data-selected={selected || undefined}
                       className={cn(
-                        "group/row transition-colors [&:last-child>td]:border-b-0",
-                        rowHref && "cursor-pointer hover:bg-sunken/70",
+                        "group/row transition-colors duration-150 [&:last-child>td]:border-b-0 [&:last-child>td:first-child]:rounded-bl-[15px] [&:last-child>td:last-child]:rounded-br-[15px]",
+                        // A row that leads somewhere lights up, with a mark of
+                        // the accent at its start.
+                        rowHref &&
+                          "cursor-pointer hover:bg-accent-soft/45 [&>td:first-child]:transition-shadow hover:[&>td:first-child]:shadow-[inset_2px_0_0_var(--accent)]",
                         selected &&
                           !selection?.inverse &&
                           "bg-accent-soft/60 hover:bg-accent-soft",

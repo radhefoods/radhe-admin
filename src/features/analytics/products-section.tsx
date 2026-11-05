@@ -139,7 +139,7 @@ export function ProductsSection({
       }
     >
       <div className="grid gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <div className="rounded-lg border border-line">
+        <div className="glass-inset rounded-lg">
           <div
             aria-hidden="true"
             className="hidden grid-cols-[1.5rem_2.25rem_minmax(0,1fr)_6rem_7rem_4rem_1.5rem] gap-x-3 rounded-t-lg border-b border-line bg-sunken px-3 py-2 text-xs font-semibold text-ink-muted sm:grid"

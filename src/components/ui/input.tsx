@@ -5,11 +5,11 @@ import { useState, type ComponentProps, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 export const controlClass = cn(
-  "w-full rounded-md border border-line-strong bg-surface text-ink shadow-card",
+  "w-full rounded-md border border-line-strong bg-surface/80 text-ink shadow-card",
   "placeholder:text-ink-subtle",
-  "transition-[border-color,box-shadow] duration-150",
+  "transition-[border-color,box-shadow,background-color] duration-150",
   "hover:border-ink-subtle",
-  "focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-0",
+  "focus-visible:border-accent focus-visible:bg-surface focus-visible:shadow-focus focus-visible:outline-2 focus-visible:outline-offset-0",
   "disabled:cursor-not-allowed disabled:bg-sunken disabled:text-ink-subtle disabled:hover:border-line-strong",
   // By the attribute: the `:read-only` selector also matches every <select>.
   "[&[readonly]]:bg-sunken",
@@ -76,7 +76,7 @@ export function PasswordInput({
         onClick={() => setVisible((value) => !value)}
         aria-label={visible ? "Hide the password" : "Show the password"}
         aria-pressed={visible}
-        className="absolute top-1/2 right-1 flex size-7 -translate-y-1/2 items-center justify-center rounded-sm text-ink-subtle hover:bg-sunken hover:text-ink"
+        className="absolute top-1/2 right-1 flex size-7 -translate-y-1/2 items-center justify-center rounded-sm text-ink-subtle transition-colors hover:bg-sunken hover:text-ink"
       >
         {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
       </button>

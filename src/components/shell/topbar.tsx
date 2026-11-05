@@ -39,32 +39,37 @@ export function Topbar({
   onOpenSearch: () => void;
 }) {
   return (
-    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface/90 px-3 backdrop-blur-sm sm:gap-3 sm:px-6">
-      <button
-        type="button"
-        onClick={onOpenMenu}
-        aria-label="Open the navigation"
-        className="flex size-9 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-sunken hover:text-ink lg:hidden"
-      >
-        <Menu className="size-5" />
-      </button>
+    <header className="topbar-veil sticky top-0 z-20 shrink-0 lg:pt-3 lg:pr-3">
+      <div className="glass-panel flex h-14 items-center gap-2 px-3 max-lg:border-x-0 max-lg:border-t-0 max-lg:shadow-none sm:gap-3 sm:px-6 lg:rounded-2xl lg:px-4">
+        <button
+          type="button"
+          onClick={onOpenMenu}
+          aria-label="Open the navigation"
+          className="flex size-9 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-ink/6 hover:text-ink lg:hidden"
+        >
+          <Menu className="size-5" />
+        </button>
 
-      <button
-        type="button"
-        onClick={onOpenSearch}
-        aria-label="Search"
-        aria-keyshortcuts="/ Control+K Meta+K"
-        className="flex h-[34px] min-w-0 items-center gap-2 rounded-md border border-line bg-sunken px-2.5 text-13 text-ink-subtle transition-colors hover:border-line-strong sm:w-80"
-      >
-        <Search aria-hidden="true" className="size-4 shrink-0" />
-        <span className="hidden truncate sm:inline">
-          Order number, customer email, product
-        </span>
-        <Kbd className="ml-auto hidden sm:inline-flex">/</Kbd>
-      </button>
+        <button
+          type="button"
+          onClick={onOpenSearch}
+          aria-label="Search"
+          aria-keyshortcuts="/ Control+K Meta+K"
+          className="group flex h-[34px] min-w-0 items-center gap-2 rounded-lg border border-line-strong bg-surface/60 px-2.5 text-13 text-ink-subtle shadow-card transition-[border-color,background-color,box-shadow,color] duration-150 hover:border-accent/40 hover:bg-surface hover:text-ink-muted hover:shadow-focus sm:w-80"
+        >
+          <Search
+            aria-hidden="true"
+            className="size-4 shrink-0 transition-colors group-hover:text-accent-text"
+          />
+          <span className="hidden truncate sm:inline">
+            Order number, customer email, product
+          </span>
+          <Kbd className="ml-auto hidden sm:inline-flex">/</Kbd>
+        </button>
 
-      <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
-        <UserMenu />
+        <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
+          <UserMenu />
+        </div>
       </div>
     </header>
   );
@@ -79,7 +84,7 @@ function UserMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={`Account of ${admin.name}`}
-        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs font-bold text-accent-text ring-offset-2 ring-offset-surface hover:ring-2 hover:ring-line-strong"
+        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent bg-grad-accent text-xs font-bold text-accent-fg shadow-glow transition-[box-shadow,scale] duration-150 hover:scale-105 hover:shadow-glow-strong active:scale-95 data-[state=open]:shadow-glow-strong"
       >
         {initials(admin.name)}
       </DropdownMenuTrigger>

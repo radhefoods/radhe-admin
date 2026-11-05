@@ -27,7 +27,7 @@ function Breakdown({
   return (
     <div className="flex flex-col gap-1.5">
       <h4 className="text-xs font-semibold text-ink-muted">{title}</h4>
-      <ul className="divide-y divide-line rounded-lg border border-line text-13">
+      <ul className="glass-inset divide-y divide-line rounded-lg text-13">
         {rows.map((row) => (
           <li
             key={row.key}

@@ -128,7 +128,7 @@ export function OrderCard({ order }: { order: OrderSummary }) {
   return (
     <Link
       href={routes.order(order.id)}
-      className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 active:bg-sunken"
+      className="glass-card glass-lift flex flex-col gap-2 rounded-xl p-3.5 active:bg-sunken"
     >
       <span className="flex items-center justify-between gap-3">
         <span className="inline-flex flex-wrap items-center gap-1.5">

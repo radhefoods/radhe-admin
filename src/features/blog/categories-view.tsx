@@ -249,7 +249,7 @@ export function BlogCategoriesView() {
           <div
             role="status"
             aria-label="Loading the categories"
-            className="flex flex-col divide-y divide-line rounded-lg border border-line"
+            className="glass-inset flex flex-col divide-y divide-line rounded-lg"
           >
             {Array.from({ length: 3 }, (_, index) => (
               <div key={index} className="flex items-center gap-3 px-3.5 py-3">
@@ -259,7 +259,7 @@ export function BlogCategoriesView() {
             ))}
           </div>
         ) : items.length === 0 ? (
-          <div className="rounded-lg border border-line">
+          <div className="glass-inset rounded-lg">
             <EmptyState
               icon={<BookOpenText />}
               title="No category yet"
@@ -280,7 +280,7 @@ export function BlogCategoriesView() {
           </div>
         ) : (
           <>
-            <div className="rounded-lg border border-line">
+            <div className="glass-inset rounded-lg">
               <div
                 aria-hidden="true"
                 className={cn(

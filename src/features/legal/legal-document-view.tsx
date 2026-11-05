@@ -403,7 +403,7 @@ function DraftEditor({
         <div
           className={cn(
             gutter,
-            "sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-line bg-surface/95 py-3 backdrop-blur-sm",
+            "sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-glass-line bg-glass py-3 backdrop-blur-xl",
           )}
         >
           <p className="text-13 text-ink-muted" aria-live="polite">
@@ -677,7 +677,7 @@ export function LegalDocumentView() {
           <PageHeader title="Legal text" back={back} />
           <div className={gutter}>
             {gone ? (
-              <div className="rounded-lg border border-line">
+              <div className="glass-inset rounded-lg">
                 <EmptyState
                   icon={<ScrollText />}
                   title="This legal text does not exist"

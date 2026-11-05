@@ -17,9 +17,9 @@ export function Checkbox({
   return (
     <CheckboxPrimitive.Root
       className={cn(
-        "peer flex size-4 shrink-0 items-center justify-center rounded-xs border border-line-strong bg-surface shadow-card transition-colors",
+        "peer flex size-4 shrink-0 items-center justify-center rounded-xs border border-line-strong bg-surface/80 shadow-card transition-[background-color,border-color,box-shadow] duration-150",
         "hover:border-ink-subtle",
-        "data-[state=checked]:border-accent data-[state=checked]:bg-accent data-[state=checked]:text-accent-fg",
+        "data-[state=checked]:border-accent data-[state=checked]:bg-accent data-[state=checked]:text-accent-fg data-[state=checked]:shadow-glow-sm",
         "data-[state=indeterminate]:border-accent data-[state=indeterminate]:bg-accent data-[state=indeterminate]:text-accent-fg",
         "disabled:cursor-not-allowed disabled:opacity-50",
         className,
@@ -44,14 +44,14 @@ export function Switch({
   return (
     <SwitchPrimitive.Root
       className={cn(
-        "peer inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent bg-line-strong transition-colors",
-        "data-[state=checked]:bg-accent",
+        "peer inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent bg-line-strong transition-[background-color,box-shadow] duration-200",
+        "data-[state=checked]:bg-accent data-[state=checked]:bg-grad-accent data-[state=checked]:shadow-glow-sm",
         "disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       {...props}
     >
-      <SwitchPrimitive.Thumb className="block size-4 translate-x-0.5 rounded-full bg-surface shadow-card transition-transform data-[state=checked]:translate-x-[18px] dark:bg-ink" />
+      <SwitchPrimitive.Thumb className="block size-4 translate-x-0.5 rounded-full bg-surface shadow-card transition-transform duration-200 ease-[cubic-bezier(0.3,1.4,0.6,1)] data-[state=checked]:translate-x-[18px] dark:bg-ink" />
     </SwitchPrimitive.Root>
   );
 }
@@ -75,8 +75,8 @@ export function RadioItem({
   return (
     <RadioGroupPrimitive.Item
       className={cn(
-        "flex size-4 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface shadow-card",
-        "hover:border-ink-subtle data-[state=checked]:border-accent",
+        "flex size-4 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface/80 shadow-card transition-[border-color,box-shadow] duration-150",
+        "hover:border-ink-subtle data-[state=checked]:border-accent data-[state=checked]:shadow-glow-sm",
         "disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
@@ -108,9 +108,11 @@ export function TabsList({
 
 export const tabClass = cn(
   "relative -mb-px flex h-10 shrink-0 items-center gap-2 border-b-2 border-transparent text-sm font-medium whitespace-nowrap text-ink-muted transition-colors",
+  // The line under the tab in use: the feather's gradient, growing from the middle.
+  "after:absolute after:inset-x-0 after:-bottom-0.5 after:h-0.5 after:origin-center after:scale-x-0 after:rounded-full after:bg-grad-brand after:transition-transform after:duration-200",
   "hover:text-ink",
-  "data-[state=active]:border-accent data-[state=active]:text-ink",
-  "aria-[current=page]:border-accent aria-[current=page]:text-ink",
+  "data-[state=active]:text-ink data-[state=active]:after:scale-x-100",
+  "aria-[current=page]:text-ink aria-[current=page]:after:scale-x-100",
 );
 
 export function TabsTrigger({

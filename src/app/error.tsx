@@ -8,7 +8,7 @@ export default function RootError(props: {
   retry: () => void;
 }) {
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-surface">
+    <div className="flex min-h-dvh items-center justify-center">
       <Crash {...props} />
     </div>
   );

@@ -162,7 +162,7 @@ export function HandoverDialog({
           description={`No email is sent. Hand these over to ${first} yourself: in person, by phone, or through a password manager.`}
         />
         <DialogBody>
-          <dl className="divide-y divide-line overflow-hidden rounded-lg border border-line">
+          <dl className="glass-inset divide-y divide-line overflow-hidden rounded-lg">
             <Line
               label="Email"
               value={handover.email}

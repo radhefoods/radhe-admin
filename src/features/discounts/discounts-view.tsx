@@ -165,7 +165,7 @@ const columns: Column<DiscountCode>[] = [
 
 function DiscountCard({ code }: { code: DiscountCode }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-line p-3">
+    <div className="glass-inset flex items-center gap-3 rounded-lg p-3">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <CodeText code={code} />
         <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-13 text-ink-subtle">

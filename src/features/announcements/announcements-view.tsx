@@ -150,7 +150,7 @@ function AnnouncementCard({ announcement }: { announcement: Announcement }) {
   return (
     <Link
       href={routes.announcement(announcement.id)}
-      className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 active:bg-sunken"
+      className="glass-card glass-lift flex flex-col gap-2 rounded-xl p-3.5 active:bg-sunken"
     >
       <span className="text-base font-semibold text-ink">
         {announcement.subject.en}

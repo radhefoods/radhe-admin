@@ -65,6 +65,16 @@ const SURFACES = [
   { name: "ink", box: "bg-ink" },
 ] as const;
 
+// The depths of glass (globals.css), from what frames the page to what
+// floats over it.
+const PANES = [
+  { name: "glass-panel", use: "Sidebar, top bar (blurred)" },
+  { name: "glass-sheet", use: "The work area of a page" },
+  { name: "glass-card", use: "Cards, tables, tiles" },
+  { name: "glass-inset", use: "A frame inside a card" },
+  { name: "glass-float", use: "Dialogs, menus, toasts (blurred)" },
+] as const;
+
 const STATUS_TITLES: Record<StatusKind, string> = {
   blogPost: "Blog post",
   quotation: "Quotation",
@@ -219,6 +229,54 @@ export function StyleguideView() {
               </li>
             ))}
           </ul>
+        </Part>
+
+        <Part
+          title="Glass"
+          description="Translucent panes on the lit canvas. Blur only where something lies behind: bars the page scrolls under, things that float."
+        >
+          <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {PANES.map(({ name, use }) => (
+              <li
+                key={name}
+                className={cn(
+                  "flex min-h-24 flex-col justify-end gap-0.5 rounded-xl p-3.5",
+                  name,
+                  name === "glass-sheet" && "border border-glass-line",
+                )}
+              >
+                <span className="font-mono text-2xs text-ink">{name}</span>
+                <span className="text-13 text-ink-muted">{use}</span>
+              </li>
+            ))}
+          </ul>
+          <Row label="A pane that leads somewhere lifts under the pointer">
+            <div className="glass-lift glass-card rounded-xl px-4 py-3 text-13 text-ink-muted">
+              glass-card glass-lift
+            </div>
+            <div className="glow-tile glass-card rounded-xl px-4 py-3">
+              <p className="text-13 font-medium text-ink-muted">glow-tile</p>
+              <p className="font-display text-xl leading-none text-ink tabular">
+                1,284
+              </p>
+            </div>
+            <div
+              data-tone="attention"
+              className="glow-tile glass-card rounded-xl px-4 py-3"
+            >
+              <p className="text-13 font-medium text-ink-muted">attention</p>
+              <p className="font-display text-xl leading-none text-gold tabular">
+                12
+              </p>
+            </div>
+          </Row>
+          <Row label="Gradients: the primary action, the feather, a title">
+            <span className="h-8 w-28 rounded-md bg-grad-accent shadow-glow" />
+            <span className="h-1 w-40 rounded-full bg-grad-brand" />
+            <span className="text-gradient font-display text-xl">
+              Orders of today
+            </span>
+          </Row>
         </Part>
 
         <Part title="Type">

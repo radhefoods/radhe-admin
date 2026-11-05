@@ -75,7 +75,7 @@ function Row({
     <li
       aria-label={title}
       className={cn(
-        "flex flex-col gap-3 rounded-lg border border-line p-3.5",
+        "glass-inset flex flex-col gap-3 rounded-lg p-3.5",
         row.removed && "border-dashed bg-canvas/50",
       )}
     >

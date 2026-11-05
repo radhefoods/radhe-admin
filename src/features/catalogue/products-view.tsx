@@ -127,10 +127,10 @@ function CategoryFilter({
   return (
     <div
       className={cn(
-        "flex h-8 items-center rounded-md border text-13 font-medium",
+        "flex h-8 items-center rounded-md border text-13 font-medium transition-[border-color,background-color,box-shadow,color] duration-150",
         current
-          ? "border-transparent bg-accent-soft text-accent-text"
-          : "border-line bg-surface text-ink-muted hover:border-line-strong",
+          ? "border-accent/25 bg-accent-soft text-accent-text shadow-glow-sm"
+          : "border-line-strong bg-surface/70 text-ink-muted shadow-card hover:border-ink-subtle hover:bg-surface hover:text-ink",
       )}
     >
       <DropdownMenu>
@@ -381,7 +381,7 @@ const columns: Column<ProductSummary>[] = [
 
 function ProductCard({ product }: { product: ProductSummary }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-line p-3">
+    <div className="glass-inset flex items-center gap-3 rounded-lg p-3">
       <Thumb src={product.image?.sizes.small.url} size={48} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <Link

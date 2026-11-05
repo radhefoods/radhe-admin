@@ -93,7 +93,7 @@ function Tooltip({
   return (
     <div
       role="presentation"
-      className="pointer-events-none absolute top-2 z-10 min-w-36 rounded-md border border-line bg-surface px-2.5 py-2 text-13 shadow-pop"
+      className="glass-float pointer-events-none absolute top-2 z-10 min-w-36 rounded-lg px-2.5 py-2 text-13"
       style={{
         left: `${left}%`,
         transform:
@@ -357,7 +357,8 @@ export function LineChart({
         )}
         <defs>
           <linearGradient id={`${id}-fill`} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor="var(--accent)" stopOpacity="0.16" />
+            <stop offset="0" stopColor="var(--accent)" stopOpacity="0.26" />
+            <stop offset="0.6" stopColor="var(--accent)" stopOpacity="0.06" />
             <stop offset="1" stopColor="var(--accent)" stopOpacity="0" />
           </linearGradient>
         </defs>
@@ -371,6 +372,15 @@ export function LineChart({
             strokeDasharray={entry.variant === "previous" ? "4 4" : undefined}
             strokeLinejoin="round"
             strokeLinecap="round"
+            // The line of the period glows a little onto the area under it.
+            style={
+              entry.variant === "primary"
+                ? {
+                    filter:
+                      "drop-shadow(0 5px 6px rgb(var(--glow-accent) / 0.35))",
+                  }
+                : undefined
+            }
           />
         ))}
         {hover !== null ? (
@@ -388,10 +398,14 @@ export function LineChart({
                   key={entry.key}
                   cx={x(hover)}
                   cy={y(entry.values[hover] ?? 0)}
-                  r={3.5}
+                  r={4}
                   fill="var(--surface)"
                   stroke={STROKE[entry.variant]}
                   strokeWidth={2}
+                  style={{
+                    filter:
+                      "drop-shadow(0 0 5px rgb(var(--glow-accent) / 0.55))",
+                  }}
                 />
               ),
             )}
@@ -425,6 +439,7 @@ export function BarChart({
   height = 160,
   className,
 }: PlotProps) {
+  const id = useId();
   const plot = usePlot(labels, series, height);
   const { ref, width, hover, setHover, count, x, y } = plot;
   const slot = plot.innerWidth / count;
@@ -452,6 +467,18 @@ export function BarChart({
           innerWidth={plot.innerWidth}
           formatTick={formatTick}
         />
+        {first ? (
+          <defs>
+            <linearGradient id={`${id}-bar`} x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0" stopColor={STROKE[first.variant]} />
+              <stop
+                offset="1"
+                stopColor={STROKE[first.variant]}
+                stopOpacity="0.55"
+              />
+            </linearGradient>
+          </defs>
+        ) : null}
         {first
           ? first.values
               .slice(0, count)
@@ -462,9 +489,10 @@ export function BarChart({
                   y={y(value)}
                   width={bar}
                   height={Math.max(0, y(0) - y(value))}
-                  rx={2}
-                  fill={STROKE[first.variant]}
-                  opacity={hover === null || hover === index ? 1 : 0.55}
+                  rx={Math.min(4, bar / 2)}
+                  fill={`url(#${id}-bar)`}
+                  opacity={hover === null || hover === index ? 1 : 0.5}
+                  className="transition-opacity duration-150"
                 />
               ))
           : null}
@@ -619,7 +647,7 @@ export function ShareBars({
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-sunken">
             <div
-              className="h-full rounded-full"
+              className="h-full rounded-full transition-[width] duration-500 ease-out"
               style={{
                 width: `${(row.share / max) * 100}%`,
                 background: CATEGORICAL[index % CATEGORICAL.length],
@@ -653,7 +681,7 @@ export function Funnel({
           <span className="w-24 shrink-0 text-ink-muted">{step.label}</span>
           <span className="h-5 min-w-0 flex-1 overflow-hidden rounded-sm bg-sunken">
             <span
-              className="block h-full rounded-sm"
+              className="block h-full rounded-sm transition-[width] duration-500 ease-out"
               style={{
                 width: `${first === 0 ? 0 : Math.max(step.value > 0 ? 1 : 0, (step.value / first) * 100)}%`,
                 background: STROKE[step.tone ?? "primary"],

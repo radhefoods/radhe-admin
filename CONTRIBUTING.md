@@ -49,6 +49,8 @@ A component two areas share takes what differs as a parameter rather than a copy
 
 **Colours and type.** Only the tokens of `src/app/globals.css` (`bg-surface`, `text-ink-muted`, `border-line`, `bg-accent`, the tone colours …). The default Tailwind palette is switched off. Both themes must work: never a literal colour. Blue (`accent`) is for the one primary action of a screen; gold is time and deadlines. Page titles use `font-display`; numbers in columns use `tabular`.
 
+**Glass.** A page is panes of glass on the lit canvas, and the pane is chosen by what it is, never drawn by hand: `<Card>` and `<DataTable>` are `glass-card`; a frame inside a card or a dialog is `rounded-lg glass-inset`; a card of a list on a phone is `rounded-xl glass-card glass-lift`; a key figure adds `glow-tile`. Dialogs, menus and toasts are `glass-float` through their components. Do not add `backdrop-blur` to a card: blur belongs to the bars and to what floats (`DECISIONS.md`, Design). A fill that must hide what is under it (the sticky header of a table) stays `bg-sunken` or `bg-surface`. The gradient of the accent (`bg-grad-accent`) is for the primary action only, which `<Button variant="primary">` already has.
+
 **Copy.** English, plain, written from the admin's side. Buttons say what happens. No em dashes. The exact status names of the API, made readable.
 
 **Accessibility.** Every control has a label; dialogs have titles; icons are decorative (`aria-hidden`) or labelled; focus is visible; nothing depends on colour alone. Text on a tinted or coloured background is never dimmed with `opacity-*`: the tokens are chosen to pass AA as they are. `e2e/accessibility.spec.ts` runs axe on every main page in both themes; add a new page to its list.

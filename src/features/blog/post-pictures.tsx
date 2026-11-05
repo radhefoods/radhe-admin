@@ -75,7 +75,7 @@ function Sending({
   onStop: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
+    <div className="glass-inset flex flex-col gap-2 rounded-lg p-3">
       <UploadProgress
         fraction={fraction}
         label={
@@ -445,7 +445,7 @@ export function TextPictures({
             {post.images.map((image) => (
               <li
                 key={image.id}
-                className="flex items-center gap-3 rounded-lg border border-line p-2"
+                className="glass-inset flex items-center gap-3 rounded-lg p-2"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element -- the API serves ready-made sizes */}
                 <img

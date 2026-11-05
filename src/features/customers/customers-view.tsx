@@ -169,7 +169,7 @@ function CustomerCard({ customer }: { customer: Customer }) {
   return (
     <Link
       href={routes.customer(customer.id)}
-      className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 active:bg-sunken"
+      className="glass-card glass-lift flex flex-col gap-2 rounded-xl p-3.5 active:bg-sunken"
     >
       <span className="flex flex-col">
         <span className="truncate text-base font-semibold text-ink">

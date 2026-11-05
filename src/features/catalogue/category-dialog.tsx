@@ -240,7 +240,7 @@ function CategoryForm({
 
         <section
           aria-label="Picture"
-          className="flex flex-col gap-3 rounded-lg border border-line p-3.5"
+          className="glass-inset flex flex-col gap-3 rounded-lg p-3.5"
         >
           <h3 className="text-13 font-semibold text-ink">Picture</h3>
           <CategoryPicture

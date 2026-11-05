@@ -183,7 +183,7 @@ const columns: Column<WholesaleProductSummary>[] = [
 function ProductCard({ product }: { product: WholesaleProductSummary }) {
   const state = overviewState(product.stock);
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-line p-3">
+    <div className="glass-inset flex items-center gap-3 rounded-lg p-3">
       <Thumb src={product.image?.sizes.small.url} size={48} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <Link

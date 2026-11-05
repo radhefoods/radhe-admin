@@ -87,7 +87,7 @@ function Sending({
   onStop: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
+    <div className="glass-inset flex flex-col gap-2 rounded-lg p-3">
       <UploadProgress
         fraction={fraction}
         label={
@@ -276,7 +276,7 @@ function Picture({
   return (
     <section
       aria-label="Picture"
-      className="flex flex-col gap-3 rounded-lg border border-line p-3.5"
+      className="glass-inset flex flex-col gap-3 rounded-lg p-3.5"
     >
       <Preview banner={banner} />
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">

@@ -150,7 +150,7 @@ function QuotationCard({ quotation }: { quotation: QuotationSummary }) {
   return (
     <Link
       href={routes.quotation(quotation.id)}
-      className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3.5 active:bg-sunken"
+      className="glass-card glass-lift flex flex-col gap-2 rounded-xl p-3.5 active:bg-sunken"
     >
       <span className="flex items-center justify-between gap-3">
         <span className="text-base font-semibold text-ink tabular">

@@ -205,7 +205,7 @@ export function CategoryPicture({
       )}
 
       {fraction !== null ? (
-        <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
+        <div className="glass-inset flex flex-col gap-2 rounded-lg p-3">
           <UploadProgress
             fraction={fraction}
             label={

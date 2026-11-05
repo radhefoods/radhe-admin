@@ -166,7 +166,7 @@ function CopyForm({
             Finding a product to copy needs the permission “Catalogue: read”.
           </Alert>
         ) : product ? (
-          <div className="flex items-center gap-3 rounded-lg border border-line p-3">
+          <div className="glass-inset flex items-center gap-3 rounded-lg p-3">
             <Thumb src={product.image?.sizes.small.url} size={40} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-ink">
@@ -227,7 +227,7 @@ function CopyForm({
             ) : (
               <ul
                 aria-label="Retail products found"
-                className="flex flex-col divide-y divide-line rounded-lg border border-line"
+                className="glass-inset flex flex-col divide-y divide-line rounded-lg"
               >
                 {search.data?.items.map((found) => (
                   <li key={found.id}>
@@ -289,7 +289,7 @@ function CopyForm({
               <legend className="text-13 font-medium text-ink">
                 Pack sizes and their cartons
               </legend>
-              <ul className="flex flex-col divide-y divide-line rounded-lg border border-line">
+              <ul className="glass-inset flex flex-col divide-y divide-line rounded-lg">
                 {product.variants.map((variant, index) => {
                   const entry = chosen[variant.id] ?? {
                     included: true,

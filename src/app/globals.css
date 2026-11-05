@@ -4,8 +4,20 @@
  * Design tokens of the Radhe Foods admin panel.
  *
  * The family is the shop's approved system (the blue of the wordmark, the
- * gold, teal and cyan of the peacock feather), tuned for dense work: a calm
- * blue-tinted canvas, white work surfaces, hairline borders.
+ * gold, teal and cyan of the peacock feather), set as glass: a canvas lit
+ * by the four colours of the feather, and on it translucent panels with a
+ * soft edge, a line of light along the top and a shadow that lifts them.
+ *
+ * Three depths of glass, each a class below:
+ *   glass-panel   what frames the page: the sidebar, the top bar (blurred)
+ *   glass-sheet   the work area of a page, one large pane
+ *   glass-card    what lies on the sheet: cards, tables, tiles
+ *   glass-inset   a frame inside a card or a dialog
+ *   glass-float   what floats over the page: dialogs, menus, toasts (blurred)
+ *
+ * Blur is spent only where something really lies behind the glass (bars
+ * the page scrolls under, things that float). A card over the canvas has
+ * nothing sharp behind it, so it is translucent and not blurred.
  *
  * Every colour is a variable with a light and a dark value. Components only
  * ever use the names below, and the default Tailwind palette is switched
@@ -20,7 +32,7 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
-  --canvas: #f4f6fb;
+  --canvas: #f1f4fb;
   --surface: #ffffff;
   --sunken: #f0f3f9;
   --line: #dfe4ee;
@@ -62,9 +74,53 @@
   --danger-solid: #b42318;
   --danger-solid-hover: #8f1c13;
 
-  --scrim: rgb(10 18 51 / 0.4);
+  --scrim: rgb(10 18 51 / 0.36);
   --shadow-color: 10 29 92;
   --shadow-strength: 1;
+
+  /* Glass: the fill of each depth, its edge, and the light along its top. */
+  --glass: rgb(255 255 255 / 0.6);
+  --glass-sheet: rgb(255 255 255 / 0.62);
+  --glass-raised: rgb(255 255 255 / 0.72);
+  --glass-inset: rgb(255 255 255 / 0.42);
+  --glass-float: rgb(255 255 255 / 0.86);
+  --glass-line: rgb(10 29 92 / 0.1);
+  --glass-shine: rgb(255 255 255 / 0.9);
+
+  /* The colours that glow, as channels: the blue, the cyan, the gold, the red. */
+  --glow-accent: 26 69 204;
+  --glow-cyan: 5 186 194;
+  --glow-gold: 221 161 61;
+  --glow-danger: 180 35 24;
+
+  --grad-accent: linear-gradient(135deg, #3565ea 0%, #1a45cc 52%, #1437a8 100%);
+  --grad-danger: linear-gradient(135deg, #c93a2e 0%, #b42318 55%, #8f1c13 100%);
+  /* The feather in one line: blue, cyan, gold. */
+  --grad-brand: linear-gradient(90deg, #1a45cc 0%, #05bac2 58%, #dda13d 100%);
+  --grad-title: linear-gradient(100deg, #0a1233 35%, #1a45cc 130%);
+
+  /* The light behind everything: one glow of each feather colour. */
+  --ambient:
+    radial-gradient(
+      60rem 40rem at 104% -8%,
+      rgb(26 69 204 / 0.16),
+      rgb(26 69 204 / 0) 62%
+    ),
+    radial-gradient(
+      46rem 36rem at -6% 16%,
+      rgb(5 186 194 / 0.13),
+      rgb(5 186 194 / 0) 60%
+    ),
+    radial-gradient(
+      52rem 38rem at 26% 112%,
+      rgb(1 119 121 / 0.12),
+      rgb(1 119 121 / 0) 60%
+    ),
+    radial-gradient(
+      40rem 30rem at 94% 98%,
+      rgb(221 161 61 / 0.11),
+      rgb(221 161 61 / 0) 62%
+    );
 
   color-scheme: light;
 }
@@ -112,9 +168,50 @@
   --danger-solid: #d4382c;
   --danger-solid-hover: #ef5b4e;
 
-  --scrim: rgb(2 4 12 / 0.66);
+  --scrim: rgb(2 4 12 / 0.62);
   --shadow-color: 0 0 0;
   --shadow-strength: 3;
+
+  --glass: rgb(16 23 50 / 0.56);
+  --glass-sheet: rgb(16 23 50 / 0.58);
+  --glass-raised: rgb(255 255 255 / 0.045);
+  --glass-inset: rgb(255 255 255 / 0.028);
+  --glass-float: rgb(17 25 55 / 0.84);
+  --glass-line: rgb(255 255 255 / 0.09);
+  --glass-shine: rgb(255 255 255 / 0.07);
+
+  --glow-accent: 59 95 227;
+  --glow-cyan: 43 211 217;
+  --glow-gold: 240 188 107;
+  --glow-danger: 239 91 78;
+
+  /* No lighter than this: white text has to stay readable on it. */
+  --grad-accent: linear-gradient(135deg, #4468e8 0%, #3b5fe3 50%, #2f4fcf 100%);
+  --grad-danger: linear-gradient(135deg, #d4382c 0%, #c23226 55%, #a8281d 100%);
+  --grad-brand: linear-gradient(90deg, #6686e6 0%, #2bd3d9 58%, #f0bc6b 100%);
+  --grad-title: linear-gradient(100deg, #e9edf9 35%, #93abff 130%);
+
+  --ambient:
+    radial-gradient(
+      60rem 40rem at 104% -8%,
+      rgb(59 95 227 / 0.26),
+      rgb(59 95 227 / 0) 62%
+    ),
+    radial-gradient(
+      46rem 36rem at -6% 16%,
+      rgb(5 186 194 / 0.13),
+      rgb(5 186 194 / 0) 60%
+    ),
+    radial-gradient(
+      52rem 38rem at 26% 112%,
+      rgb(1 119 121 / 0.2),
+      rgb(1 119 121 / 0) 60%
+    ),
+    radial-gradient(
+      40rem 30rem at 94% 98%,
+      rgb(221 161 61 / 0.08),
+      rgb(221 161 61 / 0) 62%
+    );
 
   color-scheme: dark;
 }
@@ -198,13 +295,50 @@
   --radius-xl: 16px;
   --radius-2xl: 20px;
 
-  /* Shadows only where something floats. */
+  --color-glass: var(--glass);
+  --color-glass-raised: var(--glass-raised);
+  --color-glass-inset: var(--glass-inset);
+  --color-glass-line: var(--glass-line);
+
+  /* A control sits on the glass; a pane is lifted off it; what floats
+     throws the longest shadow. Every pane carries the line of light. */
   --shadow-card: 0 1px 2px rgb(var(--shadow-color) / 0.05);
+  --shadow-glass:
+    inset 0 1px 0 var(--glass-shine),
+    0 1px 2px rgb(var(--shadow-color) / calc(0.04 * var(--shadow-strength))),
+    0 14px 34px -18px
+      rgb(var(--shadow-color) / calc(0.2 * var(--shadow-strength)));
+  --shadow-glass-hover:
+    inset 0 1px 0 var(--glass-shine),
+    0 2px 4px rgb(var(--shadow-color) / calc(0.05 * var(--shadow-strength))),
+    0 20px 40px -18px
+      rgb(var(--shadow-color) / calc(0.28 * var(--shadow-strength)));
   --shadow-pop:
+    inset 0 1px 0 var(--glass-shine),
     0 1px 2px rgb(var(--shadow-color) / calc(0.06 * var(--shadow-strength))),
-    0 8px 24px rgb(var(--shadow-color) / calc(0.12 * var(--shadow-strength)));
-  --shadow-float: 0 18px 44px
-    rgb(var(--shadow-color) / calc(0.16 * var(--shadow-strength)));
+    0 12px 32px -6px
+      rgb(var(--shadow-color) / calc(0.16 * var(--shadow-strength)));
+  --shadow-float:
+    inset 0 1px 0 var(--glass-shine),
+    0 24px 60px -12px
+      rgb(var(--shadow-color) / calc(0.24 * var(--shadow-strength))),
+    0 0 0 1px rgb(var(--glow-accent) / 0.04);
+
+  /* Glows: under the primary action, under what is switched on, around
+     the field that has the focus. */
+  --shadow-glow:
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    0 6px 16px -6px rgb(var(--glow-accent) / 0.6);
+  --shadow-glow-strong:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 10px 24px -6px rgb(var(--glow-accent) / 0.75);
+  --shadow-glow-danger:
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    0 6px 16px -6px rgb(var(--glow-danger) / 0.55);
+  --shadow-glow-sm: 0 0 0 3px rgb(var(--glow-accent) / 0.16);
+  --shadow-focus:
+    0 1px 2px rgb(var(--shadow-color) / 0.05),
+    0 0 0 4px rgb(var(--glow-accent) / 0.14);
 
   --breakpoint-xs: 26rem;
 
@@ -216,7 +350,8 @@
   --animate-sheet-out: sheet-out 160ms ease-in;
   --animate-drawer-in: drawer-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
   --animate-drawer-out: drawer-out 160ms ease-in;
-  --animate-rise-in: rise-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-rise-in: rise-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-drift: drift 28s ease-in-out infinite alternate;
   --animate-shimmer: shimmer 1.6s linear infinite;
   --animate-spin: spin 0.7s linear infinite;
   --animate-pulse-dot: pulse-dot 2s ease-in-out infinite;
@@ -279,6 +414,17 @@
   }
 }
 
+/* A glow that wanders, slowly enough not to be watched. */
+@keyframes drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  to {
+    transform: translate3d(-6%, 5%, 0) scale(1.12);
+  }
+}
+
 @keyframes shimmer {
   to {
     background-position: -200% 0;
@@ -327,6 +473,23 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+  }
+
+  /* The light of the canvas. Fixed and behind everything, so it is painted
+     once and the page scrolls over it. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: var(--ambient);
+    pointer-events: none;
+  }
+
+  @media print {
+    body::before {
+      display: none;
+    }
   }
 
   /* Headings and key figures hold a line on their own: a long title wraps
@@ -387,6 +550,217 @@
   }
 }
 
+/*
+ * The panes of glass. They live in the components layer, so any utility
+ * next to them (a colour of its own, another border, no shadow) wins.
+ */
+@layer components {
+  .glass-panel,
+  .glass-float {
+    border: 1px solid var(--glass-line);
+    -webkit-backdrop-filter: blur(18px) saturate(1.6);
+    backdrop-filter: blur(18px) saturate(1.6);
+  }
+
+  .glass-panel {
+    background-color: var(--glass);
+    box-shadow: var(--shadow-glass);
+  }
+
+  .glass-float {
+    background-color: var(--glass-float);
+    box-shadow: var(--shadow-float);
+  }
+
+  .glass-sheet {
+    background-color: var(--glass-sheet);
+  }
+
+  .glass-card {
+    border: 1px solid var(--glass-line);
+    background-color: var(--glass-raised);
+    box-shadow: var(--shadow-glass);
+  }
+
+  .glass-inset {
+    border: 1px solid var(--line);
+    background-color: var(--glass-inset);
+  }
+
+  /* A pane that leads somewhere answers the pointer: it lifts a little. */
+  .glass-lift {
+    transition:
+      transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 180ms ease-out,
+      border-color 180ms ease-out,
+      background-color 180ms ease-out;
+  }
+
+  @media (hover: hover) {
+    .glass-lift:hover {
+      transform: translateY(-1px);
+      border-color: rgb(var(--glow-accent) / 0.32);
+      box-shadow: var(--shadow-glass-hover);
+    }
+  }
+
+  .glass-lift:active {
+    transform: translateY(0) scale(0.995);
+  }
+
+  /* A key figure: a glow in its corner, a line of the feather on top. */
+  .glow-tile {
+    --tile-glow: var(--glow-accent);
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+
+  .glow-tile[data-tone="attention"] {
+    --tile-glow: var(--glow-gold);
+  }
+
+  .glow-tile[data-tone="danger"] {
+    --tile-glow: var(--glow-danger);
+  }
+
+  .glow-tile[data-tone="cyan"] {
+    --tile-glow: var(--glow-cyan);
+  }
+
+  .glow-tile::before {
+    content: "";
+    position: absolute;
+    top: -3.25rem;
+    right: -2.5rem;
+    z-index: -1;
+    width: 8.5rem;
+    height: 8.5rem;
+    border-radius: 9999px;
+    background: radial-gradient(
+      closest-side,
+      rgb(var(--tile-glow) / 0.2),
+      rgb(var(--tile-glow) / 0)
+    );
+    pointer-events: none;
+    transition: transform 400ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .glow-tile:hover::before {
+    transform: scale(1.35);
+  }
+
+  .glow-tile::after {
+    content: "";
+    position: absolute;
+    inset: 0 1rem auto;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      rgb(var(--tile-glow) / 0),
+      rgb(var(--tile-glow) / 0.55),
+      rgb(var(--tile-glow) / 0)
+    );
+    pointer-events: none;
+  }
+
+  /* From `lg` on the top bar floats 0.75rem under the edge of the window.
+     What scrolls past it there is blurred away, ever less towards the
+     bottom, so nothing sharp shows around the bar. */
+  @media (min-width: 64rem) {
+    .topbar-veil::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 -0.75rem;
+      z-index: -1;
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+      -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent);
+      mask-image: linear-gradient(to bottom, #000 55%, transparent);
+      pointer-events: none;
+    }
+  }
+
+  /* The line of the feather: along the top of a dialog or the sign-in. */
+  .edge-brand {
+    position: relative;
+  }
+
+  .edge-brand::before {
+    content: "";
+    position: absolute;
+    inset: 0 1.5rem auto;
+    z-index: 1;
+    height: 1px;
+    background: var(--grad-brand);
+    opacity: 0.75;
+    pointer-events: none;
+    -webkit-mask-image: linear-gradient(
+      90deg,
+      transparent,
+      #000 18%,
+      #000 82%,
+      transparent
+    );
+    mask-image: linear-gradient(
+      90deg,
+      transparent,
+      #000 18%,
+      #000 82%,
+      transparent
+    );
+  }
+
+  /* Text in the gradient of the titles. Where the system paints its own
+     colours (forced colours), the text is plain again. */
+  .text-gradient {
+    background-image: var(--grad-title);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+
+  @media (forced-colors: active) {
+    .text-gradient {
+      background-image: none;
+      color: CanvasText;
+      -webkit-text-fill-color: CanvasText;
+    }
+
+    .glass-panel,
+    .glass-float {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+
+  /* A browser that cannot blur gets a pane it cannot see through. */
+  @supports not (
+    (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+  ) {
+    .glass-panel,
+    .glass-float {
+      background-color: var(--surface);
+    }
+  }
+}
+
+/* The gradient fills, as utilities: they take variants (hover, checked). */
+@utility bg-grad-accent {
+  background-image: var(--grad-accent);
+  background-origin: border-box;
+}
+
+@utility bg-grad-danger {
+  background-image: var(--grad-danger);
+  background-origin: border-box;
+}
+
+@utility bg-grad-brand {
+  background-image: var(--grad-brand);
+}
+
 /* Page titles and key figures: the same face, set heavier and tighter. The
    size comes from the text utility next to it. */
 @utility font-display {
@@ -437,6 +811,7 @@
 }
 
 @utility nav-progress {
+  background-image: var(--grad-brand);
   transform-origin: left;
   animation: nav-progress 8s cubic-bezier(0.1, 0.8, 0.2, 1) 150ms both;
 }

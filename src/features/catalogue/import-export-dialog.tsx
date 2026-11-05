@@ -520,7 +520,7 @@ function ImportPanel({
               ].map(([title, text], index) => (
                 <li
                   key={title}
-                  className="flex gap-2.5 rounded-lg border border-line px-3 py-2.5"
+                  className="glass-inset flex gap-2.5 rounded-lg px-3 py-2.5"
                 >
                   <span
                     aria-hidden="true"

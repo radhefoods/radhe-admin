@@ -68,7 +68,7 @@ function Preview({
   return (
     <section
       aria-label={`${LOCALE_LABEL[locale]} preview`}
-      className="flex flex-col gap-2 rounded-lg border border-line p-4"
+      className="glass-inset flex flex-col gap-2 rounded-lg p-4"
     >
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-13 font-semibold text-ink-muted">

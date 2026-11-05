@@ -138,7 +138,7 @@ export function transactionColumns(
 /** A row of the ledger as a card, for phones. */
 export function TransactionCard({ row }: { row: RewardTransaction }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface p-3.5">
+    <div className="glass-card flex flex-col gap-1.5 rounded-xl p-3.5">
       <span className="flex items-center gap-2.5">
         <span className="text-sm font-semibold text-ink">
           {REWARD_TYPE_LABEL[row.type]}

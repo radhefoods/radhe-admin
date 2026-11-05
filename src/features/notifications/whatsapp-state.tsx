@@ -23,7 +23,7 @@ export function WhatsappState({
     <div
       role="status"
       className={cn(
-        "flex flex-wrap items-start gap-x-3 gap-y-1.5 rounded-lg border border-line bg-surface px-3.5 py-2.5 text-13",
+        "glass-card flex flex-wrap items-start gap-x-3 gap-y-1.5 rounded-xl px-3.5 py-2.5 text-13",
         className,
       )}
     >

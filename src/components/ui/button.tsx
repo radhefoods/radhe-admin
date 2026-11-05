@@ -7,7 +7,8 @@ import { Spinner } from "./spinner";
 export const buttonVariants = cva(
   [
     "relative inline-flex shrink-0 items-center justify-center gap-1.5 font-semibold whitespace-nowrap select-none",
-    "rounded-md border transition-[background-color,border-color,color,box-shadow] duration-150",
+    "rounded-md border transition-[background-color,border-color,color,box-shadow,translate,scale,filter] duration-150 ease-out",
+    "active:scale-[0.97] disabled:active:scale-100 aria-disabled:active:scale-100",
     "disabled:opacity-55 aria-disabled:opacity-55",
     "[&_svg]:pointer-events-none [&_svg]:shrink-0",
   ],
@@ -16,17 +17,17 @@ export const buttonVariants = cva(
       variant: {
         // The one primary action of a screen.
         primary:
-          "border-accent bg-accent text-accent-fg shadow-card hover:border-accent-hover hover:bg-accent-hover",
+          "border-transparent bg-accent bg-grad-accent text-accent-fg shadow-glow hover:-translate-y-px hover:shadow-glow-strong active:translate-y-0 disabled:shadow-card disabled:hover:translate-y-0 aria-disabled:shadow-card aria-disabled:hover:translate-y-0",
         secondary:
-          "border-line-strong bg-surface text-ink shadow-card hover:bg-sunken",
+          "border-line-strong bg-surface/70 text-ink shadow-card hover:border-ink-subtle hover:bg-surface",
         ghost:
-          "border-transparent bg-transparent text-ink-muted hover:bg-sunken hover:text-ink",
-        soft: "border-transparent bg-accent-soft text-accent-text hover:bg-planned-bg",
+          "border-transparent bg-transparent text-ink-muted hover:bg-ink/6 hover:text-ink",
+        soft: "border-accent/15 bg-accent-soft text-accent-text hover:border-accent/30 hover:bg-planned-bg",
         danger:
-          "border-danger-solid bg-danger-solid text-accent-fg shadow-card hover:border-danger-solid-hover hover:bg-danger-solid-hover",
+          "border-transparent bg-danger-solid bg-grad-danger text-accent-fg shadow-glow-danger hover:-translate-y-px hover:brightness-110 active:translate-y-0 disabled:shadow-card disabled:hover:translate-y-0 disabled:hover:brightness-100",
         "danger-outline":
-          "border-line-strong bg-surface text-danger-fg shadow-card hover:border-danger-dot hover:bg-danger-bg",
-        link: "h-auto border-transparent p-0 text-accent-text underline-offset-4 hover:underline",
+          "border-line-strong bg-surface/70 text-danger-fg shadow-card hover:border-danger-dot hover:bg-danger-bg",
+        link: "h-auto border-transparent p-0 text-accent-text underline-offset-4 hover:underline active:scale-100",
       },
       size: {
         sm: "h-7 px-2.5 text-13 [&_svg]:size-3.5",

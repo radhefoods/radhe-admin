@@ -673,7 +673,7 @@ export function ImageManager<P extends ImageOwner>({
         )}
 
         {sending ? (
-          <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
+          <div className="glass-inset flex flex-col gap-2 rounded-lg p-3">
             <UploadProgress
               fraction={sending.fraction}
               label={

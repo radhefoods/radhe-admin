@@ -51,17 +51,20 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "group flex h-9 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition-colors",
+                  "group relative flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium transition-[background-color,color,box-shadow] duration-150",
+                  // The page in use: a tinted pane with a lit mark at its start.
                   active
-                    ? "bg-surface text-ink shadow-card ring-1 ring-line"
-                    : "text-ink-muted hover:bg-line/50 hover:text-ink",
+                    ? "bg-accent-soft/80 text-ink shadow-card ring-1 ring-accent/15 before:absolute before:inset-y-2 before:-left-px before:w-[3px] before:rounded-full before:bg-grad-accent before:shadow-[0_0_10px_rgb(var(--glow-accent)/0.7)]"
+                    : "text-ink-muted hover:bg-ink/5 hover:text-ink",
                 )}
               >
                 <Icon
                   aria-hidden="true"
                   className={cn(
-                    "size-4 shrink-0",
-                    active ? "text-accent-text" : "text-ink-subtle",
+                    "size-4 shrink-0 transition-[color,scale] duration-150 group-hover:scale-110",
+                    active
+                      ? "text-accent-text"
+                      : "text-ink-subtle group-hover:text-ink-muted",
                   )}
                 />
                 <span className="truncate">{item.label}</span>
@@ -86,13 +89,17 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 
 export function Sidebar() {
   return (
-    <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-line bg-canvas lg:flex">
-      <div className="flex h-14 shrink-0 items-center px-4">
+    <aside className="glass-panel fixed inset-y-3 left-3 z-30 hidden w-60 flex-col overflow-hidden rounded-2xl lg:flex">
+      <div className="flex h-16 shrink-0 items-center px-4">
         <Link href={routes.today} aria-label="Radhe Foods Admin, start page">
           <Logo height={32} />
         </Link>
       </div>
-      <div className="flex-1 overflow-y-auto px-3 pt-2 pb-6">
+      <div
+        aria-hidden="true"
+        className="mx-4 h-px shrink-0 bg-grad-brand opacity-40"
+      />
+      <div className="flex-1 overflow-y-auto px-3 pt-4 pb-6">
         <SidebarNav />
       </div>
     </aside>
