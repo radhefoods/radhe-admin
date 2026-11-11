@@ -58,6 +58,7 @@ export const queryKeys = {
   legal: {
     all: ["legal"] as const,
     list: (type?: LegalType) => ["legal", "list", type ?? "all"] as const,
+    pages: () => ["legal", "pages"] as const,
     detail: (id: Id) => ["legal", "detail", id] as const,
   },
   categories: {

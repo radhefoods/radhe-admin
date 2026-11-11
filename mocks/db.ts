@@ -11,6 +11,7 @@ import type {
   Customer,
   InvoiceDetail,
   LegalDocument,
+  LegalType,
   NotificationDetail,
   OrderDetail,
   OrderReturn,
@@ -209,6 +210,16 @@ export interface MockConfig {
   publicUrl: string;
 }
 
+/** The address and the search-engine texts an admin set for a legal page (6). */
+export interface LegalPageRecord {
+  slug?: { en?: string; de?: string };
+  seo?: {
+    title?: { en?: string; de?: string };
+    description?: { en?: string; de?: string };
+  };
+  updatedAt: string;
+}
+
 export interface Db {
   config: MockConfig;
   admins: AdminRecord[];
@@ -218,6 +229,8 @@ export interface Db {
   customers: Customer[];
   settings: Settings;
   legal: LegalDocument[];
+  /** What the admin set for the page of a legal text (6): one record per type, at most. */
+  legalPages: Partial<Record<LegalType, LegalPageRecord>>;
   categories: CategoryRecord[];
   products: ProductRecord[];
   /** The price history of each pack size, by its id, newest first. */
@@ -329,6 +342,7 @@ export function emptyDb(config: MockConfig): Db {
       payments: { checkoutMinutes: 60 },
     },
     legal: [],
+    legalPages: {},
     categories: [],
     products: [],
     priceChanges: new Map(),

@@ -41,6 +41,7 @@ import { notify } from "@/components/ui/toast";
 import { errorMessage } from "@/lib/api/error-text";
 import { hasErrorCode } from "@/lib/api/errors";
 import type {
+  AdminRef,
   LegalDocument,
   LegalDocumentSummary,
   Locale,
@@ -58,6 +59,7 @@ import {
   NOTE_MAX,
   TITLE_MAX,
   hasText,
+  onlyLanguage,
   previousVersion,
   toContent,
   toTitle,
@@ -130,12 +132,48 @@ export function toDraftPatch(
 
 const LANGUAGES: readonly Locale[] = ["en", "de"];
 
+/** What a version needs before it is published: its text, in one language at least. */
+const TEXT_NEEDED = "The text is needed, in English or German, to publish.";
+
+/**
+ * One language is enough to publish (6). The shop then shows that text to
+ * readers of the other language, and the panel says so.
+ */
+function OneLanguageHint({
+  content,
+}: {
+  content: { en?: string | null; de?: string | null };
+}) {
+  const only = onlyLanguage(content);
+  if (!only) return null;
+  return (
+    <p className="text-13 text-ink-muted" role="status">
+      Only the {LOCALE_LABEL[only]} text is written. Readers of the other
+      language will see this text.
+    </p>
+  );
+}
+
+function WrittenIn({ control }: { control: Control<DraftFormValues> }) {
+  const content = useDeferredValue(useWatch({ control, name: "content" }));
+  return <OneLanguageHint content={content} />;
+}
+
+function Person({ value }: { value: AdminRef | null }) {
+  return value ? (
+    value.name
+  ) : (
+    <span className="text-ink-subtle">Not known</span>
+  );
+}
+
 /** Both languages as customers read them, next to each other. */
 function RenderedText({
   content,
 }: {
   content: { en?: string | null; de?: string | null };
 }) {
+  const only = onlyLanguage(content);
   return (
     <div className="grid items-start gap-4 lg:grid-cols-2">
       {LANGUAGES.map((language) => {
@@ -153,9 +191,9 @@ function RenderedText({
                 <MarkdownText lang={language}>{text ?? ""}</MarkdownText>
               ) : (
                 <p className="py-6 text-center text-13 text-ink-muted">
-                  {language === "en"
-                    ? "There is no English text. A version cannot be published without it."
-                    : "There is no German text in this version."}
+                  {only
+                    ? `There is no ${LOCALE_LABEL[language]} text. Readers of ${LOCALE_LABEL[language]} will see the ${LOCALE_LABEL[only]} text.`
+                    : "There is no text yet. A version cannot be published without its text in English or German."}
                 </p>
               )}
             </CardBody>
@@ -242,11 +280,14 @@ function DraftEditor({
   document,
   others,
   previous,
+  accepted,
   onDone,
 }: {
   document: LegalDocument;
   others: readonly LegalDocumentSummary[];
   previous: LegalDocumentSummary | null;
+  /** True for the texts customers accept at checkout; the others inform. */
+  accepted: boolean;
   /** The draft was published: the page shows it as it now is. */
   onDone: () => void;
 }) {
@@ -288,13 +329,15 @@ function DraftEditor({
   });
 
   const type = LEGAL_TYPE[document.type];
-  const germanMissing = !hasText(document.content.de);
+  // One language is enough: the shop shows it to readers of the other.
+  const written = onlyLanguage(document.content);
+  const noText = !hasText(document.content.en) && !hasText(document.content.de);
   const publishBlocked = publishedMeanwhile
     ? "This version is published already."
     : dirty
       ? "Save your changes first."
-      : !hasText(document.content.en)
-        ? "The English text is needed to publish."
+      : noText
+        ? TEXT_NEEDED
         : null;
 
   return (
@@ -376,12 +419,15 @@ function DraftEditor({
                 form={form}
                 name="content"
                 label="Text"
-                hint="Markdown: # for headings, **bold**, lists with -, [links](https://…), tables. HTML is not shown. English is needed to publish; German can follow."
+                hint="Markdown: # for headings, **bold**, lists with -, [links](https://…), tables. HTML is not shown. One language is enough to publish; the other can follow."
                 multiline
                 mono
                 rows={24}
                 maxLength={CONTENT_MAX}
               />
+              <div className="mt-2">
+                <WrittenIn control={form.control} />
+              </div>
             </TabsContent>
             <TabsContent value="preview">
               <LivePreview control={form.control} />
@@ -445,7 +491,11 @@ function DraftEditor({
         open={publishing}
         onOpenChange={setPublishing}
         title={`Publish version ${document.version} of the ${type.short}?`}
-        description="Customers accept this version from now on, with their next order. A published version can never change: a correction is a new version."
+        description={
+          accepted
+            ? "Customers accept this version from now on, with their next order. A published version can never change: a correction is a new version."
+            : "The shop shows this version from now on. A published version can never change: a correction is a new version."
+        }
         facts={[
           { label: "Text", value: type.label },
           { label: "Version", value: document.version },
@@ -461,8 +511,8 @@ function DraftEditor({
           },
           {
             label: "Languages",
-            value: germanMissing
-              ? "English only: German is missing"
+            value: written
+              ? `${LOCALE_LABEL[written]} only: readers of the other language will see this text`
               : "English and German",
           },
         ]}
@@ -472,20 +522,23 @@ function DraftEditor({
             await publish.mutateAsync();
           } catch (error) {
             if (!hasErrorCode(error, "VALIDATION_FAILED")) throw error;
-            // The only rule of publishing: the English text must be there.
+            // The only rule of publishing: the text must be there, in one
+            // language at least.
             setTab("write");
             setRefused(
-              "A legal text needs its English text before it is published. Write it, save the draft and publish again.",
+              "A legal text needs its text, in English or German, before it is published. Write it, save the draft and publish again.",
             );
             form.setError("content.en", {
               type: "server",
-              message: "The English text is needed to publish.",
+              message: TEXT_NEEDED,
             });
             return;
           }
           notify.success(
             `Version ${document.version} of the ${type.short} is published`,
-            "Customers accept it from now on.",
+            accepted
+              ? "Customers accept it from now on."
+              : "The shop shows it from now on.",
           );
           onDone();
         }}
@@ -514,12 +567,15 @@ function DraftEditor({
 function ReadOnlyDocument({
   document,
   isCurrent,
+  accepted,
   versions,
   others,
   previous,
 }: {
   document: LegalDocument;
   isCurrent: boolean;
+  /** True for the texts customers accept at checkout; the others inform. */
+  accepted: boolean;
   /** Every version of the type, newest first. */
   versions: readonly LegalDocumentSummary[];
   others: readonly LegalDocumentSummary[];
@@ -535,8 +591,12 @@ function ReadOnlyDocument({
       description={
         published
           ? isCurrent
-            ? "Customers accept this version at checkout. A published version can never change: a correction is a new version."
-            : "An earlier version: orders placed while it was current refer to it. It can never change."
+            ? accepted
+              ? "Customers accept this version at checkout. A published version can never change: a correction is a new version."
+              : "The shop shows this version. A published version can never change: a correction is a new version."
+            : accepted
+              ? "An earlier version: orders placed while it was current refer to it. It can never change."
+              : "An earlier version: the shop showed it until a newer one was published. It can never change."
           : "A draft. Customers do not see it until it is published."
       }
       actions={
@@ -569,6 +629,14 @@ function ReadOnlyDocument({
               </Fact>
               <Fact label="Last change">
                 <DateTime value={document.updatedAt} />
+              </Fact>
+              {published ? (
+                <Fact label="Published by">
+                  <Person value={document.publishedByAdmin} />
+                </Fact>
+              ) : null}
+              <Fact label="Created by">
+                <Person value={document.createdByAdmin} />
               </Fact>
               <Fact
                 label="Note for the team"
@@ -616,6 +684,7 @@ function ReadOnlyDocument({
       <NewVersionDialog
         type={document.type}
         versions={versions}
+        acceptedAtCheckout={accepted}
         open={starting}
         onOpenChange={setStarting}
       />
@@ -626,9 +695,12 @@ function ReadOnlyDocument({
 function Loaded({
   document,
   items,
+  accepted,
 }: {
   document: LegalDocument;
   items: readonly LegalDocumentSummary[];
+  /** True for the texts customers accept at checkout (`requiredTypes`). */
+  accepted: boolean;
 }) {
   const can = useCan();
   // A draft opens as an editor and stays one until this admin publishes it
@@ -649,12 +721,14 @@ function Loaded({
       document={document}
       others={others}
       previous={previous}
+      accepted={accepted}
       onDone={() => setEditing(false)}
     />
   ) : (
     <ReadOnlyDocument
       document={document}
       isCurrent={isCurrent}
+      accepted={accepted}
       versions={versions}
       others={others}
       previous={previous}
@@ -729,6 +803,9 @@ export function LegalDocumentView() {
         key={document.data.id}
         document={document.data}
         items={list.data?.items ?? []}
+        accepted={
+          list.data?.requiredTypes.includes(document.data.type) ?? false
+        }
       />
     </RequirePermission>
   );

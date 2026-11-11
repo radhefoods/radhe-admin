@@ -342,6 +342,7 @@ export function BilingualField<T extends FieldValues>({
   rows = 3,
   maxLength,
   mono = false,
+  placeholder,
   className,
 }: {
   form: AnyForm<T>;
@@ -355,6 +356,8 @@ export function BilingualField<T extends FieldValues>({
   maxLength?: number;
   /** A fixed-width face, for Markdown. */
   mono?: boolean;
+  /** What an empty field stands for, per language. */
+  placeholder?: { en?: string; de?: string };
   className?: string;
 }) {
   const id = useId();
@@ -394,6 +397,7 @@ export function BilingualField<T extends FieldValues>({
             id: controlId,
             lang: language.key,
             maxLength,
+            placeholder: placeholder?.[language.key],
             "aria-invalid": error ? (true as const) : undefined,
             "aria-describedby": error
               ? `${controlId}-error`

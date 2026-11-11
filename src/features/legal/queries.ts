@@ -7,6 +7,7 @@ import type {
   Id,
   LegalDocument,
   LegalDocumentSummary,
+  LegalPageInput,
   LegalType,
   UpdateLegalDocumentInput,
 } from "@/lib/api/types";
@@ -20,6 +21,32 @@ export function useLegalDocuments() {
     queryKey: queryKeys.legal.list(),
     queryFn: ({ signal }) => api.legal.list(undefined, signal),
     enabled: can("legal.read"),
+  });
+}
+
+/**
+ * The six pages: what is published and drafted of each type, its address
+ * and its texts for search engines. Always six, also for a type nobody has
+ * written yet.
+ */
+export function useLegalPages() {
+  const can = useCan();
+  return useQuery({
+    queryKey: queryKeys.legal.pages(),
+    queryFn: ({ signal }) => api.legal.pages(signal),
+    enabled: can("legal.read"),
+  });
+}
+
+/**
+ * Sets the address and the search-engine texts of a page, as a whole. It
+ * applies at once and is no new version of the text.
+ */
+export function useSetLegalPage(type: LegalType) {
+  return useMutation({
+    mutationFn: async (input: LegalPageInput) =>
+      (await api.legal.setPage(type, input)).page,
+    meta: { invalidates: [queryKeys.legal.pages()], silent: true },
   });
 }
 
@@ -90,12 +117,15 @@ export function usePublishLegalDocument(id: Id) {
 }
 
 /**
- * Deletes a draft. Only the list is fetched again: the page of the draft is
- * still open at that moment and must not ask for what is gone.
+ * Deletes a draft. Only the lists are fetched again: the page of the draft
+ * is still open at that moment and must not ask for what is gone.
  */
 export function useDeleteLegalDocument() {
   return useMutation({
     mutationFn: (id: Id) => api.legal.remove(id),
-    meta: { invalidates: [queryKeys.legal.list()], silent: true },
+    meta: {
+      invalidates: [queryKeys.legal.list(), queryKeys.legal.pages()],
+      silent: true,
+    },
   });
 }

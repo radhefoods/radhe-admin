@@ -1,4 +1,4 @@
-// Sections 4 (customers), 5 (settings) and 6 (legal texts).
+// Sections 4 (customers), 5 (settings) and 6 (legal pages).
 
 import type { Query } from "../http";
 import type { SessionTransport } from "../session";
@@ -17,6 +17,10 @@ import type {
   Id,
   LegalDocument,
   LegalDocumentList,
+  LegalDocumentQuery,
+  LegalPage,
+  LegalPageInput,
+  LegalPageList,
   LegalType,
   PaymentSettings,
   PaymentsInput,
@@ -89,8 +93,21 @@ export function settingsApi({ request }: SessionTransport) {
 export function legalApi({ request }: SessionTransport) {
   const base = "/v1/admin/legal-documents";
   return {
-    list: (type?: LegalType, signal?: AbortSignal) =>
-      request<LegalDocumentList>(base, { query: { type }, signal }),
+    /** Every version without its text: the history. */
+    list: (query?: LegalDocumentQuery, signal?: AbortSignal) =>
+      request<LegalDocumentList>(base, {
+        query: { type: query?.type, status: query?.status },
+        signal,
+      }),
+    /** The six pages, also for a type nobody has written yet. */
+    pages: (signal?: AbortSignal) =>
+      request<LegalPageList>(`${base}/pages`, { signal }),
+    /** Address and search-engine texts of one page, as a whole; no version is created. */
+    setPage: (type: LegalType, input: LegalPageInput) =>
+      request<{ page: LegalPage }>(`${base}/pages/${type}`, {
+        method: "PUT",
+        body: input,
+      }),
     get: (id: Id, signal?: AbortSignal) =>
       request<{ document: LegalDocument }>(`${base}/${id}`, { signal }),
     create: (input: CreateLegalDocumentInput) =>

@@ -121,12 +121,15 @@ function NewVersionForm({
 export function NewVersionDialog({
   type,
   versions,
+  acceptedAtCheckout,
   open,
   onOpenChange,
 }: {
   type: LegalType;
   /** The versions of that type, newest first. */
   versions: readonly LegalDocumentSummary[];
+  /** True for the terms and the privacy policy; the other pages only inform. */
+  acceptedAtCheckout: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -135,7 +138,11 @@ export function NewVersionDialog({
       <DialogContent>
         <DialogHeader
           title={`New version of the ${LEGAL_TYPE[type].short}`}
-          description="The published version stays what customers accept until you publish the new one."
+          description={
+            acceptedAtCheckout
+              ? "The published version stays what customers accept until you publish the new one."
+              : "The published version stays what the shop shows until you publish the new one."
+          }
         />
         <NewVersionForm
           type={type}

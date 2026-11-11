@@ -1,7 +1,13 @@
-// Sections 4 (customers), 5 (settings) and 6 (legal texts).
+// Sections 4 (customers), 5 (settings) and 6 (legal pages).
 
 import { z } from "zod";
-import type { Customer, LegalDocument } from "../../src/lib/api/types/index.ts";
+import type {
+  Customer,
+  LegalDocument,
+  LegalPage,
+  LegalSlugs,
+  LegalType,
+} from "../../src/lib/api/types/index.ts";
 import type { Db } from "../db.ts";
 import { companyMissing } from "../domain.ts";
 import {
@@ -70,7 +76,49 @@ const deliveryBody = z.strictObject({
   }),
 });
 
-const LEGAL_TYPES = ["terms", "privacy"] as const;
+/** The six legal pages, in the order the API answers them. */
+const LEGAL_TYPES = [
+  "imprint",
+  "shipping",
+  "refund",
+  "terms",
+  "privacy",
+  "withdrawal",
+] as const;
+/** Accepted at checkout; the other four inform and never hold an order up. */
+const REQUIRED_LEGAL_TYPES: readonly LegalType[] = ["terms", "privacy"];
+const LEGAL_STATUSES = ["draft", "published"] as const;
+/** The address of each page until the admin sets another one. */
+const DEFAULT_LEGAL_SLUGS: Record<LegalType, LegalSlugs> = {
+  imprint: { en: "imprint", de: "impressum" },
+  shipping: { en: "shipping", de: "versand" },
+  refund: { en: "refund-policy", de: "rueckerstattung" },
+  terms: { en: "terms", de: "agb" },
+  privacy: { en: "privacy", de: "datenschutz" },
+  withdrawal: { en: "withdrawal", de: "widerruf" },
+};
+const zLegalSlug = z
+  .string()
+  .max(120)
+  .regex(
+    /^[a-z0-9]+(-[a-z0-9]+)*$/,
+    "slug may contain lower-case letters, digits and single hyphens",
+  )
+  .nullish();
+const zLegalLine = z.strictObject({
+  en: z.string().max(300).nullish(),
+  de: z.string().max(300).nullish(),
+});
+/** The page as a whole: what is left out or null goes back to the default. */
+const legalPageBody = z.strictObject({
+  slug: z.strictObject({ en: zLegalSlug, de: zLegalSlug }).nullish(),
+  seo: z
+    .strictObject({
+      title: zLegalLine.nullish(),
+      description: zLegalLine.nullish(),
+    })
+    .nullish(),
+});
 const legalContent = z.strictObject({
   en: z.string().max(300_000).nullish(),
   de: z.string().max(300_000).nullish(),
@@ -99,12 +147,56 @@ function legalById(db: Db, id: string): LegalDocument {
   return document;
 }
 
-/** The published version with the highest number is what customers accept now. */
+/** The published version with the highest number is the one that applies now. */
 function currentLegalId(db: Db, type: string): string | null {
   const published = db.legal
     .filter((entry) => entry.type === type && entry.status === "published")
     .sort((a, b) => b.version - a.version);
   return published[0]?.id ?? null;
+}
+
+/** The languages of a text that have one, or undefined when none has. */
+function filledPair(
+  text: { en?: string | null; de?: string | null } | null | undefined,
+): { en?: string; de?: string } | undefined {
+  const en = text?.en?.trim();
+  const de = text?.de?.trim();
+  if (!en && !de) return undefined;
+  return { ...(en && { en }), ...(de && { de }) };
+}
+
+/** The address of a page in each language: what the admin set, else the default. */
+function legalSlugs(db: Db, type: LegalType): LegalSlugs {
+  const own = db.legalPages[type]?.slug;
+  const fallback = DEFAULT_LEGAL_SLUGS[type];
+  return { en: own?.en || fallback.en, de: own?.de || fallback.de };
+}
+
+/** The page of one type as the admin manages it. */
+function legalPage(db: Db, type: LegalType): LegalPage {
+  const versions = db.legal
+    .filter((entry) => entry.type === type)
+    .sort((a, b) => b.version - a.version);
+  const summary = (document: LegalDocument | undefined) => {
+    if (!document) return null;
+    const { content: _content, ...rest } = document;
+    return rest;
+  };
+  const record = db.legalPages[type];
+  return {
+    type,
+    requiresConsent: REQUIRED_LEGAL_TYPES.includes(type),
+    slug: legalSlugs(db, type),
+    defaultSlug: DEFAULT_LEGAL_SLUGS[type],
+    seo: {
+      title: record?.seo?.title ?? null,
+      description: record?.seo?.description ?? null,
+    },
+    current: summary(versions.find((entry) => entry.status === "published")),
+    draft: summary(versions.find((entry) => entry.status === "draft")),
+    versions: versions.length,
+    updatedAt: record?.updatedAt ?? null,
+  };
 }
 
 export function registerShop(router: Router): void {
@@ -298,8 +390,10 @@ export function registerShop(router: Router): void {
 
   router.get(legal, { permission: "legal.read" }, (ctx) => {
     const type = enumParam(ctx.query, "type", LEGAL_TYPES);
+    const status = enumParam(ctx.query, "status", LEGAL_STATUSES);
     const items = ctx.db.legal
       .filter((entry) => !type || entry.type === type)
+      .filter((entry) => !status || entry.status === status)
       .sort(
         (a, b) =>
           LEGAL_TYPES.indexOf(a.type) - LEGAL_TYPES.indexOf(b.type) ||
@@ -309,8 +403,73 @@ export function registerShop(router: Router): void {
         ...summary,
         isCurrent: currentLegalId(ctx.db, summary.type) === summary.id,
       }));
-    return json({ items, requiredTypes: ["terms", "privacy"] });
+    return json({
+      items,
+      types: LEGAL_TYPES,
+      requiredTypes: REQUIRED_LEGAL_TYPES,
+    });
   });
+
+  // The six pages, also for a type nobody has written yet.
+  router.get(`${legal}/pages`, { permission: "legal.read" }, (ctx) =>
+    json({
+      items: LEGAL_TYPES.map((type) => legalPage(ctx.db, type)),
+      requiredTypes: REQUIRED_LEGAL_TYPES,
+    }),
+  );
+
+  // Address and search-engine texts of one page, as a whole. No version.
+  router.put(
+    `${legal}/pages/:type`,
+    { permission: "legal.manage" },
+    async (ctx) => {
+      const type = LEGAL_TYPES.find((entry) => entry === ctx.params.type);
+      if (!type) {
+        throw fail(
+          400,
+          "BAD_REQUEST",
+          `Validation failed (enum string is expected)`,
+        );
+      }
+      const input = await ctx.body(legalPageBody);
+      const slug = filledPair(input.slug);
+      const fallback = DEFAULT_LEGAL_SLUGS[type];
+      const wanted = [
+        ...new Set([slug?.en || fallback.en, slug?.de || fallback.de]),
+      ];
+      // Two pages with one address could not be told apart: an address
+      // that is the type or the address of another page is refused.
+      for (const address of wanted) {
+        const other = LEGAL_TYPES.find((candidate) => {
+          if (candidate === type) return false;
+          const taken = legalSlugs(ctx.db, candidate);
+          return (
+            candidate === address ||
+            taken.en === address ||
+            taken.de === address
+          );
+        });
+        if (other) {
+          throw fail(
+            409,
+            "LEGAL_SLUG_TAKEN",
+            `The address "${address}" belongs to another legal page already.`,
+            { slug: address, type: other },
+          );
+        }
+      }
+      const title = filledPair(input.seo?.title);
+      const description = filledPair(input.seo?.description);
+      ctx.db.legalPages[type] = {
+        ...(slug && { slug }),
+        ...((title || description) && {
+          seo: { ...(title && { title }), ...(description && { description }) },
+        }),
+        updatedAt: iso(ctx.now),
+      };
+      return json({ page: legalPage(ctx.db, type) });
+    },
+  );
 
   router.post(legal, { permission: "legal.manage" }, async (ctx) => {
     const input = await ctx.body(createLegal);
@@ -327,9 +486,11 @@ export function registerShop(router: Router): void {
       version,
       status: "draft",
       title: input.title,
-      content: input.content,
+      content: filledPair(input.content) ?? {},
       note: input.note ?? null,
       publishedAt: null,
+      publishedByAdmin: null,
+      createdByAdmin: { id: ctx.admin.id, name: ctx.admin.name },
       createdAt: iso(ctx.now),
       updatedAt: iso(ctx.now),
     };
@@ -352,7 +513,8 @@ export function registerShop(router: Router): void {
       );
     }
     if (input.title !== undefined) document.title = input.title;
-    if (input.content !== undefined) document.content = input.content;
+    if (input.content !== undefined)
+      document.content = filledPair(input.content) ?? {};
     if (input.note !== undefined) document.note = input.note;
     document.updatedAt = iso(ctx.now);
     return json({ document });
@@ -361,18 +523,17 @@ export function registerShop(router: Router): void {
   router.post(`${legal}/:id/publish`, { permission: "legal.manage" }, (ctx) => {
     const document = legalById(ctx.db, ctx.params.id ?? "");
     if (document.status !== "published") {
-      if (!document.content.en?.trim()) {
-        throw validationFailed([
-          {
-            field: "content.en",
-            problems: [
-              "A legal text needs its English content before it is published.",
-            ],
-          },
-        ]);
+      // One language is enough: the shop shows it to readers of the other.
+      if (!filledPair(document.content)) {
+        throw fail(
+          400,
+          "VALIDATION_FAILED",
+          "A legal text needs its content, in English or in German, before it is published.",
+        );
       }
       document.status = "published";
       document.publishedAt = iso(ctx.now);
+      document.publishedByAdmin = { id: ctx.admin.id, name: ctx.admin.name };
       document.updatedAt = iso(ctx.now);
     }
     return json({ document });

@@ -65,6 +65,7 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   LEGAL_DOCUMENT_NOT_FOUND: "This legal text does not exist (any more).",
   LEGAL_DOCUMENT_PUBLISHED:
     "A published version can never change. Create a new version instead.",
+  LEGAL_SLUG_TAKEN: "This address belongs to another legal page.",
   // categories
   CATEGORY_NOT_FOUND: "This category does not exist (any more).",
   CATEGORY_PARENT_INVALID:

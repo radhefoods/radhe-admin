@@ -618,9 +618,23 @@ The business rules the admin can change. `GET` returns all of them; each `PUT` r
 
 ## 6. Legal texts
 
-Terms and privacy policy, in versions. Customers accept the current published versions at checkout (the order records the versions); a published version can never change (a new version is created instead). **Orders are refused until `terms` and `privacy` are published.**
+The six legal pages of the shop, each in versions. Extended on 2026-11-11 from the two there were (`terms`, `privacy`): their versions and their history are untouched. `doc/LEGAL_PAGES.md` has the long version, with the workflows and the public endpoints.
 
-**Document object:**
+| `type` | Page |
+| ------ | ---- |
+| `imprint` | Imprint (Impressum) |
+| `shipping` | Shipping information (Versandinformationen) |
+| `refund` | Refund policy (Rückerstattungsrichtlinie) |
+| `terms` | Terms and conditions (AGB) |
+| `privacy` | Privacy policy (Datenschutzerklärung) |
+| `withdrawal` | Right of withdrawal (Widerrufsbelehrung) |
+
+- A version is a **draft** until it is published. A **published** version can never change or be deleted: a correction is a new version. The published version with the highest number is the one that applies.
+- **Only `terms` and `privacy` are accepted at checkout** (`requiredTypes`): the order records their versions, and **orders are refused until both are published**. The other four inform. Nobody is asked to accept them, and they never hold an order up, published or not.
+- Each type has one **page** in the shop, with an address per language (`slug`) and texts for search engines (`seo`). These belong to the page, not to a version: a change applies at once and is no new version.
+- The API holds no legal text of its own. Every word is the admin's.
+
+**Document object** (one version):
 
 ```json
 {
@@ -632,29 +646,88 @@ Terms and privacy policy, in versions. Customers accept the current published ve
   "content": { "en": "…markdown…", "de": "…" },
   "note": "Clarified delivery times",
   "publishedAt": null,
+  "publishedByAdmin": null,
+  "createdByAdmin": { "id": "66f1…", "name": "Asha Patel" },
   "createdAt": "2026-09-01T10:00:00.000Z",
   "updatedAt": "2026-09-01T10:00:00.000Z"
 }
 ```
 
-`type` ∈ `terms`, `privacy`; `status` ∈ `draft`, `published`.
+`status` ∈ `draft`, `published`. `content` is plain text or Markdown, stored and answered exactly as typed; lists leave it out. `publishedByAdmin` and `createdByAdmin` follow section 0.9.
+
+**Page object** (one per type):
+
+```json
+{
+  "type": "shipping",
+  "requiresConsent": false,
+  "slug": { "en": "shipping", "de": "versandinformationen" },
+  "defaultSlug": { "en": "shipping", "de": "versand" },
+  "seo": { "title": { "de": "Versand | Radhe Foods" }, "description": null },
+  "current": { "…document without content…": "" },
+  "draft": null,
+  "versions": 4,
+  "updatedAt": "2026-11-11T10:00:00.000Z"
+}
+```
+
+`slug` is the address that applies now (what the admin set, else `defaultSlug`). `current` is the published version that applies, `draft` the newest draft, both without `content`, `null` when there is none. `versions` counts all versions. `updatedAt` is `null` until the page was changed once.
+
+Default addresses (English / German): `imprint` / `impressum`, `shipping` / `versand`, `refund-policy` / `rueckerstattung`, `terms` / `agb`, `privacy` / `datenschutz`, `withdrawal` / `widerruf`.
 
 ### `GET /v1/admin/legal-documents`
 
-**Purpose:** All versions, newest first per type, **without** `content`.
+**Purpose:** All versions, newest first per type, **without** `content`: the version history.
 
-**Permission:** `legal.read`. **Parameters:** `type` (query, optional).
+**Permission:** `legal.read`. **Parameters:** `type` (query, optional, one of the six), `status` (query, optional, `draft` or `published`).
 
 **Success Response (200):**
 
 ```json
 {
   "items": [ { "…document without content…": "", "isCurrent": true } ],
+  "types": ["imprint", "shipping", "refund", "terms", "privacy", "withdrawal"],
   "requiredTypes": ["terms", "privacy"]
 }
 ```
 
-`isCurrent` marks the published version customers accept now.
+`isCurrent` marks the published version that applies now. `types` is every type in the order to show them.
+
+### `GET /v1/admin/legal-documents/pages`
+
+**Purpose:** The overview: one page object per type, in the order of `types`, also for a type that has no version yet.
+
+**Permission:** `legal.read`.
+
+**Success Response (200):** `{ "items": [ { …page… } × 6 ], "requiredTypes": ["terms", "privacy"] }`
+
+### `PUT /v1/admin/legal-documents/pages/{type}`
+
+**Purpose:** Set the address and the search-engine texts of one page, **as a whole**: what is left out or `null` goes back to the default. Applies at once, to every version, and creates no version.
+
+**Permission:** `legal.manage`.
+
+**Request Body:**
+
+```json
+{
+  "slug": { "en": "shipping", "de": "versandinformationen" },
+  "seo": {
+    "title": { "en": "Shipping | Radhe Foods", "de": "Versand | Radhe Foods" },
+    "description": { "en": "How we deliver.", "de": "So liefern wir." }
+  }
+}
+```
+
+| Field | Type | Required | Validation |
+| ----- | ---- | -------- | ---------- |
+| `slug` | `{ en?, de? }` \| null | no | lower-case letters, digits and hyphens, ≤120; a language left out has the default |
+| `seo.title` | `{ en?, de? }` | no | ≤300 each; without it the shop takes the title of the text |
+| `seo.description` | `{ en?, de? }` | no | ≤300 each |
+
+**Success Response (200):** `{ "page": { …page… } }`
+
+**Possible Errors:** `400 VALIDATION_FAILED`, `400 BAD_REQUEST` (unknown `type`), `409 LEGAL_SLUG_TAKEN` (the address is the type or the address of another legal page; `details: { slug, type }` names it).
 
 ### `POST /v1/admin/legal-documents`
 
@@ -665,29 +738,31 @@ Terms and privacy policy, in versions. Customers accept the current published ve
 **Request Body:**
 
 ```json
-{ "type": "terms", "title": { "en": "Terms and Conditions", "de": "AGB" }, "content": { "en": "…", "de": "…" }, "note": "What changed" }
+{ "type": "imprint", "title": { "en": "Imprint", "de": "Impressum" }, "content": { "en": "…", "de": "…" }, "note": "What changed" }
 ```
 
 | Field | Type | Required | Validation |
 | ----- | ---- | -------- | ---------- |
-| `type` | `terms` \| `privacy` | yes | |
+| `type` | one of the six types | yes | |
 | `title` | `{ en (1–160), de? (≤160) }` | yes | |
-| `content` | `{ en? (≤300000), de? (≤300000) }` | yes | English is required to publish |
+| `content` | `{ en? (≤300000), de? (≤300000) }` | yes | one language is required to publish |
 | `note` | string | no | ≤1000, internal |
 
-**Success Response (201):** `{ "document": { … } }`
+**Success Response (201):** `{ "document": { … } }`. The version number is the next of its type.
 
 ### `GET /v1/admin/legal-documents/{id}`
+
+**Purpose:** One version with its `content`: a draft to edit or preview, the current version, or any earlier one.
 
 **Permission:** `legal.read`. **Success Response (200):** `{ "document": { …with content… } }`. **Possible Errors:** `404 LEGAL_DOCUMENT_NOT_FOUND`.
 
 ### `PATCH /v1/admin/legal-documents/{id}`
 
-**Purpose:** Change a draft. **Permission:** `legal.manage`. **Request Body:** `{ "title"?, "content"?, "note"?: string | null }`; `note: null` removes the note. **Success Response (200):** `{ "document": { … } }`. **Possible Errors:** `404 LEGAL_DOCUMENT_NOT_FOUND`, `409 LEGAL_DOCUMENT_PUBLISHED`.
+**Purpose:** Change a draft. **Permission:** `legal.manage`. **Request Body:** `{ "title"?, "content"?, "note"?: string | null }`; `title` and `content` replace the whole object, `note: null` removes the note. **Success Response (200):** `{ "document": { … } }`. **Possible Errors:** `404 LEGAL_DOCUMENT_NOT_FOUND`, `409 LEGAL_DOCUMENT_PUBLISHED`.
 
 ### `POST /v1/admin/legal-documents/{id}/publish`
 
-**Purpose:** Publish the version; customers accept it from now on. Idempotent. **Permission:** `legal.manage`. **Success Response (200):** `{ "document": { …status published… } }`. **Possible Errors:** `404 LEGAL_DOCUMENT_NOT_FOUND`, `400 VALIDATION_FAILED` ("A legal text needs its English content before it is published.").
+**Purpose:** Publish the version: the shop shows it from now on, and for `terms` and `privacy` customers accept it with their next order. Idempotent. **Permission:** `legal.manage`. **Success Response (200):** `{ "document": { …status published… } }`. **Possible Errors:** `404 LEGAL_DOCUMENT_NOT_FOUND`, `400 VALIDATION_FAILED` ("A legal text needs its content, in English or in German, before it is published."). Until 2026-11-11 the English text was required; now one language is enough, and the shop shows it to readers of the other.
 
 ### `DELETE /v1/admin/legal-documents/{id}`
 
@@ -2041,7 +2116,7 @@ Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 | Return status | `requested`, `approved`, `rejected`, `completed`, `cancelled`; reasons `damaged`, `wrong_item`, `quality`, `not_as_described`, `changed_mind`, `other` |
 | Refund status | `pending`, `processing`, `completed`, `failed`, `cancelled`; reason `return`, `adjustment`, `goodwill`, `duplicate_payment`, `other`; method `stripe`, `manual`; manual way `bank_transfer`, `cash`, `other` |
 | Invoice type | `invoice`, `credit_note`; credit reason `return`, `adjustment` |
-| Legal type | `terms`, `privacy`; status `draft`, `published` |
+| Legal type | `imprint`, `shipping`, `refund`, `terms`, `privacy`, `withdrawal` (accepted at checkout: `terms`, `privacy`); status `draft`, `published` |
 | Notification type / channel / status | see 13.1 |
 | Locale | `en`, `de` |
 
@@ -2051,7 +2126,7 @@ Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 - **401**: `UNAUTHENTICATED` (generic), `AUTH_TOKEN_INVALID`, `AUTH_REFRESH_INVALID`, `AUTH_SESSION_REVOKED`, `ADMIN_CREDENTIALS_INVALID`, `ADMIN_MFA_TOKEN_INVALID`, `ADMIN_MFA_CODE_INVALID`, `CUSTOMER_CREDENTIALS_INVALID` (store).
 - **403**: `FORBIDDEN` (generic), `ADMIN_PERMISSION_DENIED`, `ADMIN_PASSWORD_CHANGE_REQUIRED`, `ADMIN_ACCOUNT_DISABLED`, `ADMIN_SELF_MODIFICATION`, `ROLE_IS_SYSTEM`, `ORIGIN_NOT_ALLOWED`, `CUSTOMER_BLOCKED`, `JOBS_TOKEN_INVALID`.
 - **404**: `NOT_FOUND`, `ADMIN_NOT_FOUND`, `ROLE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `ADDRESS_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `PRODUCT_VARIANT_NOT_FOUND`, `IMAGE_NOT_FOUND`, `BANNER_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND`, `ORDER_ITEM_NOT_FOUND` (orders), `RETURN_NOT_FOUND`, `INVOICE_NOT_FOUND`, `REFUND_NOT_FOUND`, `LEGAL_DOCUMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `ANNOUNCEMENT_NOT_FOUND`, `FAQ_NOT_FOUND`, `FAQ_GROUP_NOT_FOUND`, `BLOG_POST_NOT_FOUND`, `BLOG_CATEGORY_NOT_FOUND`, `QUOTATION_NOT_FOUND`, `QUOTATION_ITEM_NOT_FOUND`, `WHOLESALE_CATEGORY_NOT_FOUND`, `WHOLESALE_PRODUCT_NOT_FOUND`, `WHOLESALE_SKU_NOT_FOUND`, `DISCOUNT_NOT_FOUND`.
-- **409**: `CONFLICT`, `ADMIN_EMAIL_TAKEN`, `ADMIN_SELF_MODIFICATION` (last super admin), `ROLE_KEY_TAKEN`, `ROLE_IN_USE`, `CATEGORY_SLUG_TAKEN`, `CATEGORY_HAS_CHILDREN`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_SKU_TAKEN`, `PRODUCT_SLUG_TAKEN`, `PRODUCT_IS_ACTIVE`, `PRODUCT_IN_USE`, `PRODUCT_VARIANT_LAST`, `PRODUCT_VARIANT_IN_USE`, `STOCK_INSUFFICIENT`, `IMAGE_ORDER_INVALID` (changed meanwhile), `CART_EMPTY`, `ORDER_ITEMS_NOT_ORDERABLE`, `ORDER_TOTAL_CHANGED`, `ORDER_NOT_PAYABLE`, `ORDER_CANNOT_BE_CANCELLED`, `ORDER_TRANSITION_NOT_ALLOWED`, `ORDER_CANNOT_BE_CHANGED`, `ORDER_CHANGED_MEANWHILE`, `RETURN_NOT_POSSIBLE`, `RETURN_WINDOW_CLOSED`, `RETURN_QUANTITY_INVALID` (request/complete), `RETURN_TRANSITION_NOT_ALLOWED`, `LEGAL_DOCUMENT_PUBLISHED`, `LEGAL_DOCUMENTS_MISSING`, `LEGAL_VERSION_CHANGED`, `COMPANY_DETAILS_MISSING`, `REFUND_AMOUNT_INVALID` (nothing paid), `REFUND_TRANSITION_NOT_ALLOWED`, `NOTIFICATION_TRANSITION_NOT_ALLOWED`, `ANNOUNCEMENT_NO_RECIPIENTS`, `FAQ_GROUP_HAS_FAQS`, `BLOG_POST_SLUG_TAKEN`, `BLOG_CATEGORY_SLUG_TAKEN`, `BLOG_CATEGORY_HAS_POSTS`, `QUOTATION_STATUS_INVALID`, `WHOLESALE_CATEGORY_SLUG_TAKEN`, `WHOLESALE_PRODUCT_SLUG_TAKEN`, `WHOLESALE_SKU_TAKEN`, `WHOLESALE_CATEGORY_HAS_PRODUCTS`, `WHOLESALE_SKU_LAST`, `DISCOUNT_CODE_TAKEN`, `DISCOUNT_IN_USE`, `DISCOUNT_NOT_APPLICABLE` (store, at checkout).
+- **409**: `CONFLICT`, `ADMIN_EMAIL_TAKEN`, `ADMIN_SELF_MODIFICATION` (last super admin), `ROLE_KEY_TAKEN`, `ROLE_IN_USE`, `LEGAL_SLUG_TAKEN`, `CATEGORY_SLUG_TAKEN`, `CATEGORY_HAS_CHILDREN`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_SKU_TAKEN`, `PRODUCT_SLUG_TAKEN`, `PRODUCT_IS_ACTIVE`, `PRODUCT_IN_USE`, `PRODUCT_VARIANT_LAST`, `PRODUCT_VARIANT_IN_USE`, `STOCK_INSUFFICIENT`, `IMAGE_ORDER_INVALID` (changed meanwhile), `CART_EMPTY`, `ORDER_ITEMS_NOT_ORDERABLE`, `ORDER_TOTAL_CHANGED`, `ORDER_NOT_PAYABLE`, `ORDER_CANNOT_BE_CANCELLED`, `ORDER_TRANSITION_NOT_ALLOWED`, `ORDER_CANNOT_BE_CHANGED`, `ORDER_CHANGED_MEANWHILE`, `RETURN_NOT_POSSIBLE`, `RETURN_WINDOW_CLOSED`, `RETURN_QUANTITY_INVALID` (request/complete), `RETURN_TRANSITION_NOT_ALLOWED`, `LEGAL_DOCUMENT_PUBLISHED`, `LEGAL_DOCUMENTS_MISSING`, `LEGAL_VERSION_CHANGED`, `COMPANY_DETAILS_MISSING`, `REFUND_AMOUNT_INVALID` (nothing paid), `REFUND_TRANSITION_NOT_ALLOWED`, `NOTIFICATION_TRANSITION_NOT_ALLOWED`, `ANNOUNCEMENT_NO_RECIPIENTS`, `FAQ_GROUP_HAS_FAQS`, `BLOG_POST_SLUG_TAKEN`, `BLOG_CATEGORY_SLUG_TAKEN`, `BLOG_CATEGORY_HAS_POSTS`, `QUOTATION_STATUS_INVALID`, `WHOLESALE_CATEGORY_SLUG_TAKEN`, `WHOLESALE_PRODUCT_SLUG_TAKEN`, `WHOLESALE_SKU_TAKEN`, `WHOLESALE_CATEGORY_HAS_PRODUCTS`, `WHOLESALE_SKU_LAST`, `DISCOUNT_CODE_TAKEN`, `DISCOUNT_IN_USE`, `DISCOUNT_NOT_APPLICABLE` (store, at checkout).
 - **413**: `FILE_TOO_LARGE`. **429**: `RATE_LIMITED`, `ADMIN_ACCOUNT_LOCKED`. **502**: `PAYMENT_PROVIDER_ERROR`. **503**: `SERVICE_UNAVAILABLE`, `PAYMENTS_NOT_CONFIGURED`, `STORAGE_UNAVAILABLE`. **500**: `INTERNAL_ERROR`.
 
 ---

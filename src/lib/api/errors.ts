@@ -2,6 +2,7 @@ import type {
   Cents,
   CompanyMissingField,
   Id,
+  LegalType,
   OrderStatus,
   QuotationStatus,
   Refundable,
@@ -54,6 +55,7 @@ export const API_ERROR_CODES = [
   // legal (6)
   "LEGAL_DOCUMENT_NOT_FOUND",
   "LEGAL_DOCUMENT_PUBLISHED",
+  "LEGAL_SLUG_TAKEN",
   // categories (7)
   "CATEGORY_NOT_FOUND",
   "CATEGORY_PARENT_INVALID",
@@ -198,6 +200,8 @@ export interface ErrorDetails {
   ADMIN_PERMISSION_DENIED: { required: string[] };
   ADMIN_ACCOUNT_LOCKED: { retryAfterSeconds: number };
   ROLE_PERMISSION_UNKNOWN: { unknown: string[] };
+  /** The address, and the legal page that has it (6). */
+  LEGAL_SLUG_TAKEN: { slug: string; type: LegalType };
   CATEGORY_ORDER_INVALID: { expected: Id[] };
   CATEGORY_PRODUCT_ORDER_INVALID: { unknown: Id[]; expected: Id[] };
   PRODUCT_PRICE_INVALID: { regularPrice?: Cents; salePrice?: Cents | null };

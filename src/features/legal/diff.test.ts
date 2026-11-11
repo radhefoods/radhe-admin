@@ -8,9 +8,16 @@ import {
   normalizeText,
 } from "./diff";
 import {
+  EMPTY_PAGE,
+  LEGAL_TYPES,
   groupByType,
+  legalPageUrl,
+  onlyLanguage,
+  pageDefaults,
+  pageSchema,
   previousVersion,
   toContent,
+  toPageInput,
   toTitle,
   unpublishedRequiredTypes,
   versionName,
@@ -134,6 +141,8 @@ const version = (
   title: { en: type },
   note: null,
   publishedAt: status === "published" ? "2026-09-01T10:00:00.000Z" : null,
+  publishedByAdmin: null,
+  createdByAdmin: null,
   createdAt: "2026-09-01T10:00:00.000Z",
   updatedAt: "2026-09-01T10:00:00.000Z",
   isCurrent,
@@ -151,19 +160,29 @@ describe("the versions of the legal texts", () => {
     const groups = groupByType(items);
     expect(groups.terms.map((entry) => entry.version)).toEqual([3, 2, 1]);
     expect(groups.privacy).toHaveLength(1);
+    // Every type has its group, also one nobody has written yet.
+    expect(Object.keys(groups)).toEqual([...LEGAL_TYPES]);
+    expect(groups.withdrawal).toEqual([]);
+    expect(
+      groupByType([version("imprint", 1, "published", true)]).imprint,
+    ).toHaveLength(1);
   });
 
-  it("knows which required text has no published version", () => {
-    expect(unpublishedRequiredTypes(items, ["terms", "privacy"])).toEqual([
-      "privacy",
-    ]);
+  it("knows which text accepted at checkout has no published version", () => {
+    const terms = { type: "terms" as const, current: items[2]! };
+    const privacy = { type: "privacy" as const, current: null };
+    // A page that only informs is never among them, published or not.
+    const imprint = { type: "imprint" as const, current: null };
+    expect(
+      unpublishedRequiredTypes([imprint, terms, privacy], ["terms", "privacy"]),
+    ).toEqual(["privacy"]);
     expect(unpublishedRequiredTypes([], ["terms", "privacy"])).toEqual([
       "terms",
       "privacy",
     ]);
     expect(
       unpublishedRequiredTypes(
-        [...items, version("privacy", 2, "published")],
+        [imprint, terms, { ...privacy, current: items[0]! }],
         ["terms", "privacy"],
       ),
     ).toEqual([]);
@@ -198,5 +217,73 @@ describe("the versions of the legal texts", () => {
       en: "# Text\n",
     });
     expect(toContent({ en: null, de: undefined })).toEqual({});
+  });
+
+  it("knows a text that is written in one language only", () => {
+    expect(onlyLanguage({ en: "Text", de: "" })).toBe("en");
+    expect(onlyLanguage({ en: "  ", de: "Text" })).toBe("de");
+    expect(onlyLanguage({ en: "Text", de: "Text" })).toBeNull();
+    expect(onlyLanguage({})).toBeNull();
+  });
+});
+
+describe("the page of a legal text", () => {
+  const page = {
+    slug: { en: "delivery", de: "versand" },
+    defaultSlug: { en: "shipping", de: "versand" },
+    seo: { title: { de: "Versand | Radhe Foods" }, description: null },
+  };
+
+  it("builds the link the way the website routes its legal pages", () => {
+    expect(legalPageUrl("en", "terms")).toBe(
+      "http://localhost:3001/en/legal/terms",
+    );
+    expect(legalPageUrl("de", "agb")).toBe(
+      "http://localhost:3001/de/rechtliches/agb",
+    );
+  });
+
+  it("shows an address that is the default as an empty field", () => {
+    expect(pageDefaults(page)).toEqual({
+      slug: { en: "delivery", de: "" },
+      seoTitle: { en: "", de: "Versand | Radhe Foods" },
+      seoDescription: { en: "", de: "" },
+    });
+  });
+
+  it("sends everything the page keeps, and leaves out what is empty", () => {
+    expect(toPageInput(pageDefaults(page))).toEqual({
+      slug: { en: "delivery" },
+      seo: { title: { de: "Versand | Radhe Foods" } },
+    });
+    expect(toPageInput(EMPTY_PAGE)).toEqual({});
+    expect(
+      toPageInput({
+        slug: { en: " a ", de: "b" },
+        seoTitle: { en: "", de: "" },
+        seoDescription: { en: "How we deliver.", de: "" },
+      }),
+    ).toEqual({
+      slug: { en: "a", de: "b" },
+      seo: { description: { en: "How we deliver." } },
+    });
+  });
+
+  it("takes lower-case letters, digits and single hyphens as an address", () => {
+    const address = (en: string) =>
+      pageSchema.safeParse({ ...EMPTY_PAGE, slug: { en, de: "" } }).success;
+    expect(address("")).toBe(true);
+    expect(address("refund-policy-2")).toBe(true);
+    expect(address("Refund")).toBe(false);
+    expect(address("refund--policy")).toBe(false);
+    expect(address("-refund")).toBe(false);
+    expect(address("rück")).toBe(false);
+    expect(address("a".repeat(121))).toBe(false);
+    expect(
+      pageSchema.safeParse({
+        ...EMPTY_PAGE,
+        seoTitle: { en: "t".repeat(301), de: "" },
+      }).success,
+    ).toBe(false);
   });
 });

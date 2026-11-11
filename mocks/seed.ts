@@ -8,6 +8,7 @@ import type {
   AdminImage,
   Customer,
   DeliveryMethod,
+  LegalType,
   PackUnit,
   PricingOverride,
   Refund,
@@ -709,13 +710,18 @@ export function seed(options: SeedOptions): Db {
     invoiceFooter: "Thank you for shopping with Radhe Foods.",
     missingForInvoices: [],
   };
+  // The six legal pages (6). Every text here is a placeholder of the demo:
+  // the real ones are the owner's.
+  const ownerRef = { id: owner.id, name: owner.name };
   const legal = (
-    type: "terms" | "privacy",
+    type: LegalType,
     version: number,
     published: number | null,
     en: string,
     de: string,
     note: string | null,
+    /** The text, where it is not the demo's terms; one language is enough. */
+    content?: { en?: string; de?: string },
   ) => {
     const created = (published ?? now) - DAY;
     db.legal.push({
@@ -724,13 +730,48 @@ export function seed(options: SeedOptions): Db {
       version,
       status: published ? "published" : "draft",
       title: { en, de },
-      content: { en: LEGAL_EN(en, version), de: LEGAL_DE(de, version) },
+      content: content ?? {
+        en: LEGAL_EN(en, version),
+        de: LEGAL_DE(de, version),
+      },
       note,
       publishedAt: published ? iso(published) : null,
+      publishedByAdmin: published ? ownerRef : null,
+      createdByAdmin: ownerRef,
       createdAt: iso(created),
       updatedAt: iso(published ?? now - 2 * HOUR),
     });
   };
+  // Published in both languages.
+  legal("imprint", 1, now - 110 * DAY, "Imprint", "Impressum", null, {
+    en: "# Imprint\n\nRadhe Foods\n\nHanauer Landstraße 120, 60314 Frankfurt am Main\n\nEmail: billing@radhefoods.de\n",
+    de: "# Impressum\n\nRadhe Foods\n\nHanauer Landstraße 120, 60314 Frankfurt am Main\n\nE-Mail: billing@radhefoods.de\n",
+  });
+  // A first draft, in one language so far: nothing is published.
+  legal(
+    "shipping",
+    1,
+    null,
+    "Shipping Information",
+    "Versandinformationen",
+    "First draft",
+    {
+      en: "# Shipping Information\n\nWe deliver anywhere in Germany. The delivery estimate is shown at checkout.\n",
+    },
+  );
+  // Published in German only: readers of English see the German text.
+  legal(
+    "refund",
+    1,
+    now - 30 * DAY,
+    "Refund Policy",
+    "Rückerstattungsrichtlinie",
+    null,
+    {
+      de: "# Rückerstattungsrichtlinie\n\nErstattungen erfolgen auf das Zahlungsmittel der Bestellung.\n",
+    },
+  );
+  // The right of withdrawal has no version yet.
   legal(
     "terms",
     1,
