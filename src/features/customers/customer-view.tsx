@@ -70,6 +70,7 @@ import {
   shortId,
 } from "@/lib/format/names";
 import { param, useUrlState } from "@/lib/hooks/use-url-state";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes, withQuery } from "@/lib/routes";
 import { CustomerStatusDialog } from "./customer-status-dialog";
 import { OptIn } from "./customers-view";
@@ -510,6 +511,7 @@ function Referrals({ customer }: { customer: Customer }) {
             hasMore={referrals.hasNextPage}
             loading={referrals.isFetchingNextPage}
             onLoadMore={() => void referrals.fetchNextPage()}
+            error={referrals.isFetchNextPageError ? referrals.error : null}
           />
         }
       />
@@ -562,6 +564,7 @@ function Reviews({ customer }: { customer: Customer }) {
             hasMore={reviews.hasNextPage}
             loading={reviews.isFetchingNextPage}
             onLoadMore={() => void reviews.fetchNextPage()}
+            error={reviews.isFetchNextPageError ? reviews.error : null}
           />
         }
       />
@@ -585,7 +588,7 @@ export function CustomerView() {
   );
   const tab = tabs.includes(state.tab) ? state.tab : (tabs[0] ?? "referrals");
 
-  if (customer.isError) {
+  if (pageFailed(customer)) {
     return (
       <RequirePermission permission="customers.read">
         <PageHeader title="Customer" back={back} />

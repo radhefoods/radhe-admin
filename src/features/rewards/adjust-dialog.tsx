@@ -15,7 +15,12 @@ import {
   type RewardAdjustmentReason,
 } from "@/lib/api/types";
 import { useAdjustCoins } from "./queries";
-import { REWARD_REASON_LABEL, coinsText, signedCoins } from "./rules";
+import {
+  REWARD_REASON_LABEL,
+  balanceText,
+  coinsText,
+  signedCoins,
+} from "./rules";
 
 /** The note is for the team and the customer's history; the API keeps it with the row. */
 const NOTE_MAX = 500;
@@ -85,10 +90,10 @@ export function AdjustDialog({
       title={`Adjust the coins of ${name}`}
       description="One row of the ledger, written once with your name, the reason and the note. The customer sees it as “Adjusted by Radhe Foods”."
       facts={[
-        { label: "Balance now", value: coinsText(account.balance) },
+        { label: "Balance now", value: balanceText(account.balance) },
         {
           label: "After",
-          value: valid ? coinsText(after) : "—",
+          value: valid ? balanceText(after) : "—",
           strong: true,
         },
       ]}

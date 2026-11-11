@@ -2,10 +2,9 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { Download, ExternalLink } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
-import { notify } from "@/components/ui/toast";
 import type { Id } from "@/lib/api/types";
 
 export interface PdfFile {
@@ -27,13 +26,25 @@ export function usePdfFile(
   load: (id: Id) => Promise<Blob>,
 ): PdfFile {
   const [url, setUrl] = useState<string | null>(null);
+  // Whether the page that asked for the file is still there when it arrives.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const fetchPdf = useMutation({
     mutationFn: async () => {
       if (!document) throw new Error("No document");
       return URL.createObjectURL(await load(document.id));
     },
-    onSuccess: (created) => setUrl(created),
-    onError: (error) => notify.error(error),
+    onSuccess: (created) => {
+      // The page was left meanwhile: nobody will give this file back later.
+      if (mounted.current) setUrl(created);
+      else URL.revokeObjectURL(created);
+    },
+    // A failure is reported once, by the cache of the mutations.
   });
   useEffect(
     () => () => {

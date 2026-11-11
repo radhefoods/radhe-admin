@@ -34,6 +34,7 @@ import {
 } from "@/lib/format/dates";
 import { LOCALE_LABEL, shortId } from "@/lib/format/names";
 import { useNow } from "@/lib/hooks/use-now";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes, withQuery } from "@/lib/routes";
 import {
   CHANNEL_LABEL,
@@ -470,7 +471,7 @@ export function NotificationView() {
   const { id } = useParams<{ id: string }>();
   const message = useNotification(id);
 
-  if (message.isError) {
+  if (pageFailed(message)) {
     return (
       <RequirePermission permission="notifications.read">
         <PageHeader title="Message" back={back} />

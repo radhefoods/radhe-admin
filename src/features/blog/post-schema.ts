@@ -150,12 +150,17 @@ export function toPostPatch(
     patch.categoryId = values.categoryId || null;
   }
   if (!sameList(values.tags, post.tags)) patch.tags = values.tags;
-  const seo: NonNullable<BlogPostPatch["seo"]> = {};
-  if (!same(values.seoTitle, post.seo?.title)) seo.title = values.seoTitle;
-  if (!same(values.seoDescription, post.seo?.description)) {
-    seo.description = values.seoDescription;
+  // The API replaces `seo` as a whole: when either part changed, both are
+  // sent, or the one that was left out would be erased.
+  if (
+    !same(values.seoTitle, post.seo?.title) ||
+    !same(values.seoDescription, post.seo?.description)
+  ) {
+    patch.seo = {
+      title: values.seoTitle,
+      description: values.seoDescription,
+    };
   }
-  if (Object.keys(seo).length > 0) patch.seo = seo;
   return patch;
 }
 
@@ -212,11 +217,15 @@ export function toCategoryPatch(
   if (!same(values.description, category.description)) {
     patch.description = values.description;
   }
-  const seo: NonNullable<BlogCategoryPatch["seo"]> = {};
-  if (!same(values.seoTitle, category.seo?.title)) seo.title = values.seoTitle;
-  if (!same(values.seoDescription, category.seo?.description)) {
-    seo.description = values.seoDescription;
+  // As for a post: `seo` is replaced as a whole, so both parts are sent.
+  if (
+    !same(values.seoTitle, category.seo?.title) ||
+    !same(values.seoDescription, category.seo?.description)
+  ) {
+    patch.seo = {
+      title: values.seoTitle,
+      description: values.seoDescription,
+    };
   }
-  if (Object.keys(seo).length > 0) patch.seo = seo;
   return patch;
 }

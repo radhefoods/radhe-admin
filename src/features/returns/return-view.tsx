@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -28,15 +28,22 @@ import {
   Skeleton,
 } from "@/components/ui/surface";
 import { notify } from "@/components/ui/toast";
+import { creditForUnits } from "@/features/orders/bill";
 import { NoteField } from "@/features/orders/order-dialogs";
 import { api } from "@/lib/api/client";
 import { errorMessage } from "@/lib/api/error-text";
 import { hasErrorCode } from "@/lib/api/errors";
 import { invalidation, queryKeys } from "@/lib/api/query-keys";
-import type { Id, OrderReturn, ReturnApproveInput } from "@/lib/api/types";
+import type {
+  Id,
+  OrderDetail,
+  OrderReturn,
+  ReturnApproveInput,
+} from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
 import { formatMoney } from "@/lib/format/money";
 import { personName, plural, translated } from "@/lib/format/names";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes } from "@/lib/routes";
 import { RETURN_STATUS, humanize } from "@/lib/status";
 import { RETURN_TRANSITIONS } from "@/lib/status/transitions";
@@ -89,9 +96,12 @@ type Decision = "approve" | "reject" | "complete" | null;
 
 function Decide({
   record,
+  order,
   decision,
   onOpenChange,
 }: {
+  /** The order of the return, once it is loaded: its lines carry what was paid. */
+  order: OrderDetail | undefined;
   record: OrderReturn;
   decision: Decision;
   onOpenChange: (open: boolean) => void;
@@ -102,6 +112,7 @@ function Decide({
   // Off by default: food that came back is not sold again unless the admin says so.
   const [restock, setRestock] = useState(false);
   const restockId = useId();
+  const queryClient = useQueryClient();
   const decide = useMutation({
     mutationFn: async (kind: Exclude<Decision, null>) => {
       if (kind === "approve") {
@@ -119,6 +130,20 @@ function Decide({
           });
     },
     meta: { invalidates: invalidation.return, silent: true },
+    // A refused step means the return is no longer what the page shows
+    // (another admin decided it): read it again, so that the buttons are
+    // the true ones once the dialog is closed.
+    onError: (error) => {
+      if (
+        hasErrorCode(
+          error,
+          "RETURN_TRANSITION_NOT_ALLOWED",
+          "RETURN_QUANTITY_INVALID",
+        )
+      ) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.returns.all });
+      }
+    },
   });
 
   const parsed: Record<Id, number> = {};
@@ -131,10 +156,24 @@ function Decide({
     else parsed[item.variantId] = value;
   }
   const approval = approvalInput(record, parsed, note, internalNote);
-  const approved = record.items.reduce(
-    (sum, item) => sum + (item.approvedQuantity ?? 0) * item.unitPrice,
-    0,
-  );
+  // What the credit note will carry for the goods: what was paid for the
+  // accepted units, so less their part of a discount code and of redeemed
+  // coins. Until the order is loaded, their list price stands in (the same
+  // amount whenever the order has neither).
+  const approved = order
+    ? creditForUnits(
+        order,
+        Object.fromEntries(
+          record.items.map((item) => [
+            item.variantId,
+            item.approvedQuantity ?? 0,
+          ]),
+        ),
+      )
+    : record.items.reduce(
+        (sum, item) => sum + (item.approvedQuantity ?? 0) * item.unitPrice,
+        0,
+      );
   const approvedUnits = record.items.reduce(
     (sum, item) => sum + (item.approvedQuantity ?? 0),
     0,
@@ -338,7 +377,7 @@ export function ReturnView() {
   }).data;
   const back = { href: routes.returns, label: "Returns" };
 
-  if (query.isError) {
+  if (pageFailed(query)) {
     return (
       <RequirePermission permission="orders.read">
         <PageHeader title="Return" back={back} />
@@ -450,9 +489,13 @@ export function ReturnView() {
               ) : null
             }
           >
-            {order?.payment.needsRefund
-              ? "The customer is owed this amount; it waits for your refund decision on the order."
-              : "The refund of this amount was decided on the order."}
+            {/* Only what the order says: while it loads, or when it did not
+                load, nothing is claimed about the refund. */}
+            {!order
+              ? "Whether the money went back is on the payment of the order."
+              : order.payment.needsRefund
+                ? "The customer is owed this amount; it waits for your refund decision on the order."
+                : "The refund of this amount was decided on the order."}
           </Alert>
         ) : null}
 
@@ -624,7 +667,7 @@ export function ReturnView() {
                       tone: RETURN_STATUS[entry.to].tone,
                       by:
                         entry.by === "admin"
-                          ? adminName(entry.adminId)
+                          ? adminName(entry.adminId, entry.admin)
                           : entry.by === "customer"
                             ? "The customer"
                             : "The system",
@@ -667,6 +710,7 @@ export function ReturnView() {
       </PageBody>
       <Decide
         record={record}
+        order={order}
         decision={decision}
         onOpenChange={(open) => {
           if (!open) setDecision(null);

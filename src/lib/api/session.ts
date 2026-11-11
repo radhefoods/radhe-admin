@@ -17,8 +17,14 @@ const WITHOUT_SESSION = [
   "/v1/admin/auth/login",
   "/v1/admin/auth/mfa/",
   "/v1/admin/auth/refresh",
-  "/v1/admin/auth/logout",
 ];
+
+/**
+ * Signing out on this device needs no session either (1). By its exact
+ * path: `logout-all` begins with the same letters and does need one, so an
+ * expired access token must be renewed for it like for any other call.
+ */
+const LOGOUT_PATH = "/v1/admin/auth/logout";
 
 const REFRESH_LOCK = "rf.admin.refresh";
 const REFRESH_STAMP = "rf.admin.refreshed-at";
@@ -93,6 +99,7 @@ function browserEnvironment(): SessionEnvironment {
 }
 
 function needsSession(path: string): boolean {
+  if (path === LOGOUT_PATH) return false;
   return !WITHOUT_SESSION.some((prefix) => path.startsWith(prefix));
 }
 
@@ -196,11 +203,10 @@ export function createSessionTransport(
 
   function uploadOnce<T>(path: string, options: UploadOptions): Promise<T> {
     return new Promise<T>((resolve, reject) => {
+      // First: a refused path rejects before anything is opened.
+      const url = buildUrl(config.baseUrl, path, options.query);
       const xhr = env.createXhr();
-      xhr.open(
-        options.method ?? "POST",
-        buildUrl(config.baseUrl, path, options.query),
-      );
+      xhr.open(options.method ?? "POST", url);
       xhr.withCredentials = true;
       xhr.responseType = "text";
       xhr.setRequestHeader("Accept", "application/json");

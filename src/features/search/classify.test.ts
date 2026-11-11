@@ -72,4 +72,19 @@ describe("addresses", () => {
     expect(safeReturnTo("/\\evil.example")).toBe("/");
     expect(safeReturnTo("/sign-in?returnTo=/sign-in")).toBe("/");
   });
+
+  it("refuses what a browser would read as another site", () => {
+    // Tabs and line breaks are dropped from an address: `//evil.example`.
+    expect(safeReturnTo("/\t/evil.example")).toBe("/");
+    expect(safeReturnTo("/\n/evil.example")).toBe("/");
+    expect(safeReturnTo("/\r/evil.example")).toBe("/");
+    expect(safeReturnTo("/ /evil.example")).toBe("/");
+    expect(safeReturnTo("/orders\\..\\..\\evil.example")).toBe("/");
+    expect(safeReturnTo("javascript:alert(1)")).toBe("/");
+    // What the panel writes itself is encoded and passes unchanged.
+    expect(safeReturnTo("/orders?q=anna%20schmidt&status=delivered")).toBe(
+      "/orders?q=anna%20schmidt&status=delivered",
+    );
+    expect(safeReturnTo("/?tab=analytics")).toBe("/?tab=analytics");
+  });
 });

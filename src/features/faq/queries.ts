@@ -96,6 +96,8 @@ export function useReorderFaqGroups() {
   const key = queryKeys.faq.groups();
   return useMutation({
     mutationFn: (orderedIds: Id[]) => api.faqGroups.reorder({ orderedIds }),
+    // The view that asked reports a failure, once.
+    meta: { silent: true },
     onMutate: async (orderedIds) => {
       await client.cancelQueries({ queryKey: key });
       const before = client.getQueryData<FaqGroupList>(key);
@@ -171,6 +173,8 @@ export function useReorderFaqs() {
   const key = queryKeys.faq.list();
   return useMutation({
     mutationFn: (input: FaqOrderInput) => api.faqs.reorder(input),
+    // The view that asked reports a failure, once.
+    meta: { silent: true },
     onMutate: async ({ groupId, orderedIds }) => {
       await client.cancelQueries({ queryKey: key });
       const before = client.getQueryData<FaqList>(key);

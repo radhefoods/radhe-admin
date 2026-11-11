@@ -142,7 +142,9 @@ export function ReturnsView() {
   };
   const query = { ...filters, sort: state.sort };
   const returns = useInfiniteQuery({
-    queryKey: queryKeys.returns.list(query),
+    // "pages": the order page reads the returns of one order as a plain
+    // query, and the same filters under one key would break both pages.
+    queryKey: [...queryKeys.returns.list(query), "pages"] as const,
     queryFn: ({ pageParam, signal }) =>
       api.returns.list({ ...query, limit: 25, cursor: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
@@ -227,6 +229,7 @@ export function ReturnsView() {
                 hasMore={returns.hasNextPage}
                 loading={returns.isFetchingNextPage}
                 onLoadMore={() => void returns.fetchNextPage()}
+                error={returns.isFetchNextPageError ? returns.error : null}
               />
             }
           />

@@ -101,6 +101,22 @@ export function withQuery(
   return (search ? `${path}?${search}` : path) as Route;
 }
 
+/** Any origin will do: an address is read against it to see whether it stays on it. */
+const SAME_ORIGIN = "https://panel.invalid";
+
+/**
+ * A browser drops tabs and line breaks from an address and reads a
+ * backslash as a slash, so `/<tab>/evil.example` is `//evil.example` to it.
+ * An address the panel wrote itself is encoded and holds none of these.
+ */
+function hasUnsafeCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x20 || code === 0x7f || code === 0x5c) return true;
+  }
+  return false;
+}
+
 /**
  * Where to go after signing in. Only an address inside the panel is
  * accepted: a link from outside can never send the admin elsewhere.
@@ -109,6 +125,15 @@ export function safeReturnTo(value: string | null | undefined): Route {
   if (!value || !value.startsWith("/") || value.startsWith("//")) {
     return routes.today;
   }
-  if (value.includes("\\") || value.startsWith("/sign-in")) return routes.today;
+  if (hasUnsafeCharacter(value)) return routes.today;
+  let url: URL;
+  try {
+    url = new URL(value, SAME_ORIGIN);
+  } catch {
+    return routes.today;
+  }
+  // Read as the browser reads it: whatever leaves the origin is refused.
+  if (url.origin !== SAME_ORIGIN) return routes.today;
+  if (url.pathname.startsWith("/sign-in")) return routes.today;
   return value as Route;
 }

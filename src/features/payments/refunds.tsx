@@ -5,6 +5,7 @@ import {
   useInfiniteQuery,
   useMutation,
   useQuery,
+  useQueryClient,
 } from "@tanstack/react-query";
 import { HandCoins } from "lucide-react";
 import Link from "next/link";
@@ -61,6 +62,7 @@ import { berlinToDate, toLocalInput } from "@/lib/format/dates";
 import { formatMoney } from "@/lib/format/money";
 import { useNow } from "@/lib/hooks/use-now";
 import { param, useUrlState } from "@/lib/hooks/use-url-state";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes } from "@/lib/routes";
 import { REFUND_STATUS, humanize, statusOptions } from "@/lib/status";
 import { refundActions } from "@/lib/status/transitions";
@@ -166,7 +168,7 @@ export function RefundsView() {
   };
   const query = { ...filters, sort: state.sort };
   const refunds = useInfiniteQuery({
-    queryKey: queryKeys.refunds.list(query),
+    queryKey: [...queryKeys.refunds.list(query), "pages"] as const,
     queryFn: ({ pageParam, signal }) =>
       api.refunds.list({ ...query, limit: 25, cursor: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
@@ -251,6 +253,7 @@ export function RefundsView() {
                 hasMore={refunds.hasNextPage}
                 loading={refunds.isFetchingNextPage}
                 onLoadMore={() => void refunds.fetchNextPage()}
+                error={refunds.isFetchNextPageError ? refunds.error : null}
               />
             }
           />
@@ -274,14 +277,25 @@ export function RefundView() {
     queryFn: async ({ signal }) => (await api.refunds.get(id, signal)).refund,
   });
   const meta = { invalidates: invalidation.payment, silent: true } as const;
+  const queryClient = useQueryClient();
+  // A refused step means the refund is no longer what the page shows
+  // (Stripe confirmed it, another admin completed it): read it again, so
+  // that the buttons are the true ones once the dialog is closed.
+  const onError = (error: unknown) => {
+    if (hasErrorCode(error, "REFUND_TRANSITION_NOT_ALLOWED")) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.refunds.all });
+    }
+  };
   const complete = useMutation({
     mutationFn: (input: Parameters<typeof api.refunds.complete>[1]) =>
       api.refunds.complete(id, input),
     meta,
+    onError,
   });
   const cancel = useMutation({
     mutationFn: (text: string | undefined) => api.refunds.cancel(id, text),
     meta,
+    onError,
   });
   const sync = useMutation({
     mutationFn: () => api.refunds.sync(id),
@@ -291,7 +305,7 @@ export function RefundView() {
   const back = { href: routes.refunds, label: "Refunds" };
   const refund = query.data;
 
-  if (query.isError) {
+  if (pageFailed(query)) {
     return (
       <RequirePermission permission="payments.read">
         <PageHeader title="Refund" back={back} />

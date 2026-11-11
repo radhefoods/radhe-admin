@@ -40,6 +40,8 @@ import { useCan } from "@/lib/auth/auth-provider";
 import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format/money";
 import { LOCALE_LABEL, plural } from "@/lib/format/names";
+import { mailtoHref, telHref } from "@/lib/links";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes } from "@/lib/routes";
 import { EmailsCard } from "./quotation-emails";
 import { LinesCard } from "./quotation-lines";
@@ -61,6 +63,7 @@ import {
   shortLines,
   stockWarning,
   toLinesPatch,
+  type LinesValues,
   type QuotationAction,
 } from "./rules";
 
@@ -155,6 +158,12 @@ function Actions({
   const offered = actionsFor(quotation.status);
   const manage = can("quotations.manage");
   const blocked = sendBlocked(quotation, dirty);
+  // Every step acts on the prices the API has stored, and its answer
+  // replaces the page: with prices typed and not saved, the step would run
+  // on other numbers than the page shows and drop what was typed. Sending
+  // was held back for that from the start; the other steps are as well
+  // (accepting is final and takes stock).
+  const unsaved = dirty ? "Save the prices first." : null;
   const words = pending ? ACTION[pending] : null;
 
   return (
@@ -176,6 +185,7 @@ function Actions({
       {offered.includes("resend") ? (
         <ActionButton
           permission="quotations.manage"
+          blocked={unsaved}
           onClick={() => setPending("resend")}
         >
           {ACTION.resend.label}
@@ -184,6 +194,7 @@ function Actions({
       {offered.includes("decline") ? (
         <ActionButton
           permission="quotations.manage"
+          blocked={unsaved}
           onClick={() => setPending("decline")}
         >
           {ACTION.decline.label}
@@ -193,6 +204,7 @@ function Actions({
         <ActionButton
           permission="quotations.manage"
           variant="primary"
+          blocked={unsaved}
           onClick={() => setPending("accept")}
         >
           {ACTION.accept.label}
@@ -273,7 +285,7 @@ function ContactCard({ quotation }: { quotation: QuotationDetail }) {
           <Fact label="Contact">{contact.name}</Fact>
           <Fact label="Email">
             <a
-              href={`mailto:${contact.email}`}
+              href={mailtoHref(contact.email)}
               className="break-all text-accent-text hover:underline"
             >
               {contact.email}
@@ -282,7 +294,7 @@ function ContactCard({ quotation }: { quotation: QuotationDetail }) {
           <Fact label="Phone">
             {contact.phone ? (
               <a
-                href={`tel:${contact.phone}`}
+                href={telHref(contact.phone)}
                 className="text-accent-text hover:underline"
               >
                 {contact.phone}
@@ -477,9 +489,14 @@ function QuotationPage({ data }: { data: QuotationWithEmails }) {
   const form = useZodForm(LINES_SCHEMA, {
     defaultValues: lineValues(quotation.items),
   });
+  // Afresh when what the form shows changed (saved prices, another admin's,
+  // a new status), not on every answer: a refetch that only brings another
+  // stock count must not empty the prices the admin is typing.
+  const shown = JSON.stringify([quotation.status, lineValues(quotation.items)]);
   useEffect(() => {
-    form.reset(lineValues(quotation.items));
-  }, [form, quotation]);
+    const [, values] = JSON.parse(shown) as [string, LinesValues];
+    form.reset(values);
+  }, [form, shown]);
   const { onSubmit, state, pending } = useSubmit(
     form,
     async (values) => {
@@ -620,7 +637,7 @@ export function QuotationView() {
   const { id } = useParams<{ id: string }>();
   const quotation = useQuotation(id);
 
-  if (quotation.isError) {
+  if (pageFailed(quotation)) {
     return (
       <RequirePermission permission="quotations.read">
         <PageHeader title="Quotation" back={back} />

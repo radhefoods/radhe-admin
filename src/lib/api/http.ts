@@ -26,12 +26,32 @@ export interface TransportConfig {
   fetch?: typeof fetch;
 }
 
+/** Segments of letters, digits, `-`, `_`, `~` and inner dots: no `..`, nothing encoded, no `?` or `#`. */
+const API_PATH = /^(?:\/[A-Za-z0-9_~-][A-Za-z0-9._~-]*)+$/;
+
+/**
+ * A path of the API is fixed text with ids in it, and an id often comes from
+ * the address of the page. Anything else in its place (`../customers`, an
+ * encoded dot, a `?`) would make the browser call another endpoint with the
+ * admin's session, so it is refused here, once for every endpoint, and
+ * reads like what it is: a record that does not exist.
+ */
+export function assertApiPath(path: string): void {
+  if (API_PATH.test(path)) return;
+  throw new ApiError({
+    status: 404,
+    code: "NOT_FOUND",
+    message: "This is not an address of the API.",
+  });
+}
+
 /** Empty values are left out: the API counts an empty string as not given. */
 export function buildUrl(
   baseUrl: string,
   path: string,
   query: Query = {},
 ): string {
+  assertApiPath(path);
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined || value === null || value === "") continue;
@@ -118,12 +138,11 @@ export async function send(
     init.body = JSON.stringify(options.body);
   }
 
+  // Outside the `try`: a refused path is its own error, not a network failure.
+  const url = buildUrl(config.baseUrl, path, options.query);
   let response: Response;
   try {
-    response = await (config.fetch ?? fetch)(
-      buildUrl(config.baseUrl, path, options.query),
-      init,
-    );
+    response = await (config.fetch ?? fetch)(url, init);
   } catch (cause) {
     // A cancelled request is not an error of the API: let the caller see it.
     if (cause instanceof DOMException && cause.name === "AbortError") {
@@ -137,6 +156,18 @@ export async function send(
   }
   if (!response.ok) throw await toApiError(response);
   return response;
+}
+
+/**
+ * The body of an answer as a PDF, whatever type the answer names. The file
+ * is shown in a frame of the panel's own origin, so it must never be read
+ * as a page: a PDF is all the viewer is given.
+ */
+export async function pdfBlob(response: Response): Promise<Blob> {
+  const body = await response.blob();
+  return body.type === "application/pdf"
+    ? body
+    : new Blob([body], { type: "application/pdf" });
 }
 
 export async function parseJson<T>(response: Response): Promise<T> {

@@ -83,7 +83,12 @@ function CredentialsStep({
   const submit = form.handleSubmit(async (values) => {
     setFailure(null);
     try {
-      const result = await api.auth.login(values);
+      // Signing in again is for the admin whose page is underneath: the
+      // email of the request is that one, whatever the field was made to hold.
+      const result = await api.auth.login({
+        ...values,
+        email: lockedEmail ?? values.email,
+      });
       if (result.status === "authenticated") {
         onAuthenticated(result.admin);
         return;

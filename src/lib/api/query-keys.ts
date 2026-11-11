@@ -213,6 +213,13 @@ type Key = readonly unknown[];
  * itself. Orders, payments, returns, refunds and stock hang together: a
  * change to one of them moves numbers in the others.
  */
+/**
+ * What an order moves in the programmes around it (27, 30): a delivery earns
+ * coins and makes a referral count; a credit or a cancellation gives
+ * redeemed coins back, takes earned ones away and may void a referral.
+ */
+const loyalty = [queryKeys.rewards.all, queryKeys.referrals.all] as const;
+
 export const invalidation = {
   /** A status change, a cancellation (stock goes back), a delivery change. */
   order: [
@@ -220,6 +227,7 @@ export const invalidation = {
     queryKeys.products.all,
     queryKeys.attention,
     queryKeys.notifications.all,
+    ...loyalty,
   ],
   /** A correction, a refund: documents and money move. */
   payment: [
@@ -229,6 +237,7 @@ export const invalidation = {
     queryKeys.refunds.all,
     queryKeys.attention,
     queryKeys.notifications.all,
+    ...loyalty,
   ],
   /** A decided or completed return: the order, its documents, maybe the stock. */
   return: [
@@ -238,8 +247,14 @@ export const invalidation = {
     queryKeys.invoices.all,
     queryKeys.attention,
     queryKeys.notifications.all,
+    ...loyalty,
   ],
-  catalog: [queryKeys.products.all, queryKeys.categories.all],
+  /** A product or category written, archived, deleted or imported: the lists, and the start page, which names the pack sizes running low. */
+  catalog: [
+    queryKeys.products.all,
+    queryKeys.categories.all,
+    queryKeys.attention,
+  ],
   /** A stock change: the product, its ledger, and the low-stock group of the start page. */
   stock: [queryKeys.products.all, queryKeys.attention],
   notification: [
@@ -260,8 +275,8 @@ export const invalidation = {
   wholesale: [queryKeys.wholesale.all, queryKeys.quotations.all],
   /** A discount code: its list and its page. Orders keep what they were made with. */
   discount: [queryKeys.discounts.all],
-  /** A decided or answered review: its lists and the start page. */
-  review: [queryKeys.reviews.all, queryKeys.attention],
+  /** A decided or answered review: its lists and the start page; a published one earns coins, a rejected or deleted one loses them (30). */
+  review: [queryKeys.reviews.all, queryKeys.attention, queryKeys.rewards.all],
   /** Coins adjusted by hand: the account, the lists, the overview. */
   rewards: [queryKeys.rewards.all],
   /** A decided problem report: a refund corrects the order and queues the money, as a return does. */
@@ -273,5 +288,6 @@ export const invalidation = {
     queryKeys.refunds.all,
     queryKeys.attention,
     queryKeys.notifications.all,
+    ...loyalty,
   ],
 } as const satisfies Record<string, readonly Key[]>;

@@ -21,6 +21,7 @@ import { hasErrorCode } from "@/lib/api/errors";
 import { REWARDS_RULES, type RewardsSettings } from "@/lib/api/types";
 import { formatDateTime } from "@/lib/format/dates";
 import { useNow } from "@/lib/hooks/use-now";
+import { pageFailed } from "@/lib/query/page-state";
 import { useRewardsSettings, useSaveRewardsSettings } from "./queries";
 import { campaignState, redemptionExample } from "./rules";
 import {
@@ -373,7 +374,7 @@ function RewardsSettingsForm({ saved }: { saved: RewardsSettings }) {
 /** The rules of the program (`GET`/`PUT /rewards/settings`), one form. */
 export function SettingsTab() {
   const settings = useRewardsSettings();
-  if (settings.isError) {
+  if (pageFailed(settings)) {
     return (
       <Alert
         tone="danger"

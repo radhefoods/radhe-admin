@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Alert, Card, CardBody, CardHeader } from "@/components/ui/surface";
 import { notify } from "@/components/ui/toast";
-import { errorMessage } from "@/lib/api/error-text";
 import { hasErrorCode, isSessionError } from "@/lib/api/errors";
 import { BLOG_RULES, type AdminImage, type BlogPost } from "@/lib/api/types";
 import { formatDate } from "@/lib/format/dates";
@@ -531,12 +530,8 @@ export function TextPictures({
         tone="danger"
         onConfirm={async () => {
           if (!removing) return;
-          try {
-            await remove.mutateAsync(removing.id);
-          } catch (error) {
-            notify.error(error, errorMessage(error));
-            throw error;
-          }
+          // A refusal is shown by this dialog, once.
+          await remove.mutateAsync(removing.id);
           notify.success("Picture removed");
         }}
       />

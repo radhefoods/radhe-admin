@@ -39,6 +39,7 @@ For the Next.js Admin Panel. Generated from the implemented NestJS backend (`rad
 28. Order reviews
 29. Problem reports
 30. Points and rewards (loyalty coins)
+31. Supplier file: import, stock and calculated prices
 
 Added on 2026-11-01 (`doc/CUSTOMER_ACCOUNTS.md` has the long version): guest orders and deleted accounts (sections 4 and 9), referrals (27), reviews (28), problem reports (29), the attention overview with reports and reviews (15), `issueWindowDays` in the return policy (5), the permissions `reviews.read` and `reviews.manage`.
 
@@ -366,6 +367,8 @@ Accounts of the people who use the panel. Creating one sets a temporary password
 **Purpose:** Remove the authenticator of an admin who lost it (they enrol again at next login); signs them out everywhere.
 
 **Permission:** `admin_users.manage`. **Success Response:** `204`. **Possible Errors:** `404 ADMIN_NOT_FOUND`.
+
+**Nobody gives out more than they hold.** Creating an admin, changing an admin's role or status, `reset-password` and `reset-mfa` answer `403 ADMIN_PERMISSION_DENIED` with `details: { missing: [...] }` when the role involved (the one handed out, or the one the target account has) contains permissions the acting admin does not hold. Creating or changing a role answers the same when a permission is added that the acting admin does not hold (removing permissions is always possible). A super admin (`*`) is never refused. The panel can hide roles the signed-in admin cannot assign by comparing with `me.permissions`.
 
 **A sole owner who lost the authenticator** has nobody left to call this route. On the server: `npm run reset:mfa -- owner@radhefoods.de` removes the authenticator of that admin and ends every session; the owner signs in with the password and enrols again. The panel shows this as the way out when the only admin with `admin_users.manage` is locked out.
 
@@ -839,7 +842,7 @@ To move one product to position 3 of a category, send the ids of the products th
 
 ## 8. Products, stock and images
 
-One product holds everything customers read about it once (name, texts, category, images, food information, SEO, VAT rate, the order quantities) and its **pack sizes** as `variants`: each pack size has its own article number, barcode, pack, prices, enabled switch, stock and URL. "Basmati Rice 1 kg" and "Basmati Rice 5 kg" are two pack sizes of the product "Basmati Rice". Prices are cents including VAT.
+One product holds everything customers read about it once (name, texts, category, food information, SEO, VAT rate, the order quantities) and its **pack sizes** as `variants`: each pack size has its own article number, barcode, pack, prices, enabled switch, stock, URL and **images**. "Basmati Rice 1 kg" and "Basmati Rice 5 kg" are two pack sizes of the product "Basmati Rice". Prices are cents including VAT.
 
 Rules for the pack sizes: at least one and at most 20 per product; all of one unit family (weight `g`/`kg`, volume `ml`/`l`, or pieces `pcs`); no pack twice; article numbers are unique across the shop. The URL of a pack size is the base `slug` of the product plus its pack: `basmati-rice-200g`, `basmati-rice-1kg`, `basmati-rice-1-5kg`, `basmati-rice-250ml`, `basmati-rice-6pcs` (German `-6stk`). A new base slug renames every URL; a changed pack renames its own. `isEnabled: false` takes one pack size out of the shop (not listed, not orderable, its URL answers 404) while the product stays; `isAvailable: false` on the product does that for every pack size.
 
@@ -882,11 +885,12 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
   "isEnabled": true,
   "isDefault": true,
   "stock": { "quantity": 40, "lowStockThreshold": null, "isLow": false },
+  "images": [ { "…admin image…": "", "isPrimary": true } ],
   "createdAt": "2026-09-01T08:00:00.000Z"
 }
 ```
 
-`slug` is the URL of this pack size in each language; `displayName` the name customers see for it. `isDefault` marks the pack size that stands for the product. `stock.isLow` is true when a threshold is set and the quantity is at or below it; `lowStockThreshold` is `null` when none is set, and a pack size without a threshold is never low.
+`slug` is the URL of this pack size in each language; `displayName` the name customers see for it. `images` are the pictures of this pack size, in the admin's order, at most 8; a pack size without any is shown in the shop with the placeholder, never with the picture of another pack size (see `doc/VARIANT_IMAGES.md`). `isDefault` marks the pack size that stands for the product. `stock.isLow` is true when a threshold is set and the quantity is at or below it; `lowStockThreshold` is `null` when none is set, and a pack size without a threshold is never low.
 
 **Product summary** (list entries):
 
@@ -913,7 +917,7 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
 }
 ```
 
-(`slug` is the base of the URLs; the URL of each pack size is in `variants[].slug`. `variants` lists every pack size, smallest first, disabled ones included; `defaultVariant` repeats the one that stands for the product; `variantCount` counts them all. `stock.quantity` is the sum over the pack sizes, `stock.lowVariants` the number of pack sizes at or below their threshold, `stock.isLow` true when there is at least one. `image` in the summary is the store-style image with a plain `alt` string.)
+(`slug` is the base of the URLs; the URL of each pack size is in `variants[].slug`. `variants` lists every pack size, smallest first, disabled ones included; `defaultVariant` repeats the one that stands for the product; `variantCount` counts them all. `stock.quantity` is the sum over the pack sizes, `stock.lowVariants` the number of pack sizes at or below their threshold, `stock.isLow` true when there is at least one. `imageCount` counts the pictures of all pack sizes together. `image` in the summary is the store-style image with a plain `alt` string, for lists in the panel: the main picture of the pack size that stands for the product, else of the smallest pack size that has one, else `null`.)
 
 **Product detail** = summary plus:
 
@@ -932,12 +936,11 @@ Images are stored as WebP in three sizes (320 / 800 / 1600 px longest side, neve
   "tags": ["new"],
   "searchKeywords": ["Reis"],
   "seo": null,
-  "images": [ { "…admin image…": "", "isPrimary": true } ],
   "publishedAt": "2026-09-01T08:00:00.000Z"
 }
 ```
 
-`images` are in the admin's order and belong to the product: every pack size is shown with them. `GET …/{id}` adds `deletable` and `notDeletableReason`.
+The product itself has no images: they belong to the pack sizes (`variants[].images`). `GET …/{id}` adds `deletable` and `notDeletableReason`.
 
 **Stock movement** (the stock history of a pack size):
 
@@ -1066,13 +1069,13 @@ A pack size (an entry of `variants`; the same fields for `POST …/{id}/variants
 
 ### `DELETE /v1/admin/products/{id}`
 
-**Purpose:** Delete a product with its pack sizes and images for good. Only for drafts/archived products no pack size of which is part of an order (cancelled orders do not count). **Permission:** `catalog.manage`. **Success Response:** `204`.
+**Purpose:** Delete a product with its pack sizes and their images for good. Only for drafts/archived products no pack size of which is part of an order (cancelled orders do not count). **Permission:** `catalog.manage`. **Success Response:** `204`.
 
 **Possible Errors:** `404 PRODUCT_NOT_FOUND`, `409 PRODUCT_IS_ACTIVE` ("Archive the product before deleting it."), `409 PRODUCT_IN_USE` ("The product cannot be deleted. It is part of 3 order(s). Archive it instead.").
 
 ### `POST /v1/admin/products/{id}/duplicate`
 
-**Purpose:** Copy a product: a draft with the same texts, category, food information and (by default) images, with its own URL and its own pack sizes. The copy starts with a stock of 0 on every pack size and an empty history.
+**Purpose:** Copy a product: a draft with the same texts, category and food information, with its own URL and its own pack sizes. By default each pack size of the copy gets the images of the pack size with the same pack, as files of its own. The copy starts with a stock of 0 on every pack size and an empty history.
 
 **Permission:** `catalog.manage`.
 
@@ -1157,35 +1160,45 @@ A pack size (an entry of `variants`; the same fields for `POST …/{id}/variants
 
 **Success Response (200):** `{ "items": [ { "…stock movement (8.1)…": "" } ], "nextCursor": "…" | null }`. **Possible Errors:** `404 PRODUCT_NOT_FOUND`, `404 PRODUCT_VARIANT_NOT_FOUND`.
 
-### `POST /v1/admin/products/{id}/images`
+### Images of a pack size
 
-**Purpose:** Upload one or more images (JPEG, PNG, WebP). Images belong to the product and are shown for every pack size. The first image of a product becomes its main image. All-or-nothing: if one file is refused, nothing is stored, and the error names every refused file.
+Images belong to **one pack size**; the product itself has none. The 5 kg bag and the 10 kg bag of a product each have their own gallery of at most 8 images with one main image. Images are optional: a product can be activated without any, and a pack size without images is shown in the shop with the placeholder, never with the image of another pack size. `doc/VARIANT_IMAGES.md` has the rules, the changes to the shop API and what the panel and the website have to build. The endpoints `…/products/{id}/images…` of before 2026-11-11 are gone and answer `404`.
 
-**Permission:** `catalog.manage`.
+All of these need `catalog.manage` and answer `{ "product": { … } }`, the whole admin product.
 
-**Request:** `multipart/form-data`, field `files` (1–10 files, ≤10 MB each, ≥200 px each side, ≤40 megapixels). At most 12 images per product.
+### `POST /v1/admin/products/{id}/variants/{variantId}/images`
+
+**Purpose:** Upload one or more images (JPEG, PNG, WebP) to a pack size. The first image of a pack size becomes its main image. All-or-nothing: if one file is refused, nothing is stored, and the error names every refused file.
+
+**Request:** `multipart/form-data`, field `files` (1–10 files, ≤10 MB each, ≥200 px each side, ≤40 megapixels). At most 8 images per pack size.
 
 **Success Response (201):** `{ "product": { … } }`
 
-**Possible Errors:** `400 IMAGE_REQUIRED`, `400 IMAGE_LIMIT_REACHED` (`details: { maximum: 12, remaining }`), `400 IMAGE_FORMAT_NOT_ALLOWED`, `400 IMAGE_DIMENSIONS_INVALID`, `400 IMAGE_INVALID` — on these three the code and `details` are those of the first refused file, and `details.files` lists every refused file: `[ { "name": "photo-2.gif", "code": "IMAGE_FORMAT_NOT_ALLOWED", "bytes": 48213 }, { "name": "photo-3.jpg", "code": "IMAGE_DIMENSIONS_INVALID", "bytes": 9120, "width": 150, "height": 900 } ]` (`name` as the browser sent it) — `413 FILE_TOO_LARGE`, `400 BAD_REQUEST` (more than 10 files or wrong field name), `503 STORAGE_UNAVAILABLE`, `404 PRODUCT_NOT_FOUND`.
+**Possible Errors:** `400 IMAGE_REQUIRED`, `400 IMAGE_LIMIT_REACHED` (`details: { maximum: 8, remaining }`), `400 IMAGE_FORMAT_NOT_ALLOWED`, `400 IMAGE_DIMENSIONS_INVALID`, `400 IMAGE_INVALID` — on these three the code and `details` are those of the first refused file, and `details.files` lists every refused file: `[ { "name": "photo-2.gif", "code": "IMAGE_FORMAT_NOT_ALLOWED", "bytes": 48213 }, { "name": "photo-3.jpg", "code": "IMAGE_DIMENSIONS_INVALID", "bytes": 9120, "width": 150, "height": 900 } ]` (`name` as the browser sent it) — `413 FILE_TOO_LARGE`, `400 BAD_REQUEST` (more than 10 files or wrong field name), `503 STORAGE_UNAVAILABLE`, `404 PRODUCT_NOT_FOUND`, `404 PRODUCT_VARIANT_NOT_FOUND`.
 
-### `PUT /v1/admin/products/{id}/images/order`
+### `POST /v1/admin/products/{id}/variants/{variantId}/images/copy`
 
-**Purpose:** Set the order of the images. **Permission:** `catalog.manage`. **Request Body:** `{ "orderedIds": [ …every image id, new order… ] }`. **Success Response (200):** `{ "product": { … } }`.
+**Purpose:** Show images of another pack size of the same product on this one too, without storing a file twice. **Request Body:** `{ "fromVariantId": "…", "imageIds"?: [ "…" ] }`; without `imageIds`, all images of that pack size. The copies go to the end of the gallery. Each is an image of its own (own `id`, order, main-image setting, description) that points to the same files, so the two have the same `url`. An image this pack size shows already is left out, which makes the call repeatable. Deleting or replacing the image on one pack size leaves the other as it is; the files are deleted when no pack size of the product shows them any more.
 
-**Possible Errors:** `400 IMAGE_ORDER_INVALID` (`details: { expected: [ids] }`), `409 IMAGE_ORDER_INVALID` ("The images changed in the meantime. Load the product again."), `404 PRODUCT_NOT_FOUND`.
+**Success Response (200):** `{ "product": { … } }`. **Possible Errors:** `400 IMAGE_LIMIT_REACHED` (the pack size would have more than 8), `400 VALIDATION_FAILED` (`fromVariantId` is the pack size itself), `404 PRODUCT_NOT_FOUND`, `404 PRODUCT_VARIANT_NOT_FOUND` (either pack size), `404 IMAGE_NOT_FOUND` (an id of `imageIds` is not an image of `fromVariantId`), `409 IMAGE_ORDER_INVALID` (the images changed in the meantime).
 
-### `PUT /v1/admin/products/{id}/images/{imageId}`
+### `PUT /v1/admin/products/{id}/variants/{variantId}/images/order`
 
-**Purpose:** Replace the file of an image (position, description and main-image setting are kept). **Permission:** `catalog.manage`. **Request:** multipart field `file`. **Success Response (200):** `{ "product": { … } }`. **Possible Errors:** as upload, plus `404 IMAGE_NOT_FOUND`.
+**Purpose:** Set the order of the images of a pack size. **Request Body:** `{ "orderedIds": [ …every image id of the pack size, new order… ] }`. **Success Response (200):** `{ "product": { … } }`.
 
-### `PATCH /v1/admin/products/{id}/images/{imageId}`
+**Possible Errors:** `400 IMAGE_ORDER_INVALID` (`details: { expected: [ids] }`), `409 IMAGE_ORDER_INVALID` ("The images changed in the meantime. Load the product again."), `404 PRODUCT_NOT_FOUND`, `404 PRODUCT_VARIANT_NOT_FOUND`.
 
-**Purpose:** Change the description or make it the main image. **Permission:** `catalog.manage`. **Request Body:** `{ "alt"?: { "en"?, "de"? }, "isPrimary"?: true }` (`isPrimary` may only be `true`). **Success Response (200):** `{ "product": { … } }`. **Possible Errors:** `404 PRODUCT_NOT_FOUND`, `404 IMAGE_NOT_FOUND`, `400 VALIDATION_FAILED`.
+### `PUT /v1/admin/products/{id}/variants/{variantId}/images/{imageId}`
 
-### `DELETE /v1/admin/products/{id}/images/{imageId}`
+**Purpose:** Replace the file of an image (position, description and main-image setting are kept). Only this pack size shows the new file: a pack size the image was copied to keeps the old one. **Request:** multipart field `file`. **Success Response (200):** `{ "product": { … } }`. **Possible Errors:** as upload, plus `404 IMAGE_NOT_FOUND`.
 
-**Purpose:** Delete an image (the first remaining one becomes main). **Permission:** `catalog.manage`. **Success Response (200):** `{ "product": { … } }`. **Possible Errors:** `404 PRODUCT_NOT_FOUND`, `404 IMAGE_NOT_FOUND`.
+### `PATCH /v1/admin/products/{id}/variants/{variantId}/images/{imageId}`
+
+**Purpose:** Change the description or make it the main image of the pack size. **Request Body:** `{ "alt"?: { "en"?, "de"? }, "isPrimary"?: true }` (`isPrimary` may only be `true`). **Success Response (200):** `{ "product": { … } }`. **Possible Errors:** `404 PRODUCT_NOT_FOUND`, `404 PRODUCT_VARIANT_NOT_FOUND`, `404 IMAGE_NOT_FOUND`, `400 VALIDATION_FAILED`.
+
+### `DELETE /v1/admin/products/{id}/variants/{variantId}/images/{imageId}`
+
+**Purpose:** Take an image off a pack size (the first remaining one becomes main). **Success Response (200):** `{ "product": { … } }`. **Possible Errors:** `404 PRODUCT_NOT_FOUND`, `404 PRODUCT_VARIANT_NOT_FOUND`, `404 IMAGE_NOT_FOUND`.
 
 ### 8.2 Import and export of the catalogue (CSV, Excel)
 
@@ -1445,7 +1458,7 @@ Customers can cancel by the rule in `settings.orderPolicy.customerCancellation`:
 
 **Request Body:** `{ "reason": "customer_request" | "product_unavailable" | "duplicate_order" | "suspected_misuse" | "other", "text"?: string (≤1000) }`
 
-**Success Response (200):** `{ "order": { … } }`. **Possible Errors:** `409 ORDER_CANNOT_BE_CANCELLED` (`details: { status }` – delivered or returned), `404 ORDER_NOT_FOUND`, `400 VALIDATION_FAILED` (a reason of the customer's list).
+**Success Response (200):** `{ "order": { … } }`. **Possible Errors:** `409 ORDER_CANNOT_BE_CANCELLED` (`details: { status }` – delivered or returned), `409 ORDER_CHANGED_MEANWHILE` with `details: { settling: true }` (the bank approved the payment and the money is being captured at this moment; try again a few seconds later, the order is then confirmed and can be cancelled), `404 ORDER_NOT_FOUND`, `400 VALIDATION_FAILED` (a reason of the customer's list).
 
 ---
 
@@ -1594,6 +1607,8 @@ Every order is paid at checkout, through Stripe (card or PayPal), before anythin
 **Purpose:** Decide a refund. Read `refundable` first.
 
 **Permission:** `payments.manage`.
+
+**Header (optional, recommended):** `Idempotency-Key`, one key per decision (for example a UUID; 8 to 64 letters, digits, hyphens or underscores). The same key sent again for the same order answers the first refund instead of deciding a second one, so a button pressed twice or a request repeated after a timeout refunds once. `400 IDEMPOTENCY_KEY_REQUIRED` when the header is there and malformed. What can still be refunded is checked and the refund recorded in one step: two decisions at the same moment never exceed what was paid together.
 
 **Request Body:**
 
@@ -2352,3 +2367,35 @@ Added on 2026-11-02 (`doc/REWARDS.md` has the long version). Customers collect *
 **Orders** carry `rewards { coins, amount, percentPerCoin, state: reserved | used | released }` when coins were redeemed, `items[].rewardAmount`, `totals.rewards` and `finalTotals.rewards`; invoices and credit notes a negative line "Coins redeemed (59)" per VAT rate and `totals.rewards`. A credit of goods gives the coins of those goods back and shrinks what the order earned; a cancelled paid order gives all coins back.
 
 **Permissions:** `rewards.read` to look, `rewards.manage` to set the rules and adjust by hand. `POST /v1/jobs/run` also answers `rewards { expired }`.
+
+---
+
+## 31. Supplier file: import, stock and calculated prices
+
+Added on 2026-11-10 (`doc/SUPPLIER_IMPORT.md` has the long version, with the bodies and answers of every endpoint and the screens the panel needs). The buying centre's daily CSV (`Cost`, `Name`, `Quantity On Hand`, `Sales Taxes`, `Unit of Measure`) is the source of the retail catalogue. A line is recognised by its name. An upload sets stock (quantity rounded down, never below 0, less the safety buffer) and buying price of the pack sizes the shop has, creates complete new lines as **draft** products in the hidden category `unsorted`, keeps incomplete lines in a review list, and sets pack sizes whose line is gone to stock 0. It never publishes a product and never changes names, texts, images, categories or URLs.
+
+| Endpoint | Body / query | Answer |
+|---|---|---|
+| `POST /v1/admin/supply/import/preview` | `{ rows: [{ Cost, Name, "Quantity On Hand", "Sales Taxes", "Unit of Measure" }], fileName? }`, at most 20,000 rows | `{ summary, rows, applied: false, importId: null }`; nothing is written |
+| `POST /v1/admin/supply/import` | the same, plus `allowMissing?` | the same report with `applied: true`; `409 SUPPLY_FILE_INCOMPLETE` (`details: { known, missing }`) when more than half of the supplier's products of the shop are not in the file |
+| `GET /v1/admin/supply/imports` | | `{ items }`: the last 60 uploads |
+| `GET /v1/admin/supply/items/counts` | | `{ review, linked, missing, problems: { … }, hints: { … } }` |
+| `GET /v1/admin/supply/items` | `state` (`review`, `linked`, `missing`), `problem`, `q`, `limit`, `cursor` | `{ items, nextCursor }` |
+| `PATCH /v1/admin/supply/items/{id}` | `{ packSize?, brand?, title?, cost?, vatRate? }`, null removes | the line |
+| `POST /v1/admin/supply/items/{id}/resolve` | `{ as: "new" }` or `{ as: "same", variantId? }` | the line; `409 SUPPLIER_ITEM_INCOMPLETE` (`details.problems`), `409 SUPPLIER_ITEM_LINKED`, `404 SUPPLIER_ITEM_NOT_FOUND` |
+| `GET /v1/admin/supply/settings` | | `{ settings: { safetyUnits, pricing: { fulfilmentPercent, extraPercent, extraAmount, markupPercent }, brands: [{ prefix, name }] } }` |
+| `PUT /v1/admin/supply/settings` | the same document (`brands` optional) | `{ settings, repriced }` |
+| `GET /v1/admin/supply/products/{id}/pricing` | | the rule of the product with the source of each value, and per pack size buying price, calculation step by step, current price and profit |
+| `POST /v1/admin/supply/products/{id}/merge` | `{ fromProductId }` | `{ productId, removedProductId, moved: [{ variantId, sku, packSize }], duplicates: [{ packSize, variantId, sku, removedSku }], waiting: [{ itemId, name, sku }] }`; `409 PRODUCT_IS_ACTIVE`, `409 PRODUCT_IN_USE`, `400 PRODUCT_VARIANT_INVALID`, `404 PRODUCT_NOT_FOUND` |
+
+**Report rows:** `row` (null for `missing`), `name`, `action` (`create`, `update`, `review`, `missing`, `error`; unchanged lines are only counted), `itemId`, `productId`, `variantId`, `sku`, `changes { stock?, cost?, price? }` as `[before, after]`, `problems`, `notes` (`vat_differs`, `no_cost`), `hints` (`alcohol`, `tobacco`, `deposit`, `frozen`, `per_kilogram`), `renameOf { id, name }`.
+
+**Problems of a waiting line:** `no_size`, `size_guessed`, `multipack`, `size_unit_unsupported`, `weight_mismatch`, `uom_unknown`, `no_cost`, `no_vat`, `duplicate_name`, `possible_rename`, `product_removed`, `conflict`, `duplicate_listing`.
+
+**The same article twice.** The supplier sometimes writes one article in two ways, and the upload makes two products of it. `POST /v1/admin/supply/products/{id}/merge` merges `fromProductId` into the product of the URL: its pack sizes move with their article numbers, stock, buying prices, histories and lines of the supplier's file, their URLs follow the product of the URL, and their prices are calculated again by its rule and VAT rate. Their images move with them. Then the other product is removed with its texts. A pack size both have (`duplicates`) stays as the product of the URL has it, with its own images, or with those of the other one if it had none; the line of the supplier's file of the other one waits in the review list as `duplicate_listing` (`waiting`), with `renameOf` naming the line the shop follows, so that the next upload does not create the product again. `resolve` with `as: "same"` on such a line makes the shop follow it instead. Cannot be undone; the product that goes must not be shown in the shop and must be in no order.
+
+**Calculated prices.** Price = buying price + `fulfilmentPercent` of it + `extraPercent` of it + `extraAmount` + `markupPercent` of all that + the VAT of the product, rounded to the cent at the end only. The rule of the shop is in the supply settings; a category and a product can set single values differently with `pricing { fulfilmentPercent?, extraPercent?, extraAmount?, markupPercent? }` on `POST`/`PATCH` of categories and products (null removes it; both answers include `pricing`). Pack sizes accept and answer `cost` (cents, decimals allowed) and `priceMode` (`auto`: the regular price follows the calculation; `manual`: only the admin changes it). Sending a `regularPrice` without `priceMode` makes a pack size `manual`. Every change of a rule, of the category or VAT rate of a product, or of the parent of a category calculates the `auto` prices under it again in the same request.
+
+**Before a product is shown (added 2026-11-10).** `PATCH /v1/admin/products/{id}` with `status: "active"` on a draft or archived product answers `409 PRODUCT_NOT_READY` with `details: { missing, warnings }` while something is missing: `category` (still in "Unsorted"), for food `name_de`, `ingredients_de`, `allergens_de`, `responsible_business` (`food.manufacturer`), and for goods the supplier's file marks `alcohol`, `tobacco`, `deposit`, `fireworks`, `hair_dye`, `health_product`. Food is every product outside a category with `nonFood: true` (categories accept and answer `nonFood`; it counts for the categories below). A check that does not apply is waived per product with `publishWaivers: [...]` on the product. `GET /v1/admin/products/{id}/readiness` answers `{ readiness: { ready, missing, waived, warnings }, enforced }`. The supply settings carry `publishCheck` (default true) to switch the check off, and a brand with an empty `name` marks a prefix that is not a brand.
+
+**Permissions:** `catalog.read` to look, `catalog.manage` to upload, resolve and set the rule. Nothing of this is in any customer endpoint.

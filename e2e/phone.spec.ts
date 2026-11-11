@@ -66,7 +66,8 @@ test("a paid order is prepared, dispatched and delivered from a phone, then a re
     .getByRole("button", { name: "Change the stock", exact: true })
     .click();
   dialog = page.getByRole("alertdialog");
-  await dialog.getByLabel("Counted number").fill("30");
+  // The field, not the choice of the same name above it.
+  await dialog.getByRole("textbox", { name: "Counted number" }).fill("30");
   await dialog.getByRole("button", { name: "Set the stock to 30" }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByText(/^Stock of RF-\d{5} is now 30$/)).toBeVisible();

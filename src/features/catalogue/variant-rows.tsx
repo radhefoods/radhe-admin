@@ -115,7 +115,12 @@ function Row({
         </div>
         {manage ? (
           row.removed ? (
-            <Button size="sm" variant="ghost" onClick={onRestore}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onRestore}
+              aria-label={`Keep the pack size ${title}`}
+            >
               <Undo2 />
               Keep it
             </Button>

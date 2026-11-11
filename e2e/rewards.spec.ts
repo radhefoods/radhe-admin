@@ -17,8 +17,12 @@ test("the rules of the program are saved as one document", async ({ page }) => {
 test("coins are added by hand from the account page", async ({ page }) => {
   await signIn(page, "owner", "/rewards?tab=accounts");
   const table = page.getByRole("table", { name: /^Coin accounts/ });
+  // The first link of a row is the customer; the row itself leads to the
+  // account. Each navigation is waited for before the next one starts.
   await table.getByRole("row").nth(1).getByRole("link").first().click();
+  await expect(page).toHaveURL(/\/customers\/[0-9a-f]{24}$/);
   await page.goBack();
+  await expect(page).toHaveURL(/\/rewards\?tab=accounts$/);
   await table.getByRole("row").nth(1).click();
   await expect(
     page.getByRole("heading", { level: 1, name: /^Coins of / }),
@@ -28,7 +32,11 @@ test("coins are added by hand from the account page", async ({ page }) => {
   await dialog.getByRole("textbox", { name: /^Coins/ }).fill("10");
   await dialog.getByRole("button", { name: "Add 10 coins" }).click();
   await expect(page.getByText("Coins adjusted")).toBeVisible();
-  await expect(page.getByText("Adjusted by hand").first()).toBeVisible();
+  // The row of the table: the cards of the phone layout hold the same
+  // words and are hidden at this width.
+  await expect(
+    page.getByText("Adjusted by hand").filter({ visible: true }).first(),
+  ).toBeVisible();
 });
 
 test("a viewer reads the coins and changes nothing", async ({ page }) => {

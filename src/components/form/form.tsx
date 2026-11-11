@@ -5,7 +5,9 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useId,
+  useRef,
   useState,
   type ComponentProps,
   type ReactNode,
@@ -152,6 +154,33 @@ export function useZodForm<S extends z.ZodType<FieldValues, FieldValues>>(
     mode: "onTouched",
     ...options,
   });
+}
+
+/**
+ * Keeps a form in line with its record while it is open. When the record
+ * changes underneath (another admin, another tab, a switch elsewhere on the
+ * page, a picture added), every field that was not touched takes the new
+ * value and what was typed stays.
+ *
+ * A save sends what differs from the record as it is now. Without this, a
+ * field that was never touched but still held the older value would be sent
+ * as a change and silently undo the other one.
+ */
+export function useFollowRecord<
+  T extends FieldValues,
+  O extends FieldValues,
+  R,
+>(
+  form: UseFormReturn<T, unknown, O>,
+  record: R | undefined,
+  defaults: (record: R) => T,
+): void {
+  const followed = useRef(record);
+  useEffect(() => {
+    if (record === undefined || record === followed.current) return;
+    followed.current = record;
+    form.reset(defaults(record), { keepDirtyValues: true });
+  }, [record, form, defaults]);
 }
 
 /**

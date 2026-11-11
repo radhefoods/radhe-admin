@@ -32,7 +32,9 @@ test("a pending review is published from its page", async ({ page }) => {
   await signIn(page, "owner", "/reviews");
   const table = page.getByRole("table", { name: /^Reviews/ });
   await table.getByRole("row").nth(1).locator('a[href^="/reviews/"]').click();
-  await page.getByRole("button", { name: "Publish" }).click();
+  // The decision in the header; the answer form below has a button of the
+  // same name.
+  await page.getByRole("button", { name: "Publish" }).first().click();
   await page.getByRole("button", { name: "Publish the review" }).click();
   await expect(page.getByText("Published").first()).toBeVisible();
   await expect(

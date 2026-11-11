@@ -83,6 +83,40 @@ export function PostView({ readSize }: { readSize?: SizeReader }) {
   }
 
   const current = post.data;
+
+  // The form needs the categories before it opens: its select would show
+  // "No category" for a post that has one, and a save would then take the
+  // category away.
+  if (!categories.data) {
+    return (
+      <RequirePermission permission="content.read">
+        <PageHeader title={translated(current.title)} back={back} />
+        <div className={cn(gutter, "flex flex-col gap-4")}>
+          {categories.isError ? (
+            <Alert
+              tone="danger"
+              title="The categories of the blog could not be loaded"
+              actions={
+                <Button onClick={() => void categories.refetch()}>
+                  Try again
+                </Button>
+              }
+            >
+              {errorMessage(categories.error)}
+            </Alert>
+          ) : (
+            <div aria-busy="true">
+              <span className="sr-only" role="status">
+                Loading the post
+              </span>
+              <Skeleton className="h-96 rounded-lg" />
+            </div>
+          )}
+        </div>
+      </RequirePermission>
+    );
+  }
+
   return (
     <RequirePermission permission="content.read">
       <PageHeader
@@ -105,7 +139,7 @@ export function PostView({ readSize }: { readSize?: SizeReader }) {
       <PostForm
         key={current.id}
         post={current}
-        categories={categories.data?.items ?? []}
+        categories={categories.data.items}
         readSize={readSize}
       />
       <ConfirmDialog

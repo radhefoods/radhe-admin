@@ -35,6 +35,9 @@ const STATUS_LABEL: Record<BulkChosenStatus, string> = {
 };
 const STATUSES = Object.keys(STATUS_LABEL) as BulkChosenStatus[];
 
+/** How many orders one action takes (`orderIds`, documentation, 9). */
+const BULK_MAX_ORDERS = 500;
+
 type Action = { kind: "status"; status: BulkChosenStatus } | { kind: "method" };
 
 interface Outcome {
@@ -67,6 +70,10 @@ export function OrdersBulkBar({
   const pickId = useId();
   const ids = [...selected];
   const count = ids.length;
+  const tooMany =
+    count > BULK_MAX_ORDERS
+      ? `One action takes at most ${BULK_MAX_ORDERS} orders. Untick some.`
+      : null;
 
   const run = useMutation({
     mutationFn: async (chosen: Action): Promise<Outcome> => {
@@ -121,6 +128,7 @@ export function OrdersBulkBar({
               key={status}
               size="sm"
               permission="orders.manage"
+              blocked={tooMany}
               onClick={() => setAction({ kind: "status", status })}
             >
               {STATUS_LABEL[status]}
@@ -129,6 +137,7 @@ export function OrdersBulkBar({
           <ActionButton
             size="sm"
             permission="orders.manage"
+            blocked={tooMany}
             onClick={() => setAction({ kind: "method" })}
           >
             Delivery method

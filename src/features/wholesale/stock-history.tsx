@@ -135,9 +135,12 @@ export function StockHistoryCard({
   const [skuId, setSkuId] = useState<string>("");
   const [page, setPage] = useState(1);
   const selectId = useId();
+  // A SKU that was removed meanwhile is no filter any more: with one SKU
+  // left the select is gone, and nothing else could clear it.
+  const active = product.skus.some((sku) => sku.id === skuId) ? skuId : "";
   const movements = useWholesaleStockMovements(
     product.id,
-    { skuId: skuId || undefined, page, limit: PAGE_SIZE },
+    { skuId: active || undefined, page, limit: PAGE_SIZE },
     !paused,
   );
   const data = movements.data;
@@ -162,7 +165,7 @@ export function StockHistoryCard({
               </label>
               <Select
                 id={selectId}
-                value={skuId}
+                value={active}
                 onChange={(event) => {
                   setSkuId(event.target.value);
                   setPage(1);

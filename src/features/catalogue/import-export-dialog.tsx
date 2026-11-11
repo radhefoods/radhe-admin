@@ -28,6 +28,7 @@ import { Alert } from "@/components/ui/surface";
 import { notify } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
 import { errorMessage } from "@/lib/api/error-text";
+import { isSessionError } from "@/lib/api/errors";
 import { invalidation } from "@/lib/api/query-keys";
 import {
   IMPORT_MAX_ROWS,
@@ -426,7 +427,15 @@ function ImportPanel({
   const [chosen, setChosen] = useState<Chosen | null>(null);
   const [readProblem, setReadProblem] = useState<string | null>(null);
   const [existing, setExisting] = useState<ImportExisting>("skip");
-  const [preview, setPreview] = useState<ImportResult | null>(null);
+  // What the API said the import would do, with the choice about existing
+  // records it was asked for. The import is only offered for the preview of
+  // the choice that stands: after a check that failed, or a choice that was
+  // changed, the counts of another mode must never be confirmed and then run.
+  const [checked, setChecked] = useState<{
+    mode: ImportExisting;
+    outcome: ImportResult;
+  } | null>(null);
+  const preview = checked?.mode === existing ? checked.outcome : null;
   const [result, setResult] = useState<ImportResult | null>(null);
   const [confirming, setConfirming] = useState(false);
   const modeId = useId();
@@ -434,15 +443,17 @@ function ImportPanel({
   const previewing = useMutation({
     mutationFn: ({ sheet, mode }: { sheet: Sheet; mode: ImportExisting }) =>
       catalogue.sheets.preview({ [type]: sheet.rows, existing: mode }),
-    onSuccess: (outcome) => setPreview(outcome),
-    onError: (error) => notify.error(error, "The rows could not be checked"),
+    onMutate: () => setChecked(null),
+    onSuccess: (outcome, { mode }) => setChecked({ mode, outcome }),
+    // Shown under the file with a way to check again.
+    meta: { silent: true },
   });
   const importing = useMutation({
     mutationFn: ({ sheet, mode }: { sheet: Sheet; mode: ImportExisting }) =>
       catalogue.sheets.run({ [type]: sheet.rows, existing: mode }),
     onSuccess: (outcome) => {
       setResult(outcome);
-      setPreview(null);
+      setChecked(null);
       onDone();
       const summary = outcome[type]?.summary;
       if (outcome.stoppedAt) {
@@ -472,7 +483,7 @@ function ImportPanel({
   }, [chosen, existing, tooMany, result, run]);
 
   async function take(file: File) {
-    setPreview(null);
+    setChecked(null);
     setResult(null);
     setReadProblem(null);
     try {
@@ -489,7 +500,7 @@ function ImportPanel({
     setChosen(null);
     setReadProblem(null);
     setExisting("skip");
-    setPreview(null);
+    setChecked(null);
     setResult(null);
   }
 
@@ -629,6 +640,28 @@ function ImportPanel({
                 <Spinner /> Checking the rows…
               </p>
             ) : null}
+
+            {previewing.isError &&
+            !preview &&
+            chosen &&
+            !tooMany &&
+            !isSessionError(previewing.error) ? (
+              <Alert
+                tone="danger"
+                title="The rows could not be checked"
+                actions={
+                  <Button
+                    size="sm"
+                    onClick={() => run({ sheet: chosen.sheet, mode: existing })}
+                  >
+                    Check again
+                  </Button>
+                }
+              >
+                {errorMessage(previewing.error)} Nothing was written, and
+                nothing can be imported before the check went through.
+              </Alert>
+            ) : null}
           </>
         ) : null}
 
@@ -736,6 +769,8 @@ function ExportPanel({
     onSuccess: ({ name, rows }) =>
       notify.success(`${name} saved`, `${plural(rows, kind.one)}.`),
     onError: (error) => notify.error(error, "The export could not be made"),
+    // Reported here, with what failed: not a second time by the cache.
+    meta: { silent: true },
   });
 
   return (

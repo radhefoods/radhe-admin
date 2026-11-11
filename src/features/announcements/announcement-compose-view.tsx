@@ -329,7 +329,12 @@ export function AnnouncementComposeView() {
                 variant="primary"
                 size="lg"
                 blocked={
-                  reached === 0 ? "No customer has asked for news yet." : null
+                  // Sent, and on the way to its page: never a second time.
+                  sent
+                    ? "The announcement is on its way."
+                    : reached === 0
+                      ? "No customer has asked for news yet."
+                      : null
                 }
                 onClick={() => setConfirming(true)}
               >
@@ -378,6 +383,7 @@ export function AnnouncementComposeView() {
               confirmLabel={`Send to ${plural(reached, "customer")}`}
               cancelLabel="Not yet"
               onConfirm={async () => {
+                if (sent) return;
                 const result = await send.mutateAsync(previewed.input);
                 setSent(true);
                 notify.success(

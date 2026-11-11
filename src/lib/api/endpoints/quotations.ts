@@ -1,7 +1,7 @@
 // Section 24: wholesale quotations.
 
 import type { SessionTransport } from "../session";
-import type { Query } from "../http";
+import { pdfBlob, type Query } from "../http";
 import type {
   Id,
   PageResult,
@@ -31,7 +31,7 @@ export function quotationsApi({ request, raw }: SessionTransport) {
         headers: { Accept: "application/pdf" },
         signal,
       });
-      return response.blob();
+      return pdfBlob(response);
     },
     /** Prices per carton (net cents) and corrected cartons; the quotation becomes `draft`. */
     update: (id: Id, input: QuotationPatch) =>

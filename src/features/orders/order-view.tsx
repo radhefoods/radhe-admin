@@ -61,6 +61,8 @@ import {
   personEmail,
   personName,
 } from "@/lib/format/names";
+import { mailtoHref, telHref } from "@/lib/links";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes, withQuery } from "@/lib/routes";
 import {
   ORDER_STATUS,
@@ -83,8 +85,13 @@ import {
 import { OrderItemsCard } from "./order-items";
 import { useOrderIssues } from "@/features/issues/queries";
 import { useOrderReview } from "@/features/reviews/queries";
-import { OrderPaymentCard } from "./order-payment";
-import { useOrder, useOrderActions, type OrderActions } from "./queries";
+import { OrderPaymentCard, refundOnItsWay } from "./order-payment";
+import {
+  useOrder,
+  useOrderActions,
+  useOrderPayment,
+  type OrderActions,
+} from "./queries";
 
 /** The payment events of the history that are not a payment status (9.2). */
 const PAYMENT_EVENT: Record<string, { label: string; tone: Tone }> = {
@@ -263,7 +270,7 @@ function DeliveryCard({
               ))}
               {order.deliveryAddress.phone ? (
                 <a
-                  href={`tel:${order.deliveryAddress.phone}`}
+                  href={telHref(order.deliveryAddress.phone)}
                   className="mt-1 block text-accent-text hover:underline"
                 >
                   {order.deliveryAddress.phone}
@@ -511,11 +518,13 @@ export function OrderView() {
   const { id } = useParams<{ id: string }>();
   const order = useOrder(id);
   const actions = useOrderActions(id);
+  // The same answer the payment card reads (one request); needs "Payments: read".
+  const refundable = useOrderPayment(id).data?.refundable;
   const can = useCan();
   const adminName = useAdminNames();
   const back = { href: routes.orders, label: "Orders" };
 
-  if (order.isError) {
+  if (pageFailed(order)) {
     return (
       <RequirePermission permission="orders.read">
         <PageHeader title="Order" back={back} />
@@ -600,9 +609,13 @@ export function OrderView() {
                 : "By the shop"}{" "}
             on <DateTime value={data.cancellation.at} />.
             {data.cancellation.text ? ` “${data.cancellation.text}”` : ""}
-            {data.payment.needsRefund
-              ? " What was paid waits for a refund: see the payment."
-              : ""}
+            {/* The order counts as waiting until its refund is complete
+                (11); once one is decided, nothing waits for a decision. */}
+            {!data.payment.needsRefund
+              ? ""
+              : refundable && refundOnItsWay(refundable)
+                ? " The refund of what was paid is on its way: see the payment."
+                : " What was paid waits for a refund: see the payment."}
           </Alert>
         ) : null}
         {pending ? (
@@ -656,7 +669,7 @@ export function OrderView() {
                     <Fact label="Email">
                       <span className="flex items-center gap-1">
                         <a
-                          href={`mailto:${personEmail(data.customer)}`}
+                          href={mailtoHref(personEmail(data.customer))}
                           className="truncate hover:underline"
                         >
                           {personEmail(data.customer)}
@@ -671,7 +684,7 @@ export function OrderView() {
                   {data.customer.phone && !isDeletedAccount(data.customer) ? (
                     <Fact label="Phone">
                       <a
-                        href={`tel:${data.customer.phone}`}
+                        href={telHref(data.customer.phone)}
                         className="hover:underline"
                       >
                         {data.customer.phone}

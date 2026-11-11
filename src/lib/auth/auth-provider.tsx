@@ -38,7 +38,9 @@ interface AuthContextValue {
   can: (permission: string) => boolean;
   /** Called by the sign-in once the API answered `authenticated`. */
   completeSignIn: (admin: AdminWithRole) => void;
+  /** Rejects when the API could not end the session: the admin is still signed in. */
   signOut: () => Promise<void>;
+  /** Rejects when the API ended nothing; a confirmation shows that error. */
   signOutEverywhere: () => Promise<void>;
   /** Asks the API again who is signed in (after a password change). */
   reload: () => Promise<void>;
@@ -138,12 +140,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [queryClient],
   );
 
+  /**
+   * Ends the session and shows the sign-in. The cookies are the API's to
+   * clear, so a request that failed has signed nobody out: the panel then
+   * stays as it is and the caller says so, instead of showing a sign-in
+   * that a reload would walk straight past.
+   */
   const leave = useCallback(
-    async (request: () => Promise<void>) => {
+    async (request: () => Promise<void>, everywhere: boolean) => {
       try {
         await request();
-      } catch {
-        // Signed out here in any case; the session ends by itself.
+      } catch (error) {
+        // "Nobody is signed in here" ends this device, which is all a plain
+        // sign-out asks for. It ends no other device: there it is a failure,
+        // and the sign-in that opens over the page lets the admin try again.
+        if (everywhere || !isSignedOutAnswer(error)) throw error;
       }
       setState({ status: "signedOut" });
       queryClient.clear();
@@ -162,8 +173,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       admin,
       can: (permission) => hasPermission(permissions, permission),
       completeSignIn,
-      signOut: () => leave(api.auth.logout),
-      signOutEverywhere: () => leave(api.auth.logoutAll),
+      signOut: () => leave(api.auth.logout, false),
+      signOutEverywhere: () => leave(api.auth.logoutAll, true),
       reload: load,
     };
   }, [state, completeSignIn, leave, load]);

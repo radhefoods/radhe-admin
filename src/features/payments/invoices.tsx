@@ -42,6 +42,7 @@ import { formatDate } from "@/lib/format/dates";
 import { formatVatRate } from "@/lib/format/money";
 import { LOCALE_LABEL } from "@/lib/format/names";
 import { param, useUrlState } from "@/lib/hooks/use-url-state";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes } from "@/lib/routes";
 import { humanize } from "@/lib/status";
 
@@ -170,7 +171,7 @@ export function InvoicesView() {
     customerId: state.customerId,
   };
   const invoices = useInfiniteQuery({
-    queryKey: queryKeys.invoices.list(query),
+    queryKey: [...queryKeys.invoices.list(query), "pages"] as const,
     queryFn: ({ pageParam, signal }) =>
       api.invoices.list({ ...query, limit: 25, cursor: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
@@ -184,7 +185,7 @@ export function InvoicesView() {
     <RequirePermission permission="payments.read">
       <PageHeader
         title="Invoices"
-        description="An invoice is issued when payment is activated; a credit note when the bill goes down afterwards. Both are numbered without gaps and never change."
+        description="An invoice is issued the moment an order is paid; a credit note when the bill goes down afterwards. Both are numbered without gaps and never change."
       />
       <PageBody>
         <div className="flex flex-col gap-3">
@@ -236,17 +237,17 @@ export function InvoicesView() {
                 icon={<ReceiptText />}
                 title={
                   !understood
-                    ? "This is not an order number"
+                    ? "This is not a number the search knows"
                     : filtered
                       ? "No document matches"
                       : "No invoices yet"
                 }
               >
                 {!understood
-                  ? "The API finds documents by the number of their order, like RF-1084, not by the invoice number."
+                  ? "Documents are found by the number of their order, like RF-1084, or by their own number, like INV-2026-000123 or CN-2026-000045."
                   : filtered
                     ? "Change the filters or clear them."
-                    : "The first invoice is issued when payment is activated for a delivered order."}
+                    : "The first invoice is issued when the first order is paid."}
               </EmptyState>
             }
             footer={
@@ -256,6 +257,7 @@ export function InvoicesView() {
                 hasMore={invoices.hasNextPage}
                 loading={invoices.isFetchingNextPage}
                 onLoadMore={() => void invoices.fetchNextPage()}
+                error={invoices.isFetchNextPageError ? invoices.error : null}
               />
             }
           />
@@ -415,7 +417,7 @@ export function InvoiceView() {
   const pdf = useInvoicePdf(invoice);
   const back = { href: routes.invoices, label: "Invoices" };
 
-  if (query.isError) {
+  if (pageFailed(query)) {
     return (
       <RequirePermission permission="payments.read">
         <PageHeader title="Document" back={back} />

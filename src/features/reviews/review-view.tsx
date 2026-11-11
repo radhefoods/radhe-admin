@@ -31,6 +31,7 @@ import { hasErrorCode } from "@/lib/api/errors";
 import type { Review } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
 import { LOCALE_LABEL } from "@/lib/format/names";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes } from "@/lib/routes";
 import { useReview, useReviewActions, type ReviewActions } from "./queries";
 import {
@@ -179,7 +180,7 @@ function ReplyCard({
                   saved ? "Answer replaced" : "Answer published",
                   "It is under the review in the shop.",
                 ),
-              onError: (error) => notify.error(error),
+              // A failure is shown under the field, where the answer is.
             });
           }}
         >
@@ -259,7 +260,7 @@ export function ReviewView() {
   const adminName = useAdminNames();
   const [decision, setDecision] = useState<Decision>(null);
 
-  if (review.isError) {
+  if (pageFailed(review)) {
     return (
       <RequirePermission permission="reviews.read">
         <PageHeader title="Review" back={back} />

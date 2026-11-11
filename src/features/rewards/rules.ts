@@ -32,6 +32,14 @@ export function coinsText(coins: number): string {
   return `${count} ${Math.abs(coins) === 1 ? "coin" : "coins"}`;
 }
 
+/**
+ * A balance, which may be below zero after coins were taken away:
+ * `1,250 coins`, `−30 coins`. `coinsText` names an amount and has no sign.
+ */
+export function balanceText(coins: number): string {
+  return `${coins < 0 ? "−" : ""}${coinsText(coins)}`;
+}
+
 /** `+120`, `−59`: a movement of the ledger with its sign. */
 export function signedCoins(coins: number): string {
   const count = Math.abs(coins).toLocaleString("en");

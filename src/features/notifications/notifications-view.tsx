@@ -302,6 +302,8 @@ export function NotificationsView() {
     orderId: param.id(),
     orderNumber: param.text(20),
     announcementId: param.id(),
+    // The emails of a wholesale quotation link here (24).
+    quotationId: param.id(),
     sort: param.oneOf(SORT_VALUES),
   });
   const orderNumber = state.orderNumber.toUpperCase() || undefined;
@@ -313,6 +315,7 @@ export function NotificationsView() {
     orderId: state.orderId,
     orderNumber,
     announcementId: state.announcementId,
+    quotationId: state.quotationId,
   };
   const messages = useNotifications({ ...filters, sort: state.sort });
   const count = useNotificationCount(filters);
@@ -338,7 +341,8 @@ export function NotificationsView() {
     state.customerId ||
     state.orderId ||
     orderNumber ||
-    state.announcementId,
+    state.announcementId ||
+    state.quotationId,
   );
 
   return (
@@ -463,6 +467,13 @@ export function NotificationsView() {
                 label="Announcement"
                 value={announcementName ?? shortId(state.announcementId)}
                 onRemove={() => setState({ announcementId: undefined })}
+              />
+            ) : null}
+            {state.quotationId ? (
+              <FilterChip
+                label="Quotation"
+                value={shortId(state.quotationId)}
+                onRemove={() => setState({ quotationId: undefined })}
               />
             ) : null}
             <SortSelect

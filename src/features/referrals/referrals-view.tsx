@@ -60,7 +60,7 @@ export function ReferralsView() {
     <RequirePermission permission="customers.read">
       <PageHeader
         title="Referrals"
-        description="Customers invite others with their code and link. A referral is registered at the sign-up, qualifies with the invited person's first delivered order, and is void when all the goods of that order were credited later. Rewards are not built yet: these records are what one will rest on."
+        description="Customers invite others with their code and link. A referral is registered at the sign-up, qualifies with the invited person's first delivered order, and is void when all the goods of that order were credited later. What a referral earns in coins is set under Points & Rewards."
       />
       <PageBody className="gap-3">
         <FilterBar active={filtered || Boolean(state.sort)} onClear={clear}>

@@ -140,8 +140,9 @@ function RoleForm({
       }
       throw error;
     }
-    // The permissions that changed may be the admin's own.
-    if (own && patch.permissions) void reload();
+    // The permissions that changed may be the admin's own, and the name of
+    // the role is on the account menu and in the "your role" notices.
+    if (own) void reload();
     notify.success(`Role "${patch.name ?? target.name}" saved`);
     onClose();
   }

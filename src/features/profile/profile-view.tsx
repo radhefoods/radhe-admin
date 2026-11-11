@@ -92,20 +92,32 @@ function RoleAccess() {
                     {row.covers}
                   </span>
                 </th>
-                {(["read", "manage"] as const).map((action) => (
-                  <td
-                    key={action}
-                    className="border-b border-line px-3 py-2 text-center"
-                  >
-                    <Allowed
-                      allowed={hasPermission(
-                        permissions,
-                        `${row.resource}.${action}`,
+                {(["read", "manage"] as const).map((action) => {
+                  const permission = row[action];
+                  return (
+                    <td
+                      key={action}
+                      className="border-b border-line px-3 py-2 text-center"
+                    >
+                      {permission ? (
+                        <Allowed
+                          allowed={hasPermission(permissions, permission)}
+                          label={`${row.label}, ${action}`}
+                        />
+                      ) : (
+                        // An area that can only be read (analytics): there is
+                        // no such permission, so nothing to tick, as in the
+                        // roles matrix.
+                        <span className="text-ink-subtle">
+                          <span aria-hidden="true">—</span>
+                          <span className="sr-only">
+                            {row.label}, {action}: not offered by the API
+                          </span>
+                        </span>
                       )}
-                      label={`${row.label}, ${action}`}
-                    />
-                  </td>
-                ))}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
@@ -293,7 +305,13 @@ export function ProfileView() {
                     loading={leaving}
                     onClick={async () => {
                       setLeaving(true);
-                      await signOut();
+                      try {
+                        await signOut();
+                      } catch (error) {
+                        // The API ended nothing: say so and stay.
+                        notify.error(error, "You are still signed in");
+                        setLeaving(false);
+                      }
                     }}
                   >
                     Sign out

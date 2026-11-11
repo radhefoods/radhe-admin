@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { LoadingBlock, Spinner } from "@/components/ui/spinner";
 import { Alert } from "@/components/ui/surface";
+import { notify } from "@/components/ui/toast";
 import { SignInFlow } from "@/features/auth/sign-in-flow";
 import { errorMessage } from "@/lib/api/error-text";
 import type { SessionEndReason } from "@/lib/api/session";
@@ -144,7 +145,11 @@ function ReauthDialog({
           <Button
             variant="link"
             className="self-center"
-            onClick={() => void signOut()}
+            onClick={() =>
+              void signOut().catch((error: unknown) =>
+                notify.error(error, "You are still signed in"),
+              )
+            }
           >
             {reason === "disabled"
               ? "Back to the sign-in"
@@ -153,6 +158,12 @@ function ReauthDialog({
         </DialogBody>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function dialogOpen(): boolean {
+  return (
+    document.querySelector('[role="dialog"], [role="alertdialog"]') !== null
   );
 }
 
@@ -166,8 +177,19 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const pathname = usePathname();
 
-  useHotkey("/", () => setSearchOpen(true));
-  useHotkey("k", () => setSearchOpen((open) => !open), { meta: true });
+  // A dialog that is open must be answered first (a confirmation, the
+  // sign-in over the page): the search does not open over it and lead away.
+  useHotkey("/", () => {
+    if (!dialogOpen()) setSearchOpen(true);
+  });
+  useHotkey(
+    "k",
+    () => {
+      if (searchOpen) setSearchOpen(false);
+      else if (!dialogOpen()) setSearchOpen(true);
+    },
+    { meta: true },
+  );
 
   // A new page closes the drawer.
   useEffect(() => {

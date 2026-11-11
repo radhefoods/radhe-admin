@@ -37,6 +37,7 @@ import type { Issue } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
 import { formatMoney } from "@/lib/format/money";
 import { plural, translated } from "@/lib/format/names";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes } from "@/lib/routes";
 import { ISSUE_STATUS } from "@/lib/status";
 import { ISSUE_TRANSITIONS } from "@/lib/status/transitions";
@@ -228,7 +229,7 @@ export function IssueView() {
     enabled: Boolean(record),
   }).data;
 
-  if (issue.isError) {
+  if (pageFailed(issue)) {
     return (
       <RequirePermission permission="orders.read">
         <PageHeader title="Problem report" back={back} />
@@ -349,9 +350,13 @@ export function IssueView() {
           >
             The delivered quantities of the order were corrected and a credit
             note was issued.{" "}
-            {order?.payment.needsRefund
-              ? "The customer is owed this amount; it waits for your refund decision on the order."
-              : "The refund of this amount was decided on the order."}
+            {/* Only what the order says: while it loads, or when it did not
+                load, nothing is claimed about the refund. */}
+            {!order
+              ? "Whether the money went back is on the payment of the order."
+              : order.payment.needsRefund
+                ? "The customer is owed this amount; it waits for your refund decision on the order."
+                : "The refund of this amount was decided on the order."}
           </Alert>
         ) : null}
         {resolution && resolution.type !== "refund" ? (
@@ -493,6 +498,7 @@ export function IssueView() {
       <IssueDecideDialog
         key={`${record.status}-${decision ?? "none"}`}
         issue={record}
+        order={order}
         decision={decision}
         actions={actions}
         onOpenChange={(open) => {

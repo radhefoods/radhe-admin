@@ -335,7 +335,7 @@ export function LineChart({
         viewBox={`0 0 ${width} ${height}`}
         onPointerMove={plot.onPointerMove}
         onPointerLeave={() => setHover(null)}
-        className="block touch-none select-none"
+        className="block touch-pan-y select-none"
       >
         <Axes
           ticks={plot.ticks}
@@ -456,7 +456,7 @@ export function BarChart({
         viewBox={`0 0 ${width} ${height}`}
         onPointerMove={plot.onPointerMove}
         onPointerLeave={() => setHover(null)}
-        className="block touch-none select-none"
+        className="block touch-pan-y select-none"
       >
         <Axes
           ticks={plot.ticks}

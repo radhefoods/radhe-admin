@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { LoadingBlock } from "@/components/ui/spinner";
+import { Alert } from "@/components/ui/surface";
 import { notify } from "@/components/ui/toast";
+import { errorMessage } from "@/lib/api/error-text";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { routes } from "@/lib/routes";
 import { ChangePasswordForm } from "./change-password-form";
@@ -17,11 +19,26 @@ export function ChangePasswordView() {
   const { state, reload, signOut } = useAuth();
   const router = useRouter();
 
+  // This screen has no sign-in of its own to open over it: a session that
+  // ended here goes back to the sign-in, as one that never was does.
+  const signedOut = state.status === "signedOut" || state.status === "expired";
   useEffect(() => {
-    if (state.status === "signedOut") router.replace(routes.signIn);
-  }, [state.status, router]);
+    if (signedOut) router.replace(routes.signIn);
+  }, [signedOut, router]);
 
-  if (state.status !== "authenticated" && state.status !== "expired") {
+  if (state.status === "unreachable") {
+    return (
+      <Alert
+        tone="danger"
+        title="The API could not be reached"
+        actions={<Button onClick={() => void reload()}>Try again</Button>}
+      >
+        {errorMessage(state.error)}
+      </Alert>
+    );
+  }
+
+  if (state.status !== "authenticated") {
     return <LoadingBlock label="Checking your session" />;
   }
   const forced = state.admin.mustChangePassword;
@@ -49,7 +66,11 @@ export function ChangePasswordView() {
       <Button
         variant="link"
         className="self-start"
-        onClick={() => void signOut()}
+        onClick={() =>
+          void signOut().catch((error: unknown) =>
+            notify.error(error, "You are still signed in"),
+          )
+        }
       >
         Sign out instead
       </Button>

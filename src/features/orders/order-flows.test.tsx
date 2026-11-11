@@ -274,6 +274,17 @@ describe("the refund decision", () => {
       .refunds.find((entry) => entry.orderId === order.id);
     expect(refund?.status).toBe("pending");
     expect(refund?.amount).toBe(paid);
+
+    // The refund is decided and not complete yet. The order still counts as
+    // waiting (11), but nothing is left to decide: the card must not offer
+    // the same money a second time.
+    expect(
+      await screen.findByText(`A refund of ${formatMoney(paid)} is on its way`),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/waits for a refund/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Decide the refund" }),
+    ).not.toBeInTheDocument();
   });
 
   it("offers Stripe when Stripe is connected and the order was paid through it", async () => {
@@ -505,6 +516,24 @@ describe("correcting what was delivered", () => {
       finalTotals: totals(2499, 499),
     };
     expect(billAfterCorrection(withReturn, returned, 2).total).toBe(1499);
+    // A discount code and coins on the line: a kept unit carries its part of
+    // both, so two of four units keep half of each (30).
+    const reduced = {
+      ...item("ghee", 4, 1000),
+      discountAmount: 400,
+      rewardAmount: 200,
+      finalLineTotal: 3400,
+    };
+    const withCoins = {
+      items: [reduced],
+      totals: totals(3899, 499),
+      finalTotals: totals(3899, 499),
+    };
+    expect(billAfterCorrection(withCoins, reduced, 2)).toEqual({
+      lineTotal: 2000 - 200 - 100,
+      total: 1700 + 499,
+      difference: -1700,
+    });
   });
 });
 

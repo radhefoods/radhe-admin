@@ -28,6 +28,7 @@ import {
   FormError,
   SelectField,
   TextField,
+  useFollowRecord,
   useSubmit,
   useZodForm,
 } from "@/components/form/form";
@@ -54,6 +55,7 @@ import {
 import { useCan } from "@/lib/auth/auth-provider";
 import { formatDateTime } from "@/lib/format/dates";
 import { plural } from "@/lib/format/names";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes } from "@/lib/routes";
 import {
   discountDefaults,
@@ -97,6 +99,13 @@ function DiscountForm({
   const dirty = form.formState.isDirty;
   const locked = code ? inUse(code) : false;
 
+  // The code changed underneath (the switch in the header or in the list,
+  // another admin): the form follows in every field that was not touched.
+  // The save sends what differs from the code as it is now, so a field that
+  // still held the older value would be sent as a change and undo the other
+  // one (switch a code off, edit its note, and it was on again).
+  useFollowRecord(form, code, discountDefaults);
+
   const { onSubmit, state, pending } = useSubmit(
     form,
     async (values: DiscountFormValues) => {
@@ -108,6 +117,8 @@ function DiscountForm({
               "Nothing to save",
               "The code already has these values.",
             );
+            // Typed another way (5 for 5.00): the form is the code again.
+            form.reset(discountDefaults(code));
             return;
           }
           const saved = await update.mutateAsync({ id: code.id, ...patch });
@@ -149,7 +160,11 @@ function DiscountForm({
       noValidate
       className="flex min-w-0 flex-col gap-6"
     >
-      <UnsavedGuard when={dirty && !form.formState.isSubmitSuccessful} />
+      {/* A new code leaves for its own page once it is created; an existing
+          one is guarded whenever it differs from what is saved. */}
+      <UnsavedGuard
+        when={dirty && !(!code && form.formState.isSubmitSuccessful)}
+      />
       <Card aria-label="Discount code">
         <CardHeader
           title={code ? "Discount code" : "New discount code"}
@@ -503,7 +518,7 @@ export function DiscountView() {
   const code = useDiscount(id, !gone);
   const data = code.data;
 
-  if (code.isError) {
+  if (pageFailed(code)) {
     return (
       <RequirePermission permission="discounts.read">
         <PageHeader title="Discount code" back={back} />

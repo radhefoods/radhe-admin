@@ -15,7 +15,12 @@ import {
   SwitchField,
   UnsavedGuard,
 } from "@/components/form/fields";
-import { FormError, useSubmit, useZodForm } from "@/components/form/form";
+import {
+  FormError,
+  useFollowRecord,
+  useSubmit,
+  useZodForm,
+} from "@/components/form/form";
 import { PageBody, PageHeader, gutter } from "@/components/shell/page";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +51,7 @@ import type {
 import { useCan } from "@/lib/auth/auth-provider";
 import { cn } from "@/lib/cn";
 import { plural, translated } from "@/lib/format/names";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes } from "@/lib/routes";
 import {
   altChanged,
@@ -99,6 +105,12 @@ function CategoryForm({
   });
   const dirty = form.formState.isDirty || file !== null;
 
+  // The category changed underneath (another admin, an import, its picture):
+  // the form follows in every field that was not touched. The save sends
+  // what differs from the category as it is now, so a field that still held
+  // the older value would be sent as a change and undo the other one.
+  useFollowRecord(form, category, categoryDefaults);
+
   const { onSubmit, state, pending } = useSubmit(
     form,
     async (values: CategoryFormValues) => {
@@ -138,11 +150,15 @@ function CategoryForm({
               "With its picture. It is the last in the list.",
             );
           } catch (error) {
-            if (isSessionError(error)) return;
-            notify.error(
-              error,
-              `${created.name.en} created without its picture`,
-            );
+            // The category exists either way, so the form goes on to its
+            // page: staying here would offer "Create" for it a second time.
+            // A session that ended says so itself, with the sign-in.
+            if (!isSessionError(error)) {
+              notify.error(
+                error,
+                `${created.name.en} created without its picture`,
+              );
+            }
           }
         } else {
           notify.success(
@@ -173,7 +189,11 @@ function CategoryForm({
       noValidate
       className="flex min-w-0 flex-col gap-6"
     >
-      <UnsavedGuard when={dirty && !form.formState.isSubmitSuccessful} />
+      {/* A new category leaves for its own page once it is created; an
+          existing one is guarded whenever it differs from what is saved. */}
+      <UnsavedGuard
+        when={dirty && !(!category && form.formState.isSubmitSuccessful)}
+      />
       <Card aria-label="Category">
         <CardHeader
           title={category ? "Category" : "New category"}
@@ -625,7 +645,7 @@ export function CategoryView({ readSize }: { readSize?: SizeReader }) {
   const categories = useWholesaleCategories();
   const category = categories.data?.items.find((entry) => entry.id === id);
 
-  if (categories.isError) {
+  if (pageFailed(categories)) {
     return (
       <RequirePermission permission="wholesale.read">
         <PageHeader title="Wholesale category" back={back} />

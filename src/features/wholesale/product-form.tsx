@@ -20,6 +20,7 @@ import {
   useSubmit,
   useZodForm,
 } from "@/components/form/form";
+import { followRows } from "@/components/form/rows";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { RadioGroup, RadioItem } from "@/components/ui/controls";
@@ -259,8 +260,19 @@ export function ProductForm({
       baseline.current = product;
       return;
     }
+    // The SKUs follow by their id, not by their place: the list may have
+    // grown or shrunk meanwhile (another admin, an import), and a price
+    // typed for one SKU must stay with it.
+    const next = productDefaults(product);
+    const rows = followRows({
+      typed: form.getValues("skus"),
+      previous: productDefaults(baseline.current).skus,
+      next: next.skus,
+      idOf: (row) => row.skuId,
+    });
     baseline.current = product;
-    form.reset(productDefaults(product), { keepDirtyValues: true });
+    form.reset(next, { keepDirtyValues: true });
+    form.setValue("skus", rows, { shouldDirty: true });
   }, [product, form]);
 
   /** Puts a refusal of the API where it belongs: a field, a row, the table, or above the buttons. */
@@ -405,7 +417,14 @@ export function ProductForm({
   return (
     <form onSubmit={submit} noValidate className="flex min-w-0 flex-col gap-6">
       <UnsavedGuard
-        when={(dirty || alsoUnsaved) && !form.formState.isSubmitSuccessful}
+        // A new product leaves for its own page once it is created. An
+        // existing one is guarded whenever it differs from what is saved:
+        // the flag of the last submit stays set after a save, and after a
+        // removal that was asked about and not confirmed.
+        when={
+          (dirty || alsoUnsaved) &&
+          !(creating && form.formState.isSubmitSuccessful)
+        }
       />
 
       <fieldset disabled={!manage} className="flex min-w-0 flex-col gap-6">
@@ -742,7 +761,9 @@ export function ProductForm({
               <Button
                 variant="ghost"
                 size="lg"
-                disabled={!dirty || pending}
+                // Not while the requests of a save are on their way: what
+                // they save would only look discarded.
+                disabled={!dirty || pending || save.isPending}
                 onClick={() => {
                   form.reset(productDefaults(baseline.current));
                   setReport(null);

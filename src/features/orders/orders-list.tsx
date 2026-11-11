@@ -100,6 +100,10 @@ export function OrdersList({
   const [selected, setSelected] = useState<Set<Id>>(new Set());
   const manage = can("orders.manage");
   const rows = orders.data?.pages.flatMap((page) => page.items);
+  // Only orders on the page are acted upon: a tick does not outlive a change
+  // of the filters and reach an order nobody sees in the confirmation.
+  const onPage = new Set(rows?.map((order) => order.id));
+  const chosen = new Set([...selected].filter((id) => onPage.has(id)));
   const filtered = Boolean(
     q ||
     state.orderNumber ||
@@ -169,7 +173,7 @@ export function OrdersList({
       {manage ? (
         <OrdersBulkBar
           orders={rows ?? []}
-          selected={selected}
+          selected={chosen}
           onClear={() => setSelected(new Set())}
         />
       ) : null}
@@ -182,7 +186,7 @@ export function OrdersList({
         selection={
           manage
             ? {
-                selected,
+                selected: chosen,
                 onChange: setSelected,
                 label: (order) => `Choose ${order.orderNumber}`,
               }
@@ -219,6 +223,7 @@ export function OrdersList({
             hasMore={orders.hasNextPage}
             loading={orders.isFetchingNextPage}
             onLoadMore={() => void orders.fetchNextPage()}
+            error={orders.isFetchNextPageError ? orders.error : null}
           />
         }
       />

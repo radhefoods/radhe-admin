@@ -110,7 +110,31 @@ describe("a changed post", () => {
     values.seoTitle.en = "";
     expect(toPostPatch(parse(values), post)).toEqual({
       summary: { en: null, de: null },
-      seo: { title: { en: null, de: null } },
+      // Both parts: the API replaces `seo` as a whole.
+      seo: {
+        title: { en: null, de: null },
+        description: { en: null, de: null },
+      },
     });
+  });
+
+  it("sends the SEO description with a changed SEO title, so that it is not erased", () => {
+    const described = {
+      ...post,
+      seo: {
+        title: { en: "The perfect dal – Radhe Foods", de: null },
+        description: { en: "Five lentils, one pot.", de: null },
+      },
+    };
+    const values = postDefaults(described);
+    values.seoTitle.en = "Dal, the easy way";
+    expect(toPostPatch(parse(values), described)).toEqual({
+      seo: {
+        title: { en: "Dal, the easy way", de: null },
+        description: { en: "Five lentils, one pot.", de: null },
+      },
+    });
+    // Nothing of it changed: nothing of it is sent.
+    expect(toPostPatch(parse(postDefaults(described)), described)).toEqual({});
   });
 });

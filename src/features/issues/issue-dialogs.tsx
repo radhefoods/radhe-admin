@@ -6,7 +6,8 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { RadioGroup, RadioItem } from "@/components/ui/controls";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/components/ui/toast";
-import type { Id, Issue, IssueResolution } from "@/lib/api/types";
+import { creditForUnits } from "@/features/orders/bill";
+import type { Id, Issue, IssueResolution, OrderDetail } from "@/lib/api/types";
 import { formatMoney } from "@/lib/format/money";
 import { plural, translated } from "@/lib/format/names";
 import type { IssueActions } from "./queries";
@@ -86,11 +87,14 @@ function Notes({
  */
 export function IssueDecideDialog({
   issue,
+  order,
   decision,
   actions,
   onOpenChange,
 }: {
   issue: Issue;
+  /** The order of the report, once it is loaded: its lines carry what was paid. */
+  order: OrderDetail | undefined;
   decision: IssueDecision;
   actions: IssueActions;
   onOpenChange: (open: boolean) => void;
@@ -192,6 +196,20 @@ export function IssueDecideDialog({
     else parsed[item.variantId] = value;
   }
   const refund = refundInput(issue, parsed, note, internalNote);
+  // What the credit note will carry: what was paid for the units, so less
+  // their part of a discount code and of redeemed coins. Until the order is
+  // loaded, their list price stands in (the same amount when it has neither).
+  const credit = order
+    ? creditForUnits(
+        order,
+        Object.fromEntries(
+          issue.items.map((item) => [
+            item.variantId,
+            parsed[item.variantId] ?? item.quantity,
+          ]),
+        ),
+      )
+    : refund.amount;
   const refunding = way === "refund";
   const canRefund = issue.items.length > 0;
   const facts = refunding
@@ -199,7 +217,7 @@ export function IssueDecideDialog({
         { label: "Units refunded", value: refund.units },
         {
           label: "Credit for the goods",
-          value: formatMoney(refund.amount),
+          value: formatMoney(credit),
           strong: true,
         },
       ]
@@ -219,7 +237,7 @@ export function IssueDecideDialog({
       facts={facts}
       confirmLabel={
         refunding
-          ? `Refund ${formatMoney(refund.amount)}`
+          ? `Refund ${formatMoney(credit)}`
           : way === "replacement"
             ? "Resolve with a replacement"
             : "Settle with the note"
@@ -234,7 +252,7 @@ export function IssueDecideDialog({
         notify.success(
           `${issue.issueNumber} resolved`,
           refunding
-            ? `${formatMoney(result.resolution?.amount ?? refund.amount)} credited on ${issue.orderNumber}; the refund waits in the queue.`
+            ? `${formatMoney(result.resolution?.amount ?? credit)} credited on ${issue.orderNumber}; the refund waits in the queue.`
             : way === "replacement"
               ? "Send the replacement by hand."
               : "The customer can read your note.",

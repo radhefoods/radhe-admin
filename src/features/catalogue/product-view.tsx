@@ -41,6 +41,7 @@ import { useCan } from "@/lib/auth/auth-provider";
 import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format/money";
 import { plural, translated } from "@/lib/format/names";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes } from "@/lib/routes";
 import { categoryPath } from "./category-tree";
 import { ImageManager } from "./image-manager";
@@ -278,7 +279,7 @@ export function ProductView() {
   const categories = useCategories().data?.items;
   const back = { href: routes.products, label: "Products" };
 
-  if (product.isError && !gone) {
+  if (pageFailed(product) && !gone) {
     return (
       <RequirePermission permission="catalog.read">
         <PageHeader title="Product" back={back} />

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { ActionButton } from "@/components/domain/permission";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { CopyButton, DateTime, Money } from "@/components/domain/values";
+import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input, Select } from "@/components/ui/input";
 import {
@@ -27,6 +28,8 @@ import {
   type RefundReason,
   type Refundable,
 } from "@/lib/api/types";
+import { errorMessage } from "@/lib/api/error-text";
+import { isSessionError } from "@/lib/api/errors";
 import { useCan } from "@/lib/auth/auth-provider";
 import { formatDeadline } from "@/lib/format/dates";
 import { formatMoney, parseEuros, centsToInput } from "@/lib/format/money";
@@ -108,8 +111,15 @@ function RefundDialog({
   actions: OrderActions;
   onOpenChange: (open: boolean) => void;
 }) {
+  // What a cancellation or the credit notes call for. With nothing called
+  // for, the field starts at what can still be refunded, unless a refund is
+  // already on its way: then nothing more is owed and nothing is proposed.
   const suggested =
-    refundable.suggested > 0 ? refundable.suggested : refundable.maximum;
+    refundable.suggested > 0
+      ? refundable.suggested
+      : refundable.openAmount > 0
+        ? null
+        : refundable.maximum;
   const [amount, setAmount] = useState<string | null>(null);
   const [reason, setReason] = useState<RefundReason | "">("");
   const [method, setMethod] = useState<RefundMethod | null>(null);
@@ -325,6 +335,15 @@ function RefundDialog({
   );
 }
 
+/**
+ * The money that was called for is covered by refunds that are decided but
+ * not complete (`suggested` already leaves them out, 11): `needsRefund`
+ * stays `true` until they complete, yet there is nothing left to decide.
+ */
+export function refundOnItsWay(refundable: Refundable): boolean {
+  return refundable.suggested <= 0 && refundable.openAmount > 0;
+}
+
 // --- The card ---------------------------------------------------------------
 
 function Documents({ data }: { data: OrderPayment }) {
@@ -404,7 +423,8 @@ export function OrderPaymentCard({
   const can = useCan();
   const [refunding, setRefunding] = useState(false);
   const payment = order.payment;
-  const details = useOrderPayment(order.id).data;
+  const paymentQuery = useOrderPayment(order.id);
+  const details = paymentQuery.data;
   const refundable = details?.refundable;
   const pending = order.status === "pending_payment";
   const pageOpen = payment.checkout !== null;
@@ -424,7 +444,11 @@ export function OrderPaymentCard({
           refundable && refundable.maximum > 0 ? (
             <ActionButton
               permission="payments.manage"
-              variant={payment.needsRefund ? "primary" : "secondary"}
+              variant={
+                payment.needsRefund && !refundOnItsWay(refundable)
+                  ? "primary"
+                  : "secondary"
+              }
               onClick={() => setRefunding(true)}
             >
               Refund
@@ -555,7 +579,26 @@ export function OrderPaymentCard({
           </Alert>
         ) : null}
 
-        {payment.needsRefund && refundable ? (
+        {payment.needsRefund && refundable && refundOnItsWay(refundable) ? (
+          // The order counts as waiting until its refund is complete (11),
+          // but the refund was decided: nothing more is owed.
+          <Alert
+            tone="info"
+            title={`A refund of ${formatMoney(refundable.openAmount)} is on its way`}
+            actions={
+              <Link
+                href={routes.refunds}
+                className="text-13 font-medium text-accent-text hover:underline"
+              >
+                Open the refunds
+              </Link>
+            }
+          >
+            It was decided and is not complete yet: Stripe is working on it, or
+            the money sent by hand still has to be marked as complete. Nothing
+            more waits for a decision.
+          </Alert>
+        ) : payment.needsRefund && refundable ? (
           <Alert
             tone="time"
             title={`${formatMoney(refundable.suggested > 0 ? refundable.suggested : refundable.maximum)} waits for a refund`}
@@ -576,6 +619,24 @@ export function OrderPaymentCard({
         ) : payment.needsRefund && !can("payments.read") ? (
           <Alert tone="time" title="Money waits for a refund">
             Deciding it needs the permission “Payments: manage”.
+          </Alert>
+        ) : null}
+
+        {paymentQuery.isError &&
+        !details &&
+        !isSessionError(paymentQuery.error) ? (
+          // Without this answer the card has no refund button, no documents
+          // and no refunds: say so instead of showing a payment without them.
+          <Alert
+            tone="danger"
+            title="The refunds and documents of this order could not be loaded"
+            actions={
+              <Button size="sm" onClick={() => void paymentQuery.refetch()}>
+                Try again
+              </Button>
+            }
+          >
+            {errorMessage(paymentQuery.error)}
           </Alert>
         ) : null}
 

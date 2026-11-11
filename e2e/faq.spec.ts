@@ -1,4 +1,4 @@
-import { expect, signIn, test } from "./support";
+import { expect, moveWithKeys, signIn, test } from "./support";
 
 // The FAQ in a real browser: a question is dragged to a new place by its
 // handle and the order is saved at once.
@@ -23,11 +23,7 @@ test("a question is dragged to the top of its group and the order is saved", asy
   });
 
   const handle = rows.nth(2).getByRole("button", { name: /^Move / });
-  await handle.focus();
-  await page.keyboard.press("Space");
-  await page.keyboard.press("ArrowUp");
-  await page.keyboard.press("ArrowUp");
-  await page.keyboard.press("Space");
+  await moveWithKeys(page, handle, ["ArrowUp", "ArrowUp"]);
 
   await expect(rows.nth(0)).toContainText(lastText.split("\n")[0] ?? lastText);
   await expect.poll(() => puts).toBe(1);

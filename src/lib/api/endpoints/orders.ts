@@ -1,7 +1,7 @@
 // Sections 9 (orders), 10 (returns), 11 (payments and refunds),
 // 12 (invoices) and 15 (attention).
 
-import type { Query } from "../http";
+import { pdfBlob, type Query } from "../http";
 import type { SessionTransport } from "../session";
 import type {
   Attention,
@@ -175,7 +175,7 @@ export function invoicesApi({ request, raw }: SessionTransport) {
         headers: { Accept: "application/pdf" },
         signal,
       });
-      return response.blob();
+      return pdfBlob(response);
     },
   };
 }

@@ -2,6 +2,7 @@ import {
   expect,
   test as base,
   type APIRequestContext,
+  type Locator,
   type Page,
 } from "@playwright/test";
 
@@ -68,5 +69,23 @@ export const test = base.extend({
     await run(page);
   },
 });
+
+/**
+ * Moves a sortable entry with the keyboard: Space picks it up, the arrows
+ * move it, Space puts it down. The keys come at the pace of a hand: the
+ * list measures itself after each one, and keys fired without a gap are
+ * dropped before it has done so.
+ */
+export async function moveWithKeys(
+  page: Page,
+  handle: Locator,
+  arrows: ("ArrowUp" | "ArrowDown")[],
+): Promise<void> {
+  await handle.focus();
+  for (const key of ["Space", ...arrows, "Space"]) {
+    await page.keyboard.press(key);
+    await page.waitForTimeout(150);
+  }
+}
 
 export { expect };

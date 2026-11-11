@@ -60,7 +60,9 @@ export function readStockChange(
   input: { mode: StockMode; value: string; note: string },
   stock: Pick<ProductStock, "quantity">,
 ): StockReading {
-  const text = input.value.trim().replace(/\s+/g, "");
+  // The minus the panel prints (−, as in the hint and the history) is read
+  // like the one of the keyboard: a pasted `−4` is a number.
+  const text = input.value.trim().replace(/\s+/g, "").replace(/−/g, "-");
   const note = input.note.trim() || undefined;
   const invalid = (problem: string): StockReading => ({
     body: null,

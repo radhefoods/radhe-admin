@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { berlinToIso } from "@/lib/format/dates";
-import { parseEuros, parseVatRate } from "@/lib/format/money";
-import { formatMoney } from "@/lib/format/money";
+import { formatMoney, parseEuros, parseVatRate } from "@/lib/format/money";
 
 // Pieces of the zod schemas that mirror the API's validation. A form holds
 // what the admin typed (text); the schema turns it into what the API wants

@@ -90,6 +90,8 @@ export function useReorderBanners() {
   const key = queryKeys.banners.list();
   return useMutation({
     mutationFn: (orderedIds: Id[]) => api.banners.reorder({ orderedIds }),
+    // The view that asked reports a failure, once.
+    meta: { silent: true },
     onMutate: async (orderedIds) => {
       await client.cancelQueries({ queryKey: key });
       const before = client.getQueryData<BannerList>(key);

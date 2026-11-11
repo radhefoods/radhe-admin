@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/menu";
 import { Kbd } from "@/components/ui/surface";
+import { notify } from "@/components/ui/toast";
 import { useAdmin, useAuth } from "@/lib/auth/auth-provider";
 import { initials } from "@/lib/format/names";
 import { routes } from "@/lib/routes";
@@ -121,7 +122,13 @@ function UserMenu() {
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => void signOut()}>
+        <DropdownMenuItem
+          onSelect={() =>
+            void signOut().catch((error: unknown) =>
+              notify.error(error, "You are still signed in"),
+            )
+          }
+        >
           <LogOut />
           Sign out
         </DropdownMenuItem>

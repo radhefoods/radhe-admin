@@ -106,16 +106,6 @@ function keepProduct(client: QueryClient, product: ProductDetail): void {
   client.setQueryData(queryKeys.products.detail(product.id), product);
 }
 
-export function useCreateProduct() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: ProductInput) =>
-      (await api.products.create(input)).product,
-    onSuccess: (product) => keepProduct(client, product),
-    meta: { invalidates: invalidation.catalog, silent: true },
-  });
-}
-
 export interface CreateWithImagesInput {
   input: ProductInput;
   /** The pictures chosen before the product existed; uploaded right after. */

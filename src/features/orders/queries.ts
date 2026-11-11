@@ -5,8 +5,10 @@ import {
   useInfiniteQuery,
   useMutation,
   useQuery,
+  useQueryClient,
 } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
+import { hasErrorCode } from "@/lib/api/errors";
 import { invalidation, queryKeys } from "@/lib/api/query-keys";
 import type {
   CreateRefundInput,
@@ -27,7 +29,9 @@ export function useOrders(
   enabled = true,
 ) {
   return useInfiniteQuery({
-    queryKey: queryKeys.orders.list(query),
+    // "pages": a plain query of the same filters keeps another shape, and
+    // the two under one key would break each other.
+    queryKey: [...queryKeys.orders.list(query), "pages"] as const,
     queryFn: ({ pageParam, signal }) =>
       api.orders.list(
         { ...query, limit: PAGE_SIZE, cursor: pageParam },
@@ -76,17 +80,40 @@ export function useOrderPayment(id: Id, enabled = true) {
  * `invalidation` names.
  */
 export function useOrderActions(id: Id) {
+  const queryClient = useQueryClient();
   const order = { invalidates: invalidation.order, silent: true } as const;
   const payment = { invalidates: invalidation.payment, silent: true } as const;
+  /**
+   * A refusal that says the order is no longer what the page shows (another
+   * admin moved it, a refund was decided meanwhile): the dialog shows the
+   * error, and the order is read again so that its buttons are the true ones.
+   */
+  const onError = (error: unknown) => {
+    if (
+      hasErrorCode(
+        error,
+        "ORDER_TRANSITION_NOT_ALLOWED",
+        "ORDER_CHANGED_MEANWHILE",
+        "ORDER_CANNOT_BE_CANCELLED",
+        "ORDER_CANNOT_BE_CHANGED",
+        "ORDER_QUANTITY_INVALID",
+        "REFUND_AMOUNT_INVALID",
+      )
+    ) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
+    }
+  };
   return {
     setStatus: useMutation({
       mutationFn: (input: OrderStatusInput) => api.orders.setStatus(id, input),
       meta: order,
+      onError,
     }),
     setDelivery: useMutation({
       mutationFn: (input: OrderDeliveryInput) =>
         api.orders.setDelivery(id, input),
       meta: order,
+      onError,
     }),
     adjustItem: useMutation({
       mutationFn: ({
@@ -96,16 +123,19 @@ export function useOrderActions(id: Id) {
         api.orders.adjustItem(id, variantId, input),
       // A correction issues a credit note and gives units back to the stock.
       meta: payment,
+      onError,
     }),
     cancel: useMutation({
       mutationFn: (input: OrderCancelInput) => api.orders.cancel(id, input),
       // A cancellation gives the stock back and may leave money to refund.
       meta: payment,
+      onError,
     }),
     createRefund: useMutation({
       mutationFn: (input: CreateRefundInput) =>
         api.orders.createRefund(id, input),
       meta: payment,
+      onError,
     }),
   };
 }

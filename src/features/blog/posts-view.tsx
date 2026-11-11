@@ -161,7 +161,8 @@ function PostCard({ post }: { post: BlogPostSummary }) {
 export function PostsView() {
   const can = useCan();
   const [state, setState, clear] = useUrlState({
-    q: param.text(100),
+    // The API takes 2 to 80 characters (23).
+    q: param.text(80),
     status: param.oneOf(STATUSES),
     categoryId: param.id(),
     tag: param.text(BLOG_RULES.tagMaxLength),
@@ -169,7 +170,7 @@ export function PostsView() {
     page: param.page(),
   });
   const query = {
-    q: state.q || undefined,
+    q: state.q.length >= 2 ? state.q : undefined,
     status: state.status,
     categoryId: state.categoryId,
     tag: state.tag || undefined,
@@ -224,6 +225,8 @@ export function PostsView() {
             onChange={(q) => setState({ q })}
             label="Search posts"
             placeholder="Title, summary or tag"
+            minLength={2}
+            hint="At least two characters."
           />
           <FilterSelect
             label="Status"

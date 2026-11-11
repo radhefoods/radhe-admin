@@ -2,6 +2,8 @@
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { errorMessage } from "@/lib/api/error-text";
+import { isSessionError } from "@/lib/api/errors";
 import { cn } from "@/lib/cn";
 import { plural } from "@/lib/format/names";
 
@@ -82,6 +84,7 @@ export function LoadMore({
   hasMore,
   loading,
   onLoadMore,
+  error,
   className,
 }: {
   shown: number;
@@ -91,6 +94,11 @@ export function LoadMore({
   hasMore: boolean;
   loading: boolean;
   onLoadMore: () => void;
+  /**
+   * Why the next page did not come (`isFetchNextPageError`): the rows that
+   * are shown stay, and the list says that it is not complete.
+   */
+  error?: unknown;
   className?: string;
 }) {
   if (shown === 0) return null;
@@ -102,6 +110,11 @@ export function LoadMore({
         className,
       )}
     >
+      {error && !isSessionError(error) ? (
+        <p role="alert" className="w-full text-danger-fg">
+          The next rows could not be loaded: {errorMessage(error)}
+        </p>
+      ) : null}
       <p className="tabular" aria-live="polite">
         {hasMore
           ? counted
@@ -111,7 +124,7 @@ export function LoadMore({
       </p>
       {hasMore ? (
         <Button size="sm" loading={loading} onClick={onLoadMore}>
-          Load more
+          {error ? "Try again" : "Load more"}
         </Button>
       ) : null}
     </div>

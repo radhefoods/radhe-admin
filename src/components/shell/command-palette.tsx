@@ -18,12 +18,14 @@ import { Spinner } from "@/components/ui/spinner";
 import { Kbd } from "@/components/ui/surface";
 import { planSearch, hasRemoteSearch } from "@/features/search/classify";
 import { api } from "@/lib/api/client";
+import { errorMessage } from "@/lib/api/error-text";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useCan } from "@/lib/auth/auth-provider";
 import { formatMoney } from "@/lib/format/money";
 import { personEmail, personName, translated } from "@/lib/format/names";
 import { useDebounced } from "@/lib/hooks/use-debounced";
 import { routes } from "@/lib/routes";
+import { heldByUnsavedChanges } from "@/lib/unsaved";
 import { visibleNavigation } from "./nav";
 
 interface Result {
@@ -65,21 +67,44 @@ export function CommandPalette({
     enabled: open && searching,
     staleTime: 15_000,
     queryFn: async ({ signal }) => {
-      const [orders, customers, products] = await Promise.all([
-        plan.query && can("orders.read")
-          ? api.orders.list({ q: plan.query, limit: 5 }, signal)
+      // Each lookup stands for itself: one that fails (a role edited a
+      // moment ago, a busy API) does not take the results of the others.
+      const ask = {
+        orders: Boolean(plan.query) && can("orders.read"),
+        customers: Boolean(plan.query) && can("customers.read"),
+        products: Boolean(plan.productQuery) && can("catalog.read"),
+      };
+      const [orders, customers, products] = await Promise.allSettled([
+        ask.orders
+          ? api.orders.list({ q: plan.query ?? undefined, limit: 5 }, signal)
           : null,
-        plan.query && can("customers.read")
-          ? api.customers.list({ q: plan.query, limit: 5 }, signal)
+        ask.customers
+          ? api.customers.list({ q: plan.query ?? undefined, limit: 5 }, signal)
           : null,
-        plan.productQuery && can("catalog.read")
-          ? api.products.list({ q: plan.productQuery, limit: 6 }, signal)
+        ask.products
+          ? api.products.list(
+              { q: plan.productQuery ?? undefined, limit: 6 },
+              signal,
+            )
           : null,
       ]);
+      const asked = Object.values(ask).filter(Boolean).length;
+      const failed = [orders, customers, products].filter(
+        (entry) => entry.status === "rejected",
+      );
+      // Nothing that was asked came back: that is the error of the search.
+      if (asked > 0 && failed.length === asked && failed[0]) {
+        throw failed[0].reason;
+      }
+      const itemsOf = <T,>(
+        entry: PromiseSettledResult<{ items: T[] } | null>,
+      ): T[] =>
+        entry.status === "fulfilled" ? (entry.value?.items ?? []) : [];
       return {
-        orders: orders?.items ?? [],
-        customers: customers?.items ?? [],
-        products: products?.items ?? [],
+        orders: itemsOf(orders),
+        customers: itemsOf(customers),
+        products: itemsOf(products),
+        incomplete: failed.length > 0,
       };
     },
   });
@@ -157,7 +182,8 @@ export function CommandPalette({
 
   function go(href: Route) {
     onOpenChange(false);
-    router.push(href);
+    // A form with unsaved changes asks first, as it does for a link.
+    if (!heldByUnsavedChanges(href)) router.push(href);
   }
 
   return (
@@ -198,7 +224,11 @@ export function CommandPalette({
             ) : null}
             {search.isError ? (
               <p className="px-3 py-4 text-13 text-danger-fg">
-                The search could not reach the API.
+                {errorMessage(search.error)}
+              </p>
+            ) : found?.incomplete ? (
+              <p className="px-3 py-2 text-13 text-ink-muted">
+                A part of the search did not answer; what was found is shown.
               </p>
             ) : null}
             {groups.map((group) => (

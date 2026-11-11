@@ -22,6 +22,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Checkbox, Switch } from "@/components/ui/controls";
 import { Input, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
+import { registerUnsavedGuard } from "@/lib/unsaved";
 import { Field, useControlProps } from "./form";
 
 type AnyForm<T extends FieldValues> = UseFormReturn<T, unknown, FieldValues>;
@@ -445,7 +446,7 @@ export function BilingualField<T extends FieldValues>({
 
 /**
  * Stops the admin from losing a half-filled form: closing the tab asks,
- * and so does a link inside the panel.
+ * and so does a link inside the panel, the search and a row of a table.
  */
 export function UnsavedGuard({ when }: { when: boolean }) {
   const router = useRouter();
@@ -472,9 +473,12 @@ export function UnsavedGuard({ when }: { when: boolean }) {
     };
     window.addEventListener("beforeunload", beforeUnload);
     document.addEventListener("click", onClick, true);
+    // The search and a row of a table navigate by code: they ask here.
+    const unregister = registerUnsavedGuard((href) => setPending(href));
     return () => {
       window.removeEventListener("beforeunload", beforeUnload);
       document.removeEventListener("click", onClick, true);
+      unregister();
     };
   }, [when]);
 

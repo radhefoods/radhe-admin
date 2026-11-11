@@ -30,7 +30,10 @@ test("a post is written, given its featured picture and published", async ({
   await publishing.getByRole("button", { name: "Publish" }).click();
   await page.getByRole("button", { name: "Publish now" }).click();
   await expect(page.getByText("Post published")).toBeVisible();
-  await expect(publishing.getByText("Published")).toBeVisible();
+  // The badge, not the sentence "Published since …" under it.
+  await expect(
+    publishing.getByText("Published", { exact: true }),
+  ).toBeVisible();
 
   await page.getByRole("link", { name: "Blog" }).first().click();
   const row = page.getByRole("row").filter({ hasText: "Chai, three ways" });

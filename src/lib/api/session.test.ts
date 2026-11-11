@@ -190,6 +190,32 @@ describe("refresh and retry (documentation, 0.4)", () => {
     expect(ended).toEqual(["revoked"]);
   });
 
+  it("refreshes for signing out everywhere, which needs a signed-in admin", async () => {
+    const { transport, calls } = transportWith([
+      apiError(401, "AUTH_TOKEN_INVALID"),
+      json(200, { admin: {} }),
+      new Response(null, { status: 204 }),
+    ]);
+    await transport.request("/v1/admin/auth/logout-all", { method: "POST" });
+    expect(
+      calls.map((call) => call.url.replace("http://api.test", "")),
+    ).toEqual([
+      "/v1/admin/auth/logout-all",
+      "/v1/admin/auth/refresh",
+      "/v1/admin/auth/logout-all",
+    ]);
+  });
+
+  it("never refreshes for signing out on this device", async () => {
+    const { transport, calls } = transportWith([
+      apiError(401, "AUTH_TOKEN_INVALID"),
+    ]);
+    await transport
+      .request("/v1/admin/auth/logout", { method: "POST" })
+      .catch(() => undefined);
+    expect(calls).toHaveLength(1);
+  });
+
   it("never refreshes for the sign-in itself", async () => {
     const { transport, calls } = transportWith([
       apiError(401, "ADMIN_CREDENTIALS_INVALID"),
@@ -444,5 +470,66 @@ describe("errors", () => {
         off: "",
       }),
     ).toBe("http://api.test/v1/x?q=atta+5&page=2&on=true");
+  });
+});
+
+describe("the path of a call", () => {
+  // An id comes from the address of the page: `/orders/..%2Fcustomers`.
+  const id = "66f0a1b2c3d4e5f601234567";
+
+  it("takes the paths the panel builds", () => {
+    for (const path of [
+      "/v1/admin/attention",
+      `/v1/admin/orders/${id}`,
+      `/v1/admin/orders/${id}/payment/refunds`,
+      "/v1/admin/orders/bulk/delivery-method",
+      `/v1/admin/products/${id}/variants/${id}/stock/movements`,
+      "/v1/admin/auth/logout-all",
+    ]) {
+      expect(buildUrl("http://api.test", path)).toBe(`http://api.test${path}`);
+    }
+  });
+
+  it("refuses an id that would lead to another endpoint, without a request", async () => {
+    const { transport, fetch } = transportWith([]);
+    for (const evil of [
+      "../customers",
+      "..",
+      ".",
+      "%2e%2e",
+      "..%2Fcustomers",
+      `${id}?x=`,
+      `${id}#`,
+      `..\\customers`,
+      `${id}/../../refunds`,
+      "",
+      " ",
+      "a b",
+    ]) {
+      const error = await failure(
+        transport.request(`/v1/admin/orders/${evil}/status`, {
+          method: "POST",
+          body: {},
+        }),
+      );
+      expect(error, evil).toBeInstanceOf(ApiError);
+      expect(error.code, evil).toBe("NOT_FOUND");
+      expect(error.status, evil).toBe(404);
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("refuses it for an upload as well", async () => {
+    const createXhr = vi.fn();
+    const { transport } = transportWith([], {
+      createXhr: createXhr as unknown as () => XMLHttpRequest,
+    });
+    const error = await failure(
+      transport.upload("/v1/admin/products/../banners", {
+        formData: new FormData(),
+      }),
+    );
+    expect(error.code).toBe("NOT_FOUND");
+    expect(createXhr).not.toHaveBeenCalled();
   });
 });

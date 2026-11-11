@@ -55,7 +55,11 @@ function zOptionalUrl(accepts: (url: URL) => boolean, message: string) {
 export const companySchema = z.object({
   name: zText(120, "Enter the name of the company."),
   addressLines: z
-    .array(z.object({ value: z.string().trim() }))
+    .array(
+      z.object({
+        value: z.string().trim().max(120, "At most 120 characters."),
+      }),
+    )
     .max(MAX_ADDRESS_LINES)
     .superRefine((lines, context) => {
       if (lines.every((line) => line.value === "")) {
@@ -242,6 +246,7 @@ function CompanyForm({ company }: { company: CompanySettings }) {
                               : undefined
                         }
                         autoComplete="off"
+                        maxLength={120}
                         {...form.register(`addressLines.${index}.value`)}
                       />
                       {manage ? (

@@ -19,6 +19,7 @@ import { formatMoney } from "@/lib/format/money";
 import { DELIVERY_METHOD_LABEL, personName } from "@/lib/format/names";
 import { ORDER_STATUS, humanize } from "@/lib/status";
 import { ORDER_PATH, orderActionLabel } from "@/lib/status/transitions";
+import { keptLineTotal } from "./bill";
 import type { OrderActions } from "./queries";
 
 const TRACKING = /^[A-Za-z0-9-]{4,60}$/;
@@ -378,12 +379,10 @@ export function billAfterCorrection(
   delivered: number,
 ): { lineTotal: number; total: number; difference: number } {
   const kept = Math.max(0, delivered - item.returnedQuantity);
-  // A kept unit is paid at its unit price less its part of the line's discount (26).
-  const share =
-    item.quantity > 0
-      ? Math.round((item.discountAmount * kept) / item.quantity)
-      : 0;
-  const lineTotal = kept * item.unitPrice - share;
+  // A kept unit is paid at its unit price less its part of the line's
+  // discount (26) and of the coins redeemed on the line (30): the coin share
+  // of a unit that is credited comes back to the customer as well.
+  const lineTotal = keptLineTotal(item, kept);
   const goods = order.items.reduce(
     (sum, entry) =>
       sum +

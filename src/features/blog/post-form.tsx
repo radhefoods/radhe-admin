@@ -1,7 +1,12 @@
 "use client";
 
 import { CalendarClock, Send, Undo2 } from "lucide-react";
-import { useState, type MutableRefObject, type ReactNode } from "react";
+import {
+  useCallback,
+  useState,
+  type MutableRefObject,
+  type ReactNode,
+} from "react";
 import { ActionButton } from "@/components/domain/permission";
 import { StatusBadge } from "@/components/domain/status-badge";
 import { DateTime } from "@/components/domain/values";
@@ -11,6 +16,7 @@ import {
   SelectField,
   TextField,
   TextareaField,
+  useFollowRecord,
   useSubmit,
   useZodForm,
 } from "@/components/form/form";
@@ -342,6 +348,14 @@ export function PostForm({
     Record<Locale, MutableRefObject<Inserter | null>>
   >(() => ({ en: { current: null }, de: { current: null } }));
   const dirty = form.formState.isDirty;
+  // The post changed underneath (another tab or admin, a picture, the
+  // publication): untouched fields follow, what was typed stays.
+  const author = admin.name;
+  const defaultsOf = useCallback(
+    (current: BlogPost) => postDefaults(current, author),
+    [author],
+  );
+  useFollowRecord(form, post, defaultsOf);
 
   const { onSubmit, state, pending } = useSubmit(
     form,
@@ -351,7 +365,9 @@ export function PostForm({
         if (post) {
           const patch = toPostPatch(values, post);
           if (Object.keys(patch).length === 0) {
-            form.reset(form.getValues());
+            // An emptied author or address is not sent (the API keeps them):
+            // the form shows what the post has, not a blank that reads as saved.
+            form.reset(postDefaults(post, author));
             notify.info("Nothing changed");
             return;
           }

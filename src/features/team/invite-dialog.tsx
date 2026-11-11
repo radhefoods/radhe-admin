@@ -182,10 +182,22 @@ function InviteForm({
             />
           )}
         />
-        <Alert tone="info" title="No email is sent">
-          You hand the password over yourself. At the first sign-in the new
-          admin sets up the authenticator app (two-factor is required for
-          everyone) and must then choose an own password.
+        {/* What the switch below says, so the two never disagree: with the
+            invitation on, the temporary password does travel by email. */}
+        <Alert
+          tone="info"
+          title={
+            form.watch("sendInvitation")
+              ? "The password goes out by email"
+              : "No email is sent"
+          }
+        >
+          {form.watch("sendInvitation")
+            ? "The temporary password and the link to the panel go to the new admin's address."
+            : "You hand the password over yourself."}{" "}
+          At the first sign-in the new admin sets up the authenticator app
+          (two-factor is required for everyone) and must then choose an own
+          password.
         </Alert>
         <FormError state={state} />
         <SwitchField

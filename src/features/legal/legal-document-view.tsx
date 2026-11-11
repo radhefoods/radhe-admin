@@ -15,6 +15,7 @@ import { BilingualField, UnsavedGuard } from "@/components/form/fields";
 import {
   FormError,
   TextareaField,
+  useFollowRecord,
   useSubmit,
   useZodForm,
 } from "@/components/form/form";
@@ -262,6 +263,9 @@ function DraftEditor({
   const [refused, setRefused] = useState<string | null>(null);
 
   const dirty = form.formState.isDirty;
+  // The draft changed underneath (another tab or admin): untouched fields
+  // follow, what was typed stays.
+  useFollowRecord(form, document, draftDefaults);
   // Another admin published this version while it was open here.
   const publishedMeanwhile = document.status === "published";
   useEffect(() => {

@@ -238,6 +238,8 @@ export function useReorderBlogCategories() {
   return useMutation({
     mutationFn: (orderedIds: Id[]) =>
       api.blogCategories.reorder({ orderedIds }),
+    // The view that asked reports a failure, once.
+    meta: { silent: true },
     onMutate: async (orderedIds) => {
       await client.cancelQueries({ queryKey: key });
       const before = client.getQueryData<BlogCategoryList>(key);

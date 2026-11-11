@@ -120,6 +120,8 @@ describe("a new post", () => {
       path: "/content/blog/new",
     });
     await screen.findByRole("heading", { name: "New post" });
+    // The form opens once the categories of its select are loaded.
+    await screen.findByRole("button", { name: "Create post" });
     await user.type(field("title.en"), "Roti, the second try");
     await user.type(
       field("content.en"),
@@ -159,6 +161,8 @@ describe("a new post", () => {
       path: "/content/blog/new",
     });
     await screen.findByRole("heading", { name: "New post" });
+    // The form opens once the categories of its select are loaded.
+    await screen.findByRole("button", { name: "Create post" });
     await user.click(screen.getByRole("tab", { name: "German" }));
     await user.type(field("title.de"), "Nur Deutsch");
     await user.click(screen.getByRole("button", { name: "Create post" }));

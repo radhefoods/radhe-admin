@@ -8,8 +8,12 @@ import { translatedDefaults } from "@/lib/validation";
 // that is a path of the shop or an https address, the switch, a period
 // whose end comes after its start, and the description of the picture.
 
-/** A path with one leading slash, or an https address; no spaces. */
-const LINK = /^(\/(?!\/)\S*|https:\/\/\S+)$/;
+/**
+ * A path with one leading slash, or an https address; no spaces. A
+ * backslash after the slash is refused like a second slash: a browser reads
+ * `/\host` as `//host`, which is another site.
+ */
+const LINK = /^(\/(?![/\\])\S*|https:\/\/\S+)$/;
 
 const text = (max: number) =>
   z

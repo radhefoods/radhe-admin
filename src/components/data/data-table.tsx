@@ -18,6 +18,7 @@ import { Alert, Skeleton } from "@/components/ui/surface";
 import { describeError } from "@/lib/api/error-text";
 import { isSessionError } from "@/lib/api/errors";
 import { cn } from "@/lib/cn";
+import { heldByUnsavedChanges } from "@/lib/unsaved";
 
 export interface ColumnMeta {
   /** Numbers and money sit right, so their digits line up. */
@@ -183,7 +184,8 @@ export function DataTable<T extends RowData>({
     if (window.getSelection()?.toString()) return;
     const href = rowHref(row);
     if (event.metaKey || event.ctrlKey) window.open(href, "_blank", "noopener");
-    else router.push(href);
+    // A form with unsaved changes on the page asks first, as for a link.
+    else if (!heldByUnsavedChanges(href)) router.push(href);
   }
 
   return (

@@ -312,17 +312,6 @@ export function useCopyFromRetail() {
   });
 }
 
-export function useUpdateWholesaleProduct(id: Id) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: async (
-      input: Parameters<typeof api.wholesaleProducts.update>[1],
-    ) => (await api.wholesaleProducts.update(id, input)).product,
-    onSuccess: (product) => keepProduct(client, product),
-    meta: META,
-  });
-}
-
 export function useDeleteWholesaleProduct() {
   return useMutation({
     mutationFn: (id: Id) => api.wholesaleProducts.remove(id),

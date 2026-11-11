@@ -16,6 +16,7 @@ import { hasErrorCode } from "@/lib/api/errors";
 import type { Id, RewardAccountDetail } from "@/lib/api/types";
 import { cn } from "@/lib/cn";
 import { personName, type PersonLike } from "@/lib/format/names";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes, withQuery } from "@/lib/routes";
 import { AdjustDialog } from "./adjust-dialog";
 import { useRewardAccount } from "./queries";
@@ -40,7 +41,7 @@ export function AccountDetail({
   const detail = useRewardAccount(customerId);
   const [adjusting, setAdjusting] = useState(false);
 
-  if (detail.isError) {
+  if (pageFailed(detail)) {
     return hasErrorCode(detail.error, "CUSTOMER_NOT_FOUND") ? (
       <EmptyState icon={<CoinsIcon />} title="This customer does not exist">
         The link may be old, or the address was mistyped.

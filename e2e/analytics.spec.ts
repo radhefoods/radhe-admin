@@ -31,11 +31,12 @@ test("the Analytics tab draws the figures of the month and keeps the period over
 
   // Hovering the chart names the day and its figures.
   const chart = sales.getByRole("img", { name: /Revenue per day/ });
-  const box = await chart.boundingBox();
-  if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await expect(
-    sales.getByText("Previous period", { exact: false }),
-  ).toBeVisible();
+  // Scrolled into view first: the chart sits below the first screen.
+  await chart.hover();
+  // The readout names the series with the day it compares with:
+  // "Previous period (3 Oct)". The column header of the table for screen
+  // readers has the words without a day.
+  await expect(sales.getByText(/^Previous period \(/)).toBeVisible();
 });
 
 test("an admin without analytics.read sees the start page without tabs", async ({

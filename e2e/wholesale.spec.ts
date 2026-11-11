@@ -1,4 +1,4 @@
-import { expect, signIn, test } from "./support";
+import { expect, moveWithKeys, signIn, test } from "./support";
 
 // The wholesale catalogue in a real browser: a category moved with the
 // keyboard and saved at once, and the stock of a SKU set from its product
@@ -23,10 +23,7 @@ test("a wholesale category is moved with the keyboard and the order is saved at 
       saved += 1;
   });
   const handle = page.getByRole("button", { name: /^Move Rice,/ });
-  await handle.focus();
-  await page.keyboard.press("Space");
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("Space");
+  await moveWithKeys(page, handle, ["ArrowDown"]);
   await expect(rows.nth(1)).toContainText("Rice");
   await expect.poll(() => saved).toBe(1);
 

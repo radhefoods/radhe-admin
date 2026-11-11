@@ -40,6 +40,7 @@ import {
 import { cn } from "@/lib/cn";
 import { formatDateTime } from "@/lib/format/dates";
 import { plural } from "@/lib/format/names";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes, withQuery } from "@/lib/routes";
 import { NOTIFICATION_STATUS } from "@/lib/status";
 import { AnnouncementAbout } from "./announcements-view";
@@ -298,7 +299,7 @@ export function AnnouncementView() {
   const cancel = useCancelAnnouncement(id);
   const [cancelling, setCancelling] = useState(false);
 
-  if (query.isError) {
+  if (pageFailed(query)) {
     return (
       <RequirePermission permission="notifications.read">
         <PageHeader title="Announcement" back={back} />

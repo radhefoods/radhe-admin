@@ -44,4 +44,35 @@ describe("a sheet read from a file", () => {
       "rice,Rice & Grains,",
     ]);
   });
+
+  it("writes a cell a spreadsheet would run as a formula as text", () => {
+    const text = csvOf(
+      ["name_en", "stock", "note"],
+      [
+        { name_en: '=HYPERLINK("http://evil.example")', stock: "-5" },
+        { name_en: "@SUM(1+1)", stock: "+1.5", note: "- not a number" },
+        { name_en: "+cmd|' /C calc'!A0", stock: "12", note: "Rice - 5 kg" },
+      ],
+    );
+    expect(text.split(/\r?\n/)).toEqual([
+      "name_en,stock,note",
+      // Numbers with a sign stay numbers; text in the middle is untouched.
+      '"\'=HYPERLINK(""http://evil.example"")",-5,',
+      '"\'@SUM(1+1)",+1.5,"\'- not a number"',
+      "\"'+cmd|' /C calc'!A0\",12,Rice - 5 kg",
+    ]);
+  });
+
+  it("reads the guarded cells of an export back as they were", () => {
+    const sheet = sheetFromMatrix([
+      ["name_en", "stock", "note"],
+      ["'=HYPERLINK(1)", "-5", "'- not a number"],
+      ["'t is fine", "'12", "'@home"],
+    ]);
+    expect(sheet.rows).toEqual([
+      { name_en: "=HYPERLINK(1)", stock: "-5", note: "- not a number" },
+      // An apostrophe before anything else is the text's own.
+      { name_en: "'t is fine", stock: "'12", note: "@home" },
+    ]);
+  });
 });

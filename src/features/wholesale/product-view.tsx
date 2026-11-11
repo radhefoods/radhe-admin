@@ -33,6 +33,7 @@ import type { WholesaleProductDetail } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
 import { cn } from "@/lib/cn";
 import { plural, translated } from "@/lib/format/names";
+import { pageFailed } from "@/lib/query/page-state";
 import { routes } from "@/lib/routes";
 import { ProductForm } from "./product-form";
 import {
@@ -104,7 +105,7 @@ export function ProductView() {
   const remove = useDeleteWholesaleProduct();
   const back = { href: routes.wholesaleProducts, label: "Wholesale products" };
 
-  if (product.isError && !gone) {
+  if (pageFailed(product) && !gone) {
     return (
       <RequirePermission permission="wholesale.read">
         <PageHeader title="Wholesale product" back={back} />

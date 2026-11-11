@@ -28,6 +28,18 @@ const nextConfig: NextConfig = {
           { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
         ],
       },
+      {
+        // The logo and the feather are on every page and change rarely:
+        // a day without asking, a week of showing the kept copy while
+        // asking again. Their names carry no hash, so not "immutable".
+        source: "/brand/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=86400, stale-while-revalidate=604800",
+          },
+        ],
+      },
     ];
   },
 };

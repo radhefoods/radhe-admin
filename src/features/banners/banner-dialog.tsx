@@ -11,6 +11,7 @@ import {
 import {
   FormError,
   TextField,
+  useFollowRecord,
   useSubmit,
   useZodForm,
 } from "@/components/form/form";
@@ -353,6 +354,9 @@ function BannerForm({
     defaultValues: bannerDefaults(banner),
   });
   const dirty = form.formState.isDirty;
+  // The banner changed underneath (the switch in the list, another admin):
+  // untouched fields follow, what was typed stays.
+  useFollowRecord(form, banner, bannerDefaults);
   useEffect(() => {
     onDirty(dirty);
     return () => onDirty(false);

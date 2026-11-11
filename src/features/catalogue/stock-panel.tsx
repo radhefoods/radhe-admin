@@ -369,7 +369,9 @@ export function StockPanel({
               <Skeleton className="h-9" />
               <Skeleton className="h-9" />
             </div>
-          ) : movements.isError ? (
+          ) : movements.isError && !rows ? (
+            // With rows on the page, a page that did not come is said under
+            // them: the history that is shown stays.
             <Alert
               tone="danger"
               title="The stock history could not be loaded"
@@ -402,6 +404,7 @@ export function StockPanel({
                 hasMore={movements.hasNextPage}
                 loading={movements.isFetchingNextPage}
                 onLoadMore={() => void movements.fetchNextPage()}
+                error={movements.isFetchNextPageError ? movements.error : null}
               />
             </>
           )}

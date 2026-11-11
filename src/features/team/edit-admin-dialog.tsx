@@ -25,7 +25,7 @@ import { notify } from "@/components/ui/toast";
 import { hasErrorCode } from "@/lib/api/errors";
 import { queryKeys } from "@/lib/api/query-keys";
 import type { AdminWithRole, UpdateAdminInput } from "@/lib/api/types";
-import { useAdmin } from "@/lib/auth/auth-provider";
+import { useAdmin, useAuth } from "@/lib/auth/auth-provider";
 import { ADMIN_STATUS } from "@/lib/status";
 import { zText } from "@/lib/validation";
 import { useRoleChoices, useUpdateAdmin } from "./queries";
@@ -48,6 +48,7 @@ function EditForm({
   onClose: () => void;
 }) {
   const me = useAdmin();
+  const { reload } = useAuth();
   const client = useQueryClient();
   const update = useUpdateAdmin();
   const { roles, complete } = useRoleChoices();
@@ -83,6 +84,8 @@ function EditForm({
       }
       throw error;
     }
+    // The admin's own name is on the top bar and the profile.
+    if (admin.id === me.id) void reload();
     notify.success(
       `${admin.name} saved`,
       changesAccess(patch)

@@ -81,8 +81,15 @@ export function ActionButton({
   }
   return (
     <Tooltip content={hint}>
-      {/* A disabled button takes no pointer or focus: the wrapper carries the hint. */}
-      <span tabIndex={0} className="inline-flex rounded-md" aria-label={hint}>
+      {/* A disabled button takes no pointer or focus: the wrapper carries
+          the hint. As a group it may be named, so a screen reader says the
+          hint when the keyboard lands here and still reads the button in it. */}
+      <span
+        role="group"
+        tabIndex={0}
+        className="inline-flex rounded-md"
+        aria-label={hint}
+      >
         <Button {...props} disabled aria-disabled="true" tabIndex={-1}>
           {children}
         </Button>
