@@ -29,6 +29,7 @@ import {
   zOptionalInt,
   zVatRate,
 } from "@/lib/validation";
+import { costToInput, parseCost } from "../supply/pricing";
 import { VARIANTS_MAX, packLabelOf, rowProblems } from "./variants";
 
 // The rules of the API for a product and its pack sizes (documentation,
@@ -266,6 +267,18 @@ const variantRowFields = z.object({
     ),
   packSize: packSizeFields,
   ...saleFields,
+  /**
+   * The buying price in euros, with up to six decimals (the supplier's
+   * price is an average); empty: not known (31).
+   */
+  cost: z
+    .string()
+    .refine(
+      (value) => value.trim() === "" || parseCost(value) !== null,
+      "A buying price in euros, up to 100,000 with at most six decimals, or empty. Example: 1.38",
+    ),
+  /** The regular price follows the buying price and the price rule (`priceMode: "auto"`). */
+  auto: z.boolean(),
   isEnabled: z.boolean(),
   /** Empty: no threshold, never warned. */
   lowStockThreshold: following(zOptionalInt({ min: 0, max: LIMITS.stockMax })),
@@ -422,6 +435,8 @@ export function variantRow(variant: ProductVariant): VariantRowValues {
     saleMode: sale === null ? "none" : "price",
     salePrice: centsToInput(sale),
     discountPercent: "",
+    cost: costToInput(variant.cost),
+    auto: variant.priceMode === "auto",
     isEnabled: variant.isEnabled,
     lowStockThreshold:
       variant.stock.lowStockThreshold === null
@@ -444,6 +459,9 @@ export function emptyVariantRow(unit: PackUnit = "g"): VariantRowValues {
     saleMode: "none",
     salePrice: "",
     discountPercent: "",
+    cost: "",
+    // A price typed here is the admin's until the switch says otherwise.
+    auto: false,
     isEnabled: true,
     lowStockThreshold: "",
     stockQuantity: "0",
@@ -646,6 +664,11 @@ export function toVariantInput(row: VariantRowValues): VariantInput {
   if (sku) input.sku = sku;
   const gtin = row.gtin.trim();
   if (gtin) input.gtin = gtin;
+  // The API keeps the regular price it is sent and, for a pack size in
+  // `auto` with a buying price, calculates over it at once (31).
+  const cost = parseCost(row.cost);
+  if (cost !== null) input.cost = cost;
+  if (row.auto) input.priceMode = "auto";
   if (!row.isEnabled) input.isEnabled = false;
   // The opening stock (default 0) and the threshold, where the API takes them.
   const stock = row.stockQuantity.trim();
@@ -672,8 +695,16 @@ export function toVariantPatch(
   ) {
     patch.packSize = { value, unit: row.packSize.unit };
   }
+  // The buying price: `null` removes it.
+  const cost = row.cost.trim() === "" ? null : parseCost(row.cost);
+  if (cost !== variant.cost) patch.cost = cost;
+  if (row.auto !== (variant.priceMode === "auto")) {
+    patch.priceMode = row.auto ? "auto" : "manual";
+  }
+  // A price that follows the buying price is the API's to calculate: a
+  // regular price sent along would make the pack size `manual` (31).
   const regularPrice = parseEuros(row.regularPrice) ?? Number.NaN;
-  if (regularPrice !== variant.pricing.regularPrice) {
+  if (!row.auto && regularPrice !== variant.pricing.regularPrice) {
     patch.regularPrice = regularPrice;
   }
   if (row.isEnabled !== variant.isEnabled) patch.isEnabled = row.isEnabled;

@@ -234,6 +234,8 @@ export function variantView(
       de: product.name.de ? `${product.name.de} (${label})` : null,
     },
     pricing: priceView(variant, product.vatRate),
+    cost: variant.cost,
+    priceMode: variant.priceMode,
     isEnabled: variant.isEnabled,
     isDefault: defaultVariantOf(product).id === variant.id,
     stock: stockView(variant.stock),
@@ -354,6 +356,7 @@ export function productDetail(db: Db, product: ProductRecord): ProductDetail {
     tags: product.tags,
     searchKeywords: product.searchKeywords,
     seo: product.seo,
+    pricing: product.pricing,
     publishedAt: product.publishedAt,
   };
 }

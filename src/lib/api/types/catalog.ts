@@ -13,6 +13,7 @@ import type {
   TranslatedOptional,
   VatRate,
 } from "./common";
+import type { PriceMode, PricingOverride } from "./supply";
 
 // --- Images (8.1) -----------------------------------------------------------
 
@@ -101,6 +102,16 @@ export interface Category {
   isVisible: boolean;
   listingView: ListingView;
   image: AdminImage | null;
+  /**
+   * Goods that are not food (31): the checks of food before activation do
+   * not apply. It counts for the categories below as well.
+   */
+  nonFood: boolean;
+  /**
+   * The values of the price rule this category sets differently (31), for
+   * its products and the categories below; `null` when it sets none.
+   */
+  pricing: PricingOverride | null;
   /** Every product (all statuses; a product with several pack sizes counts once) in the category and below. */
   productCount: number;
   seo: CategorySeo | null;
@@ -118,6 +129,10 @@ export interface CategoryInput {
   isVisible?: boolean;
   listingView?: ListingView;
   seo?: { title?: TranslatedOptional; description?: TranslatedOptional };
+  /** Default `false`. */
+  nonFood?: boolean;
+  /** Replaced as a whole; `null` removes it. The calculated prices below follow at once. */
+  pricing?: PricingOverride | null;
 }
 
 export interface CategoryOrderInput {
@@ -200,6 +215,14 @@ export interface ProductVariant {
   /** What customers see for it: "Basmati Rice (1 kg)". */
   displayName: Translated;
   pricing: PriceView;
+  /** The buying price in cents, up to four decimals (31); `null`: not known. */
+  cost: number | null;
+  /**
+   * `auto`: the regular price follows the buying price and the price rule,
+   * and is calculated again whenever one of them changes. `manual`: only
+   * the admin changes it.
+   */
+  priceMode: PriceMode;
   /** `false`: not listed, not orderable, its URL answers 404. */
   isEnabled: boolean;
   isDefault: boolean;
@@ -281,6 +304,8 @@ export interface ProductDetail extends ProductSummary {
   tags: string[];
   searchKeywords: string[];
   seo: ProductSeo | null;
+  /** The values of the price rule this product sets differently (31); `null` when it sets none. */
+  pricing: PricingOverride | null;
   publishedAt: IsoDateTime | null;
 }
 
@@ -424,7 +449,16 @@ export interface VariantInput {
   sku?: string;
   gtin?: string | null;
   packSize: { value: number; unit: PackUnit };
+  /**
+   * Required also for a pack size in `auto`: the API keeps it and then
+   * calculates over it when there is a buying price. In a `PATCH`, a new
+   * regular price without `priceMode` makes the pack size `manual`.
+   */
   regularPrice: Cents;
+  /** The buying price in cents, up to four decimals; `null` removes it (31). */
+  cost?: number | null;
+  /** Left out: `manual`. */
+  priceMode?: PriceMode;
   /** Below `regularPrice`; `null` ends a sale. Not together with `discountPercent`. */
   salePrice?: Cents | null;
   discountPercent?: number | null;
@@ -466,6 +500,8 @@ export interface ProductInput {
   tags?: string[];
   searchKeywords?: string[];
   seo?: { title?: TranslatedOptional; description?: TranslatedOptional };
+  /** Replaced as a whole; `null` removes it. The calculated prices of the product follow at once (31). */
+  pricing?: PricingOverride | null;
 }
 
 /** `PATCH /products/{id}`: the product fields only; the pack sizes have endpoints of their own. */

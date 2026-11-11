@@ -85,8 +85,17 @@ describe("the navigation follows the permissions", () => {
       "Products",
       "Categories",
       "Banners",
+      // "Pricing & supplier" is a section of the shop settings (31).
+      "Shop settings",
       "Legal texts",
     ]);
+  });
+
+  it("opens the shop settings for a section with a permission of its own", () => {
+    // "Order costs" belongs to costs and profit (32).
+    expect(labels(["finance.read"])).toEqual(["Today", "Shop settings"]);
+    expect(labels(["settings.read"])).toEqual(["Today", "Shop settings"]);
+    expect(labels(["orders.read"])).not.toContain("Shop settings");
   });
 
   it("does not open a page for a manage permission alone", () => {

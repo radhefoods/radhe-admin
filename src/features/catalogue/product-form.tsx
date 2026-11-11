@@ -1,7 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Controller } from "react-hook-form";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { Controller, useWatch } from "react-hook-form";
 import { ActionButton } from "@/components/domain/permission";
 import {
   BilingualField,
@@ -35,7 +42,10 @@ import type {
   ProductVariant,
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
+import { parseVatRate } from "@/lib/format/money";
 import { plural, translated } from "@/lib/format/names";
+import { priceFromCost } from "../supply/pricing";
+import { inheritedRule, useSupplySettings } from "../supply/queries";
 import { indentedName } from "./category-tree";
 import type { SizeReader } from "./image-rules";
 import {
@@ -67,7 +77,12 @@ import {
 } from "./queries";
 import { StockDialog } from "./stock-panel";
 import { TagListField } from "./tag-list-field";
-import { VariantRows, rowKey, type RowNotice } from "./variant-rows";
+import {
+  VariantRows,
+  rowKey,
+  type Quote,
+  type RowNotice,
+} from "./variant-rows";
 
 /** What a status means for the shop (documentation, 8). */
 export const STATUS_MEANING: Record<
@@ -255,6 +270,30 @@ export function ProductForm({
   });
   const categoriesQuery = useCategories();
   const categories = categoriesQuery.data?.items;
+  // The price rule that counts for this product as the form stands (31):
+  // the shop's values, those of the chosen category and the ones above it,
+  // and the product's own. A pack size that follows its buying price shows
+  // what the rule gives before it is saved.
+  const shopRule = useSupplySettings().data?.pricing;
+  const [chosenCategory, typedVat] = useWatch({
+    control: form.control,
+    name: ["categoryId", "vatRate"],
+  });
+  const ownRule = product?.pricing;
+  const quote = useCallback<Quote>(
+    (cost) => {
+      const resolved = inheritedRule(
+        shopRule,
+        categories,
+        chosenCategory,
+        ownRule,
+      );
+      const vatRate = parseVatRate(typedVat ?? "");
+      if (!resolved || vatRate === null) return null;
+      return priceFromCost(cost, resolved.rule, vatRate).price;
+    },
+    [shopRule, categories, chosenCategory, ownRule, typedVat],
+  );
   const save = useSaveProduct(product?.id ?? "");
   const [confirming, setConfirming] = useState<{
     values: ProductFormValues;
@@ -557,6 +596,7 @@ export function ProductForm({
             manage={manage}
             notices={notices}
             readSize={readSize}
+            quote={quote}
             onDisableInstead={(index) => {
               form.setValue(`variants.${index}.removed`, false, {
                 shouldDirty: true,

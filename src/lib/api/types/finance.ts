@@ -9,9 +9,12 @@ import type { Cents, Id, IsoDateTime, Translated, VatRate } from "./common";
 import type { PackUnit } from "./catalog";
 import type { OrderStatus } from "./orders";
 import type { PaymentStatus } from "./payments";
-
-/** An amount of cents that may have up to four decimals. */
-export type FineCents = number;
+import type {
+  FineCents,
+  PriceCalculation,
+  PriceMode,
+  PriceRule,
+} from "./supply";
 
 // --- Settings: what one order costs --------------------------------------------
 
@@ -44,30 +47,6 @@ export const ORDER_COST_LIMITS = {
 } as const;
 
 // --- The breakdown of an order --------------------------------------------------
-
-/** The price rule of a product (31), as it was when the order was placed. */
-export interface PriceRule {
-  fulfilmentPercent: number;
-  extraPercent: number;
-  /** Cents per pack. */
-  extraAmount: number;
-  markupPercent: number;
-}
-
-export type PriceMode = "auto" | "manual";
-
-/** From the buying price to the price the rule gives, step by step. */
-export interface PriceCalculation {
-  cost: FineCents;
-  fulfilment: FineCents;
-  extra: FineCents;
-  markup: FineCents;
-  /** The price before VAT. */
-  net: FineCents;
-  vat: FineCents;
-  /** What the rule gives: whole cents, VAT included. */
-  price: Cents;
-}
 
 /** A line, once as ordered and once as it ended. */
 export interface ProfitLineFigures {

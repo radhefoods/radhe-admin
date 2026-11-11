@@ -417,6 +417,7 @@ describe("permissions", () => {
     ).toEqual([
       "/settings/company",
       "/settings/delivery-fee",
+      "/settings/pricing",
       "/settings/order-costs",
       "/settings/orders",
       "/settings/payments",
@@ -508,10 +509,12 @@ describe("the order costs", () => {
       ),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(
-        "Product prices are calculated on the page Pricing & supplier.",
-      ),
-    ).toBeInTheDocument();
+      screen
+        .getByText(/Product prices are calculated on the page/)
+        .closest("li"),
+    ).toHaveTextContent(
+      "Product prices are calculated on the page Pricing & supplier.",
+    );
   });
 
   it("does not send a value the API would refuse", async () => {

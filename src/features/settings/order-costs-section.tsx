@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useWatch } from "react-hook-form";
 import { MoneyField, UnitField, UnsavedGuard } from "@/components/form/fields";
 import { useSubmit, useZodForm } from "@/components/form/form";
@@ -9,6 +10,8 @@ import { Alert, Skeleton } from "@/components/ui/surface";
 import { notify } from "@/components/ui/toast";
 import { describeError } from "@/lib/api/error-text";
 import type { OrderCostSettings } from "@/lib/api/types";
+import { useCan } from "@/lib/auth/auth-provider";
+import { routes } from "@/lib/routes";
 import {
   feeExample,
   feeExampleText,
@@ -23,6 +26,7 @@ import { useFollowSaved } from "./queries";
 import { SettingRow, SettingsFormCard } from "./settings-card";
 
 function OrderCostsForm({ saved }: { saved: OrderCostSettings }) {
+  const can = useCan();
   const defaults = orderCostsDefaults(saved);
   const form = useZodForm(orderCostsSchema, { defaultValues: defaults });
   useFollowSaved(form, defaults);
@@ -127,7 +131,18 @@ function OrderCostsForm({ saved }: { saved: OrderCostSettings }) {
           it once Stripe reports it.
         </li>
         <li>
-          Product prices are calculated on the page Pricing &amp; supplier.
+          Product prices are calculated on the page{" "}
+          {can("catalog.read") ? (
+            <Link
+              href={routes.settingsPricing}
+              className="font-medium text-accent-text hover:underline"
+            >
+              Pricing &amp; supplier
+            </Link>
+          ) : (
+            <>Pricing &amp; supplier</>
+          )}
+          .
         </li>
       </ul>
     </SettingsFormCard>

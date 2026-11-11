@@ -291,11 +291,12 @@ export const NAVIGATION: NavGroup[] = [
         href: routes.settings,
         icon: Settings,
         requires: "settings.read",
-        // "Order costs" opens with the permission of costs and profit (32).
-        orWith: ["finance.read"],
+        // "Pricing & supplier" opens with the permission of the catalogue
+        // (31), "Order costs" with the one of costs and profit (32).
+        orWith: ["catalog.read", "finance.read"],
         except: [routes.legal, routes.team, routes.roles],
         keywords:
-          "company delivery fee estimate returns payment page order costs packaging payment fee profit",
+          "company delivery fee estimate returns payment page pricing markup fulfilment price rule safety buffer brands supplier order costs packaging payment fee profit",
       },
       {
         label: "Legal texts",

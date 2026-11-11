@@ -10,6 +10,12 @@ import {
   type TranslatedOptional,
 } from "@/lib/api/types";
 import { translatedDefaults } from "@/lib/validation";
+import {
+  overrideDefaults,
+  overrideFields,
+  sameOverride,
+  toOverride,
+} from "../supply/pricing";
 
 // The rules of the API for a category (documentation, 7).
 
@@ -38,6 +44,10 @@ export const categorySchema = z.object({
   parentId: z.string().regex(/^([0-9a-f]{24})?$/, "Choose a category."),
   isVisible: z.boolean(),
   listingView: z.enum(LISTING_VIEWS),
+  /** Goods that are not food (31): it counts for the categories below as well. */
+  nonFood: z.boolean(),
+  /** The values of the price rule this category sets itself (31): each may stay empty. */
+  pricing: overrideFields,
   seo: z.object({ title: translated(300), description: translated(300) }),
   /** The description of the picture (alt text), saved through its own endpoint. */
   alt: translated(300),
@@ -57,6 +67,8 @@ export function categoryDefaults(
     parentId: category ? (category.parentId ?? "") : (parentId ?? ""),
     isVisible: category?.isVisible ?? true,
     listingView: category?.listingView ?? DEFAULT_LISTING_VIEW,
+    nonFood: category?.nonFood ?? false,
+    pricing: overrideDefaults(category?.pricing),
     seo: {
       title: translatedDefaults(category?.seo?.title),
       description: translatedDefaults(category?.seo?.description),
@@ -137,6 +149,9 @@ export function toCategoryInput(values: CategoryFormValues): CategoryInput {
   if (!isEmpty(all.tagline)) input.tagline = all.tagline;
   if (!isEmpty(all.description)) input.description = all.description;
   if (all.parentId) input.parentId = all.parentId;
+  if (values.nonFood) input.nonFood = true;
+  const pricing = toOverride(values.pricing);
+  if (pricing) input.pricing = pricing;
   const seo: NonNullable<CategoryInput["seo"]> = {};
   if (!isEmpty(all.seo.title)) seo.title = all.seo.title;
   if (!isEmpty(all.seo.description)) seo.description = all.seo.description;
@@ -171,6 +186,11 @@ export function toCategoryPatch(
   if (next.listingView !== before.listingView)
     patch.listingView = next.listingView;
   if (!same(next.seo, before.seo)) patch.seo = next.seo;
+  if (values.nonFood !== category.nonFood) patch.nonFood = values.nonFood;
+  // Replaced as a whole; `null` removes it. The calculated prices of the
+  // products below follow in the same request.
+  const pricing = toOverride(values.pricing);
+  if (!sameOverride(pricing, category.pricing)) patch.pricing = pricing;
   return patch;
 }
 

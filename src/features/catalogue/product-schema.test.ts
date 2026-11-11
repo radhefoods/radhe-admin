@@ -59,6 +59,8 @@ function variant(overrides: Partial<ProductVariant> = {}): ProductVariant {
     slug: { en: "basmati-rice-5kg", de: "basmati-reis-5kg" },
     displayName: { en: "Basmati Rice (5 kg)", de: "Basmati Reis (5 kg)" },
     pricing: pricing(2499, 1999),
+    cost: null,
+    priceMode: "manual",
     isEnabled: true,
     isDefault: true,
     stock: { quantity: 40, lowStockThreshold: null, isLow: false },
@@ -126,6 +128,7 @@ function product(overrides: Partial<ProductDetail> = {}): ProductDetail {
     tags: ["new"],
     searchKeywords: ["Reis"],
     seo: null,
+    pricing: null,
     publishedAt: "2026-09-01T08:00:00.000Z",
     ...overrides,
   };

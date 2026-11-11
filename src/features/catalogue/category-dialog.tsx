@@ -22,6 +22,8 @@ import { errorMessage } from "@/lib/api/error-text";
 import { isSessionError } from "@/lib/api/errors";
 import type { Category } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
+import { inheritedRule, useSupplySettings } from "../supply/queries";
+import { RuleOverrideFields } from "../supply/rule-fields";
 import { CategoryPicture } from "./category-picture";
 import {
   LISTING_VIEW_HELP,
@@ -112,7 +114,9 @@ function CategoryForm({
               `${saved.name.en} saved`,
               "parentId" in patch
                 ? "It moved with everything below it, to the last place there."
-                : undefined,
+                : "pricing" in patch
+                  ? "The prices below it that follow a buying price were calculated again."
+                  : undefined,
             );
           }
           // The description of the picture has an endpoint of its own (7).
@@ -169,6 +173,10 @@ function CategoryForm({
   );
 
   const parents = parentChoices(categories, category);
+  // What counts where the category says nothing: the categories above it
+  // (as the parent is chosen now), then the shop (31).
+  const shopRule = useSupplySettings().data?.pricing;
+  const inherited = inheritedRule(shopRule, categories, form.watch("parentId"));
   const visible = form.watch("isVisible");
   const listingView = form.watch("listingView");
   const hasPicture = Boolean(category?.image) || file !== null;
@@ -237,6 +245,46 @@ function CategoryForm({
             ))}
           </SelectField>
         </fieldset>
+
+        <section
+          aria-label="Prices and kind of goods"
+          className="glass-inset flex flex-col gap-3 rounded-lg p-3.5"
+        >
+          <div>
+            <h3 className="text-13 font-semibold text-ink">
+              Price rule of this category
+            </h3>
+            <p className="mt-0.5 text-13 text-ink-muted">
+              Set a value only where the products of this category, and of the
+              categories below it, differ from the shop. It counts for pack
+              sizes whose price follows the buying price; saving calculates
+              those prices again at once.
+            </p>
+          </div>
+          <fieldset disabled={!manage} className="flex min-w-0 flex-col gap-3">
+            <legend className="sr-only">
+              Values of the price rule this category sets itself
+            </legend>
+            <RuleOverrideFields
+              form={form}
+              names={{
+                fulfilmentPercent: "pricing.fulfilmentPercent",
+                extraPercent: "pricing.extraPercent",
+                extraAmount: "pricing.extraAmount",
+                markupPercent: "pricing.markupPercent",
+              }}
+              inherited={inherited}
+            />
+          </fieldset>
+          <SwitchField
+            form={form}
+            name="nonFood"
+            label="Goods that are not food"
+            disabled={!manage}
+            hint="On: the checks of food before a product is activated (German name, ingredients, allergens, responsible business) do not apply here and in the categories below."
+            className="border-t border-line pt-3"
+          />
+        </section>
 
         <section
           aria-label="Picture"

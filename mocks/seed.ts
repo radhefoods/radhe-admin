@@ -214,6 +214,12 @@ interface ProductSeed {
   storage?: StorageType;
   status?: "draft" | "active" | "archived";
   available?: boolean;
+  /**
+   * How the prices come about (31). Left out: set by hand, with a buying
+   * price. `auto`: calculated from the buying price by the rule of the
+   * shop. `unknown`: set by hand, and no buying price is known.
+   */
+  pricing?: "auto" | "unknown";
   origin?: string;
   ingredients?: [string, string];
 }
@@ -314,6 +320,7 @@ const PRODUCTS: ProductSeed[] = [
     category: "Whole Spices",
     packs: [[200, "g", 349]],
     hue: 28,
+    pricing: "auto",
   },
   {
     name: ["Turmeric Powder", "Kurkuma gemahlen"],
@@ -321,6 +328,7 @@ const PRODUCTS: ProductSeed[] = [
     category: "Ground Spices",
     packs: [[200, "g", 249]],
     hue: 40,
+    pricing: "auto",
   },
   {
     name: ["Garam Masala", "Garam Masala"],
@@ -328,6 +336,7 @@ const PRODUCTS: ProductSeed[] = [
     category: "Ground Spices",
     packs: [[100, "g", 299]],
     hue: 20,
+    pricing: "auto",
   },
   {
     name: ["Kashmiri Chilli Powder", "Kashmiri Chilipulver"],
@@ -441,6 +450,7 @@ const PRODUCTS: ProductSeed[] = [
     packs: [[500, "g", 399]],
     hue: 26,
     status: "archived",
+    pricing: "unknown",
   },
 ];
 
@@ -790,6 +800,8 @@ export function seed(options: SeedOptions): Db {
             ),
             isPrimary: true,
           },
+      nonFood: false,
+      pricing: null,
       seo: null,
       createdAt: iso(at),
       updatedAt: iso(at),
@@ -872,6 +884,7 @@ export function seed(options: SeedOptions): Db {
       tags: item.packs.some((pack) => pack[3]) ? ["offer"] : [],
       searchKeywords: [item.name[1]],
       seo: null,
+      pricing: null,
       publishedAt: status === "draft" ? null : iso(at + HOUR),
       createdAt: iso(at),
       updatedAt: iso(at + HOUR),
@@ -889,6 +902,22 @@ export function seed(options: SeedOptions): Db {
         packSize: { value, unit, label: packLabel(value, unit) },
         regularPrice,
         salePrice: salePrice ?? null,
+        // The rule of the shop is cost × 1.10 × 1.35 before VAT: a price
+        // in `auto` is exactly that; one set by hand earns a little more
+        // or less, by the article number.
+        cost:
+          item.pricing === "unknown"
+            ? null
+            : Number(
+                (
+                  regularPrice /
+                  1.07 /
+                  (item.pricing === "auto"
+                    ? 1.485
+                    : 1.1 * (1.25 + (db.counters.sku % 5) * 0.05))
+                ).toFixed(4),
+              ),
+        priceMode: item.pricing === "auto" ? "auto" : "manual",
         isEnabled: true,
         stock: {
           quantity: 0,

@@ -42,6 +42,12 @@ import {
   zTranslatedOptional,
 } from "../http.ts";
 import { readImage, storeImage, uploadedFiles } from "../media.ts";
+import {
+  cleanOverride,
+  priceFromCost,
+  ruleOf,
+  sameOverride,
+} from "../pricing.ts";
 import type { Router } from "../router.ts";
 import { iso } from "../time.ts";
 import { recordMovement } from "./stock.ts";
@@ -72,6 +78,25 @@ export function slugify(text: string): string {
     .slice(0, 120);
 }
 
+/** A percentage of the price rule (31): 0 to 1000 with two decimals. */
+const zRulePercent = z
+  .number()
+  .min(0)
+  .max(1000)
+  .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-9, {
+    message: "must have at most 2 decimal places",
+  });
+
+/** The values of the price rule a category or a product sets itself; `null` removes one. */
+const zPricing = z
+  .strictObject({
+    fulfilmentPercent: zRulePercent.nullish(),
+    extraPercent: zRulePercent.nullish(),
+    extraAmount: z.number().int().min(0).max(100_000).nullish(),
+    markupPercent: zRulePercent.nullish(),
+  })
+  .nullish();
+
 // --- Categories -------------------------------------------------------------
 
 const categoryFields = {
@@ -90,6 +115,8 @@ const categoryFields = {
       description: zTranslatedOptional(300).optional(),
     })
     .optional(),
+  nonFood: z.boolean().optional(),
+  pricing: zPricing,
 };
 const createCategory = z.strictObject({
   name: zTranslated(160),
@@ -204,6 +231,17 @@ const variantFields = {
   discountPercent: z.number().int().min(1).max(99).nullish(),
   isEnabled: z.boolean().optional(),
   lowStockThreshold: z.number().int().min(0).max(1_000_000).nullish(),
+  /** The buying price: cents with at most four decimals; `null` removes it (31). */
+  cost: z
+    .number()
+    .min(0)
+    .max(10_000_000)
+    .refine(
+      (value) => Math.abs(value * 10_000 - Math.round(value * 10_000)) < 1e-6,
+      { message: "cost must have at most 4 decimal places" },
+    )
+    .nullish(),
+  priceMode: z.enum(["auto", "manual"]).optional(),
 };
 const zCreateVariant = z.strictObject({
   packSize: zPack,
@@ -251,6 +289,7 @@ const productFields = {
       description: zTranslatedOptional(300).optional(),
     })
     .optional(),
+  pricing: zPricing,
 };
 const createProduct = z.strictObject({
   name: zTranslated(160),
@@ -500,6 +539,46 @@ export function logPrice(
 }
 
 /**
+ * Calculates the regular price of every pack size in `auto` that has a
+ * buying price again (31), by the rule the shop, the categories and the
+ * product set now. A price that changes is an entry in the price history,
+ * and a sale that is no longer below the new regular price ends. Answers
+ * how many prices changed.
+ */
+export function repriceProducts(
+  db: Db,
+  products: ProductRecord[],
+  adminId: string,
+  now: number,
+): number {
+  let changed = 0;
+  for (const product of products) {
+    const { rule } = ruleOf(db, product);
+    for (const variant of product.variants) {
+      if (variant.priceMode !== "auto" || !variant.cost || variant.cost <= 0) {
+        continue;
+      }
+      const price = priceFromCost(variant.cost, rule, product.vatRate).price;
+      if (price < 1 || price === variant.regularPrice) continue;
+      variant.regularPrice = price;
+      if (variant.salePrice !== null && variant.salePrice >= price) {
+        variant.salePrice = null;
+      }
+      product.updatedAt = iso(now);
+      logPrice(db, product, variant, adminId, now);
+      changed += 1;
+    }
+  }
+  return changed;
+}
+
+/** The products of a category and of the categories below it. */
+function productsBelow(db: Db, categoryId: string): ProductRecord[] {
+  const inside = new Set([categoryId, ...descendantIds(db, categoryId)]);
+  return db.products.filter((product) => inside.has(product.categoryId));
+}
+
+/**
  * A new pack size of a product (8): its article number, its first price
  * and, with an opening stock, the first line of its stock history.
  */
@@ -522,6 +601,9 @@ export function createVariant(
     },
     regularPrice: input.regularPrice,
     salePrice,
+    cost: input.cost ?? null,
+    // Left out: only the admin changes the price.
+    priceMode: input.priceMode ?? "manual",
     isEnabled: input.isEnabled ?? true,
     stock: { quantity: 0, lowStockThreshold: input.lowStockThreshold ?? null },
     images: [],
@@ -529,6 +611,10 @@ export function createVariant(
   };
   product.variants.push(variant);
   logPrice(db, product, variant, adminId, now);
+  // The price that was sent is kept first, then calculated over (31).
+  if (variant.priceMode === "auto") {
+    repriceProducts(db, [product], adminId, now);
+  }
   // The opening stock starts the history with a restock (8).
   if (input.stockQuantity) {
     recordMovement(
@@ -577,6 +663,7 @@ export function applyVariantPatch(
   }
   const priceChanged =
     regularPrice !== variant.regularPrice || salePrice !== variant.salePrice;
+  const regularPriceTyped = regularPrice !== variant.regularPrice;
   variant.sku = sku;
   variant.packSize = packSize;
   variant.regularPrice = regularPrice;
@@ -585,8 +672,22 @@ export function applyVariantPatch(
   if (input.isEnabled !== undefined) variant.isEnabled = input.isEnabled;
   if (input.lowStockThreshold !== undefined)
     variant.stock.lowStockThreshold = input.lowStockThreshold;
+  if (input.cost !== undefined) variant.cost = input.cost;
+  // A regular price typed without a mode makes the pack size the admin's (31).
+  const priceMode =
+    input.priceMode ??
+    (input.regularPrice !== undefined && regularPriceTyped
+      ? "manual"
+      : undefined);
+  if (priceMode !== undefined) variant.priceMode = priceMode;
   product.updatedAt = iso(now);
   if (priceChanged) logPrice(db, product, variant, adminId, now);
+  if (
+    variant.priceMode === "auto" &&
+    (input.priceMode !== undefined || input.cost !== undefined)
+  ) {
+    repriceProducts(db, [product], adminId, now);
+  }
 }
 
 export function applyProductFields(
@@ -715,6 +816,8 @@ export function registerCatalog(router: Router): void {
       isVisible: input.isVisible ?? true,
       listingView: input.listingView ?? "variants_by_size",
       image: null,
+      nonFood: input.nonFood ?? false,
+      pricing: cleanOverride(input.pricing),
       seo: input.seo
         ? {
             title: input.seo.title ?? null,
@@ -772,6 +875,8 @@ export function registerCatalog(router: Router): void {
     async (ctx) => {
       const input = await ctx.body(updateCategory);
       const category = categoryById(ctx.db, ctx.params.id ?? "");
+      // The rule of the products below follows the category and its place (31).
+      let ruleChanged = false;
       if (
         input.parentId !== undefined &&
         (input.parentId ?? null) !== category.parentId
@@ -780,6 +885,14 @@ export function registerCatalog(router: Router): void {
         assertParent(ctx.db, parentId, category);
         category.parentId = parentId;
         category.sortOrder = lastPosition(ctx.db, parentId);
+        ruleChanged = true;
+      }
+      if (input.nonFood !== undefined) category.nonFood = input.nonFood;
+      if (input.pricing !== undefined) {
+        // Replaced as a whole; nothing set removes it.
+        const pricing = cleanOverride(input.pricing);
+        if (!sameOverride(pricing, category.pricing)) ruleChanged = true;
+        category.pricing = pricing;
       }
       if (input.name !== undefined) category.name = input.name;
       if (input.slug !== undefined) {
@@ -804,6 +917,14 @@ export function registerCatalog(router: Router): void {
         };
       }
       category.updatedAt = iso(ctx.now);
+      if (ruleChanged) {
+        repriceProducts(
+          ctx.db,
+          productsBelow(ctx.db, category.id),
+          ctx.admin.id,
+          ctx.now,
+        );
+      }
       return json({ category: categoryView(ctx.db, category) });
     },
   );
@@ -1045,6 +1166,7 @@ export function registerCatalog(router: Router): void {
       tags: [],
       searchKeywords: [],
       seo: null,
+      pricing: cleanOverride(input.pricing),
       publishedAt: status === "active" ? iso(ctx.now) : null,
       createdAt: iso(ctx.now),
       updatedAt: iso(ctx.now),
@@ -1101,10 +1223,19 @@ export function registerCatalog(router: Router): void {
       product.vatRate = vatRate;
       product.minOrderQuantity = min;
       product.maxOrderQuantity = max;
+      // The rule of the product follows its own values, its category and its VAT (31).
+      let ruleChanged = vatChanged;
+      if (input.pricing !== undefined) {
+        // Replaced as a whole; nothing set removes it.
+        const pricing = cleanOverride(input.pricing);
+        if (!sameOverride(pricing, product.pricing)) ruleChanged = true;
+        product.pricing = pricing;
+      }
       if (
         input.categoryId !== undefined &&
         input.categoryId !== product.categoryId
       ) {
+        ruleChanged = true;
         // A moved product takes the last position of its new category (7).
         product.categoryId = input.categoryId;
         product.sortOrder =
@@ -1120,6 +1251,9 @@ export function registerCatalog(router: Router): void {
       if (vatChanged) {
         for (const variant of product.variants)
           logPrice(ctx.db, product, variant, ctx.admin.id, ctx.now);
+      }
+      if (ruleChanged) {
+        repriceProducts(ctx.db, [product], ctx.admin.id, ctx.now);
       }
       return json({ product: productDetail(ctx.db, product) });
     },

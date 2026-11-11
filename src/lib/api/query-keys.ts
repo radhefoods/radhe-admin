@@ -81,6 +81,8 @@ export const queryKeys = {
     /** The stock history of one pack size, newest first. */
     stockMovements: (id: Id, variantId: Id) =>
       ["products", "stock-movements", id, variantId] as const,
+    /** How the price of each pack size comes about (31). */
+    pricing: (id: Id) => ["products", "pricing", id] as const,
   },
   orders: {
     all: ["orders"] as const,
@@ -170,6 +172,14 @@ export const queryKeys = {
    */
   finance: {
     settings: ["finance", "settings"] as const,
+  },
+  /**
+   * The price rule and what goes with it (31). The pricing of a product is
+   * a key of the products (`products.pricing`), so that whatever loads a
+   * product again loads its pricing again.
+   */
+  supply: {
+    settings: ["supply", "settings"] as const,
   },
   /** Points and rewards (30): the rules, the overview, the accounts, the ledger. */
   rewards: {

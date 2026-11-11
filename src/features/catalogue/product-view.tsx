@@ -45,6 +45,7 @@ import { pageFailed } from "@/lib/query/page-state";
 import { routes } from "@/lib/routes";
 import { categoryPath } from "./category-tree";
 import { PriceHistoryPanel } from "./price-history-panel";
+import { PricingPanel } from "./pricing-panel";
 import { ProductForm } from "./product-form";
 import { overviewState } from "./stock";
 import { StockPanel } from "./stock-panel";
@@ -67,6 +68,7 @@ const PARTS: { id: string; label: string; aside?: boolean }[] = [
   { id: "food", label: "Food information" },
   { id: "seo", label: "Search and SEO" },
   { id: "stock", label: "Stock", aside: true },
+  { id: "pricing", label: "Pricing", aside: true },
   { id: "price-history", label: "Price history", aside: true },
 ];
 
@@ -456,10 +458,11 @@ export function ProductView() {
       >
         <ProductForm product={data} />
         <aside
-          aria-label="Stock and history"
+          aria-label="Stock, pricing and history"
           className="flex min-w-0 flex-col gap-6"
         >
           <StockPanel product={data} paused={deleting} />
+          <PricingPanel product={data} paused={deleting} />
           <PriceHistoryPanel product={data} paused={deleting} />
           <Record product={data} />
         </aside>

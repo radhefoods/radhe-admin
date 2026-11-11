@@ -20,7 +20,9 @@ import { useSettings } from "./queries";
 /**
  * The sections of the shop settings, each with the permission that opens
  * it. Most are groups of `GET /settings` (5) and need `settings.read`;
- * "Order costs" belongs to costs and profit (32) and needs `finance.read`.
+ * "Pricing & supplier" belongs to the catalogue (31) and needs
+ * `catalog.read`; "Order costs" belongs to costs and profit (32) and needs
+ * `finance.read`.
  */
 export const SETTINGS_SECTIONS: {
   href: Route;
@@ -32,6 +34,11 @@ export const SETTINGS_SECTIONS: {
     href: routes.settingsDeliveryFee,
     label: "Delivery fee",
     requires: "settings.read",
+  },
+  {
+    href: routes.settingsPricing,
+    label: "Pricing & supplier",
+    requires: "catalog.read",
   },
   {
     href: routes.settingsOrderCosts,

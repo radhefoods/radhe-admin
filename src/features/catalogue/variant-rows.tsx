@@ -1,6 +1,7 @@
 "use client";
 
 import { Plus, Star, Trash2, Undo2 } from "lucide-react";
+import { useEffect } from "react";
 import {
   useFieldArray,
   useWatch,
@@ -13,9 +14,9 @@ import { SelectField, TextField } from "@/components/form/form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/surface";
-import type { ProductDetail, ProductVariant } from "@/lib/api/types";
+import type { Cents, ProductDetail, ProductVariant } from "@/lib/api/types";
 import { cn } from "@/lib/cn";
-import { formatMoney } from "@/lib/format/money";
+import { centsToInput, formatMoney } from "@/lib/format/money";
 import { PACK_UNIT_LABEL, plural } from "@/lib/format/names";
 import { CopyPictures } from "./copy-pictures";
 import { ImageManager } from "./image-manager";
@@ -30,6 +31,7 @@ import {
   type SaleMode,
   type VariantRowValues,
 } from "./product-schema";
+import { parseCost } from "../supply/pricing";
 import { variantImages } from "./queries";
 import { stockState } from "./stock";
 import { VARIANTS_MAX, packLabelOf } from "./variants";
@@ -41,6 +43,14 @@ const SALE_LABEL: Record<SaleMode, string> = {
   price: "Sale price",
   percent: "Discount in percent",
 };
+
+/**
+ * The price the price rule gives for a buying price (cents), with the
+ * category and the VAT rate as the form has them; `null` while the rule is
+ * not known.
+ */
+export type Quote = (cost: number) => Cents | null;
+const noQuote: Quote = () => null;
 
 /** What the API said about one row when the product was saved, with the way out. */
 export interface RowNotice {
@@ -66,6 +76,7 @@ function Row({
   removable,
   notice,
   readSize,
+  quote,
   onRemove,
   onRestore,
   onDisableInstead,
@@ -82,6 +93,8 @@ function Row({
   notice: RowNotice | undefined;
   /** How the size of a picture file is read; tests have no decoder. */
   readSize: SizeReader | undefined;
+  /** What the price rule gives for a buying price; `null` while the rule is not known. */
+  quote: Quote;
   onRemove: () => void;
   onRestore: () => void;
   onDisableInstead: () => void;
@@ -94,6 +107,36 @@ function Row({
   const state = variant ? stockState(variant.stock) : null;
   const name = (field: string) =>
     `variants.${index}.${field}` as `variants.${number}.sku`;
+
+  // The price of a pack size that follows its buying price (31): the API
+  // calculates it; the form shows what the rule gives before it is saved.
+  const cost = row.auto ? parseCost(row.cost) : null;
+  const calculated = cost !== null && cost > 0 ? quote(cost) : null;
+  // The API wants a regular price for a new pack size also in `auto`, and
+  // calculates over it: the form sends what the rule gives.
+  const fill = !variant && calculated !== null && calculated >= 1;
+  useEffect(() => {
+    if (!fill) return;
+    const text = centsToInput(calculated);
+    const path = `variants.${index}.regularPrice` as const;
+    if (form.getValues(path) !== text) {
+      form.setValue(path, text, { shouldDirty: true, shouldValidate: true });
+    }
+  }, [fill, calculated, form, index]);
+  // A saved pack size in `auto` shows its price and cannot be typed over;
+  // a new one once the rule gave its price.
+  const locked = row.auto && (variant ? true : fill);
+  const priceHint = !row.auto
+    ? undefined
+    : !variant
+      ? fill
+        ? "Calculated from the buying price."
+        : "Type a price: it stands until a buying price is known."
+      : calculated !== null && calculated !== variant.pricing.regularPrice
+        ? `Calculated. After saving: about ${formatMoney(calculated)}.`
+        : variant.cost === null && cost === null
+          ? "Calculated, but there is no buying price yet: it stays as it is."
+          : "Calculated from the buying price.";
 
   return (
     <li
@@ -188,6 +231,13 @@ function Row({
               name={name("regularPrice")}
               label="Regular price"
               required
+              readOnly={locked}
+              aria-readonly={locked || undefined}
+              className={cn(
+                "pl-7 tabular",
+                locked && "bg-sunken text-ink-muted",
+              )}
+              hint={priceHint}
             />
             <SelectField form={form} name={name("saleMode")} label="Sale">
               {SALE_MODES.map((mode) => (
@@ -232,6 +282,24 @@ function Row({
                 : "."}
             </p>
           ) : null}
+          <div className="grid items-start gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            <MoneyField
+              form={form}
+              name={name("cost")}
+              label="Buying price"
+              optional
+              placeholder="Not known"
+              hint="What one pack costs the shop, without VAT."
+            />
+            <SwitchField
+              form={form}
+              name={name("auto")}
+              label="Price follows the buying price"
+              disabled={!manage}
+              hint="On: the regular price is calculated from the buying price by the price rule, and again whenever one of them changes. Off: only you change the price."
+              className="sm:pt-[26px]"
+            />
+          </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <TextField
               form={form}
@@ -380,6 +448,7 @@ export function VariantRows({
   manage,
   notices,
   readSize,
+  quote = noQuote,
   onDisableInstead,
   onChangeStock,
 }: {
@@ -390,6 +459,8 @@ export function VariantRows({
   /** What the API said about a row, by `rowKey`. */
   notices: Record<string, RowNotice>;
   readSize?: SizeReader;
+  /** What the price rule of the product gives for a buying price, as the form stands. */
+  quote?: Quote;
   onDisableInstead: (index: number) => void;
   onChangeStock: (variant: ProductVariant) => void;
 }) {
@@ -425,6 +496,7 @@ export function VariantRows({
               removable={live.length > 1}
               notice={notices[rowKey(row, index)]}
               readSize={readSize}
+              quote={quote}
               onRemove={() => {
                 // A row that is not saved yet simply goes; a saved one is
                 // marked and removed when the product is saved.

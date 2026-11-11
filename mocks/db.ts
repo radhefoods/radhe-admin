@@ -21,6 +21,7 @@ import type {
   Refund,
   OrderCostSettings,
   RewardsSettings,
+  SupplySettings,
   Role,
   Settings,
   StockMovement,
@@ -106,6 +107,10 @@ export interface VariantRecord {
   packSize: { value: number; unit: PackUnit; label: string };
   regularPrice: number;
   salePrice: number | null;
+  /** The buying price in cents, up to four decimals (31); `null`: not known. */
+  cost: number | null;
+  /** `auto`: the regular price follows the buying price and the price rule. */
+  priceMode: "auto" | "manual";
   isEnabled: boolean;
   stock: StockRecord;
   /** In the admin's order, at most 8. */
@@ -242,6 +247,8 @@ export interface Db {
   referrals: ReferralRecord[];
   reviews: ReviewRecord[];
   issues: IssueRecord[];
+  /** The price rule of the shop, the safety buffer, the brand list (31). */
+  supplySettings: SupplySettings;
   /** Costs and profit (32): what one order costs besides its goods. */
   orderCosts: OrderCostSettings;
   /** Points and rewards (30): the rules, one account per customer, the ledger. */
@@ -343,6 +350,24 @@ export function emptyDb(config: MockConfig): Db {
     referrals: [],
     reviews: [],
     issues: [],
+    // The owner's values: five units held back, 10 % fulfilment and 35 %
+    // markup on the buying price (31).
+    supplySettings: {
+      safetyUnits: 5,
+      pricing: {
+        fulfilmentPercent: 10,
+        extraPercent: 0,
+        extraAmount: 0,
+        markupPercent: 35,
+      },
+      brands: [
+        { prefix: "AB", name: "AliBaba" },
+        { prefix: "Britania", name: "Britannia" },
+        { prefix: "KRG", name: "KRG" },
+        { prefix: "NW Pooja", name: "" },
+      ],
+      publishCheck: true,
+    },
     // Until an admin saves something: no costs, and Stripe's price for a
     // standard European card in Germany as the estimate of the fee (32).
     orderCosts: {

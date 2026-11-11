@@ -43,6 +43,8 @@ function category(
     sortOrder: 0,
     isVisible: true,
     image: null,
+    nonFood: false,
+    pricing: null,
     productCount: 0,
     seo: null,
     createdAt: "2026-09-01T08:00:00.000Z",
