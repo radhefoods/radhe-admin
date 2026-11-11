@@ -10,7 +10,7 @@ import type {
   PricingOverride,
   RuleSource,
 } from "../src/lib/api/types/index.ts";
-import type { Db, ProductRecord } from "./db.ts";
+import type { Db, ProductRecord, VariantRecord } from "./db.ts";
 import { vatOf } from "./domain.ts";
 
 export const RULE_FIELDS: readonly PriceRuleField[] = [
@@ -55,12 +55,17 @@ export function sameOverride(
   );
 }
 
-/** The rule of a product: its own values, then its categories (nearest first), then the shop. */
+/**
+ * The rule of a pack size: its own values, then those of its product, then
+ * its categories (nearest first), then the shop. Without `variant` it is
+ * the rule of the product.
+ */
 export function resolveRule(
   shop: PriceRule,
   /** Top first. */
   categories: (PricingOverride | null | undefined)[],
   product: PricingOverride | null | undefined,
+  variant?: PricingOverride | null,
 ): { rule: PriceRule; sources: Record<PriceRuleField, RuleSource> } {
   const rule = { ...shop };
   const sources = Object.fromEntries(
@@ -80,11 +85,20 @@ export function resolveRule(
   };
   for (const category of categories) take(category, "category");
   take(product, "product");
+  take(variant, "variant");
   return { rule, sources };
 }
 
-/** The rule of a product as the shop, its categories and it itself set it now. */
-export function ruleOf(db: Db, product: ProductRecord) {
+/**
+ * The rule a pack size is priced by, as the shop, the categories, the
+ * product and the pack size itself set it now. Without a pack size: the
+ * rule of the product.
+ */
+export function ruleOf(
+  db: Db,
+  product: ProductRecord,
+  variant?: Pick<VariantRecord, "priceRule">,
+) {
   const chain: (PricingOverride | null)[] = [];
   let category = db.categories.find((entry) => entry.id === product.categoryId);
   for (let level = 0; category && level < 10; level += 1) {
@@ -94,7 +108,12 @@ export function ruleOf(db: Db, product: ProductRecord) {
       ? db.categories.find((entry) => entry.id === parentId)
       : undefined;
   }
-  return resolveRule(db.supplySettings.pricing, chain, product.pricing);
+  return resolveRule(
+    db.supplySettings.pricing,
+    chain,
+    product.pricing,
+    variant?.priceRule,
+  );
 }
 
 /** With 10 % fulfilment and 35 % markup at 7 % VAT, 138 gives 219. */

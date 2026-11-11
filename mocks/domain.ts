@@ -236,6 +236,7 @@ export function variantView(
     pricing: priceView(variant, product.vatRate),
     cost: variant.cost,
     priceMode: variant.priceMode,
+    priceRule: variant.priceRule,
     isEnabled: variant.isEnabled,
     isDefault: defaultVariantOf(product).id === variant.id,
     stock: stockView(variant.stock),

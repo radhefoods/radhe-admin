@@ -3,6 +3,7 @@
 import type { FieldPath, FieldValues, UseFormReturn } from "react-hook-form";
 import { MoneyField, UnitField } from "@/components/form/fields";
 import { PRICE_RULE_FIELDS, type PriceRuleField } from "@/lib/api/types";
+import { cn } from "@/lib/cn";
 import {
   RULE_FIELD_LABEL,
   RULE_SOURCE_LABEL,
@@ -11,27 +12,33 @@ import {
 } from "./pricing";
 
 /**
- * The four values of the price rule a category or a product may set itself
- * (31). Each may stay empty; under an empty field stands the value that
- * counts instead and who sets it.
+ * The four values of the price rule a category, a product or a pack size
+ * may set itself (31). Each may stay empty; under an empty field stands
+ * the value that counts instead and who sets it.
  */
 export function RuleOverrideFields<T extends FieldValues>({
   form,
   names,
   inherited,
+  unknown = "Empty: the value of the category or the shop counts.",
+  className,
 }: {
   form: UseFormReturn<T, unknown, FieldValues>;
   /** The name of each field in the form. */
   names: Record<PriceRuleField, FieldPath<T>>;
   /** What counts for a value left empty; `null` while it is not known. */
   inherited: ResolvedRule | null;
+  /** What stands under an empty field while `inherited` is not known. */
+  unknown?: string;
+  /** The grid of the four fields; two columns by default. */
+  className?: string;
 }) {
   const hint = (field: PriceRuleField) =>
     inherited
       ? `Empty: ${ruleValueText(field, inherited.rule[field])} from ${RULE_SOURCE_LABEL[inherited.sources[field]]}.`
-      : "Empty: the value of the category or the shop counts.";
+      : unknown;
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className={cn("grid gap-3 sm:grid-cols-2", className)}>
       {PRICE_RULE_FIELDS.map((field) =>
         field === "extraAmount" ? (
           <MoneyField

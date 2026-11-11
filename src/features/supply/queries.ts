@@ -59,16 +59,23 @@ export function useProductPricing(productId: Id, enabled = true) {
 }
 
 /**
- * The rule that counts under a category, without what a product sets
- * itself: the shop's values and those of the category and of the ones
- * above it. `null` while the settings or the categories are not loaded.
+ * The rule that counts under a category: the shop's values and those of
+ * the category and of the ones above it; with `own`, what a product sets
+ * itself on top, and with `variant`, what one of its pack sizes sets.
+ * `null` while the settings or the categories are not loaded.
  */
 export function inheritedRule(
   shop: PriceRule | undefined,
   categories: readonly Category[] | undefined,
   categoryId: Id | null | undefined,
   own?: PricingOverride | null,
+  variant?: PricingOverride | null,
 ): ResolvedRule | null {
   if (!shop || !categories) return null;
-  return resolveRule(shop, categoryOverrides(categories, categoryId), own);
+  return resolveRule(
+    shop,
+    categoryOverrides(categories, categoryId),
+    own,
+    variant,
+  );
 }

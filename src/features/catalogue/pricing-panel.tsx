@@ -48,8 +48,10 @@ import { useCategories, useUpdateProduct } from "./queries";
 import { usePackSizeChoice } from "./stock-panel";
 
 // The pricing of a product (documentation, 31; doc/SUPPLIER_IMPORT.md):
-// how the price of each pack size comes about, what it earns, and the
-// values of the price rule the product sets itself. Every figure is the
+// how the price of each pack size comes about (by its own rule: its own
+// values first, then those of the product), what it earns, and the values
+// of the price rule the product sets itself. The values of a pack size
+// are typed in its row of the form. Every figure is the
 // API's. Buying prices and markups need `catalog.read`, which the page of
 // a product needs anyway.
 
@@ -95,7 +97,9 @@ function VariantBreakdown({
   pricing: ProductPricing;
   variant: VariantPricing;
 }) {
-  const { rule, sources } = pricing;
+  // The rule of this pack size: its own values, and those of its product
+  // where it has none. `sources` says who sets each value.
+  const { rule, sources } = variant;
   const steps = variant.calculated;
   const profit = variant.profit;
   const from = (field: PriceRuleField) =>
@@ -112,6 +116,7 @@ function VariantBreakdown({
         {variant.salePrice !== null ? (
           <Badge tone="neutral">On sale</Badge>
         ) : null}
+        {variant.override ? <Badge tone="neutral">Own price rule</Badge> : null}
       </div>
 
       {steps ? (
@@ -124,7 +129,16 @@ function VariantBreakdown({
               value: formatExact(steps.fulfilment),
             },
             ...(steps.extra !== 0
-              ? [{ label: "Other expenses", value: formatExact(steps.extra) }]
+              ? [
+                  {
+                    label:
+                      sources.extraPercent === "variant" ||
+                      sources.extraAmount === "variant"
+                        ? `Other expenses (${RULE_SOURCE_LABEL.variant})`
+                        : "Other expenses",
+                    value: formatExact(steps.extra),
+                  },
+                ]
               : []),
             {
               label: `Markup (${from("markupPercent")})`,
@@ -206,6 +220,13 @@ function VariantBreakdown({
         </p>
       ) : null}
 
+      {variant.override && !auto ? (
+        <p className="text-13 text-ink-muted">
+          This pack size has a price rule of its own, and its price is set by
+          hand: the rule does not change the price, only the profit shown.
+        </p>
+      ) : null}
+
       {variant.supplier ? (
         <div className="flex flex-col gap-1 text-13 text-ink-muted">
           <p className="font-semibold text-ink">Supplier&apos;s line</p>
@@ -279,7 +300,8 @@ function ProductRuleForm({ product }: { product: ProductDetail }) {
         <p className="mt-0.5 text-13 text-ink-muted">
           Set a value only where {translated(product.name)} differs from its
           category and the shop. It counts for the pack sizes whose price
-          follows the buying price.
+          follows the buying price. A pack size can differ again: its own values
+          are in its row.
         </p>
       </div>
       <fieldset

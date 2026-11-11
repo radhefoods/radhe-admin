@@ -87,7 +87,7 @@ const zRulePercent = z
     message: "must have at most 2 decimal places",
   });
 
-/** The values of the price rule a category or a product sets itself; `null` removes one. */
+/** The values of the price rule a category, a product or a pack size sets itself; `null` removes one. */
 const zPricing = z
   .strictObject({
     fulfilmentPercent: zRulePercent.nullish(),
@@ -242,6 +242,8 @@ const variantFields = {
     )
     .nullish(),
   priceMode: z.enum(["auto", "manual"]).optional(),
+  /** The price rule of the pack size itself: replaced as a whole, `null` removes it (31). */
+  priceRule: zPricing,
 };
 const zCreateVariant = z.strictObject({
   packSize: zPack,
@@ -553,11 +555,12 @@ export function repriceProducts(
 ): number {
   let changed = 0;
   for (const product of products) {
-    const { rule } = ruleOf(db, product);
     for (const variant of product.variants) {
       if (variant.priceMode !== "auto" || !variant.cost || variant.cost <= 0) {
         continue;
       }
+      // Each pack size by its own rule.
+      const { rule } = ruleOf(db, product, variant);
       const price = priceFromCost(variant.cost, rule, product.vatRate).price;
       if (price < 1 || price === variant.regularPrice) continue;
       variant.regularPrice = price;
@@ -604,6 +607,7 @@ export function createVariant(
     cost: input.cost ?? null,
     // Left out: only the admin changes the price.
     priceMode: input.priceMode ?? "manual",
+    priceRule: cleanOverride(input.priceRule),
     isEnabled: input.isEnabled ?? true,
     stock: { quantity: 0, lowStockThreshold: input.lowStockThreshold ?? null },
     images: [],
@@ -680,11 +684,18 @@ export function applyVariantPatch(
       ? "manual"
       : undefined);
   if (priceMode !== undefined) variant.priceMode = priceMode;
+  // The rule of the pack size: the values that are set, or none.
+  let ruleChanged = false;
+  if (input.priceRule !== undefined) {
+    const priceRule = cleanOverride(input.priceRule);
+    ruleChanged = !sameOverride(priceRule, variant.priceRule);
+    variant.priceRule = priceRule;
+  }
   product.updatedAt = iso(now);
   if (priceChanged) logPrice(db, product, variant, adminId, now);
   if (
     variant.priceMode === "auto" &&
-    (input.priceMode !== undefined || input.cost !== undefined)
+    (input.priceMode !== undefined || input.cost !== undefined || ruleChanged)
   ) {
     repriceProducts(db, [product], adminId, now);
   }

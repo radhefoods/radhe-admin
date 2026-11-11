@@ -29,7 +29,14 @@ import {
   zOptionalInt,
   zVatRate,
 } from "@/lib/validation";
-import { costToInput, parseCost } from "../supply/pricing";
+import {
+  costToInput,
+  overrideDefaults,
+  overrideFields,
+  parseCost,
+  sameOverride,
+  toOverride,
+} from "../supply/pricing";
 import { VARIANTS_MAX, packLabelOf, rowProblems } from "./variants";
 
 // The rules of the API for a product and its pack sizes (documentation,
@@ -279,6 +286,11 @@ const variantRowFields = z.object({
     ),
   /** The regular price follows the buying price and the price rule (`priceMode: "auto"`). */
   auto: z.boolean(),
+  /**
+   * The values of the price rule this pack size sets itself (`priceRule`);
+   * each may stay empty, and an empty one follows the product (31).
+   */
+  priceRule: overrideFields,
   isEnabled: z.boolean(),
   /** Empty: no threshold, never warned. */
   lowStockThreshold: following(zOptionalInt({ min: 0, max: LIMITS.stockMax })),
@@ -437,6 +449,7 @@ export function variantRow(variant: ProductVariant): VariantRowValues {
     discountPercent: "",
     cost: costToInput(variant.cost),
     auto: variant.priceMode === "auto",
+    priceRule: overrideDefaults(variant.priceRule),
     isEnabled: variant.isEnabled,
     lowStockThreshold:
       variant.stock.lowStockThreshold === null
@@ -462,6 +475,8 @@ export function emptyVariantRow(unit: PackUnit = "g"): VariantRowValues {
     cost: "",
     // A price typed here is the admin's until the switch says otherwise.
     auto: false,
+    // Nothing of its own: the pack size follows its product.
+    priceRule: overrideDefaults(null),
     isEnabled: true,
     lowStockThreshold: "",
     stockQuantity: "0",
@@ -669,6 +684,9 @@ export function toVariantInput(row: VariantRowValues): VariantInput {
   const cost = parseCost(row.cost);
   if (cost !== null) input.cost = cost;
   if (row.auto) input.priceMode = "auto";
+  // Only the values that are set; a pack size that sets none follows its product.
+  const priceRule = toOverride(row.priceRule);
+  if (priceRule) input.priceRule = priceRule;
   if (!row.isEnabled) input.isEnabled = false;
   // The opening stock (default 0) and the threshold, where the API takes them.
   const stock = row.stockQuantity.trim();
@@ -707,6 +725,10 @@ export function toVariantPatch(
   if (!row.auto && regularPrice !== variant.pricing.regularPrice) {
     patch.regularPrice = regularPrice;
   }
+  // The rule of the pack size is replaced as a whole: every value it keeps
+  // is sent, and `null` when it keeps none, which removes the rule (31).
+  const priceRule = toOverride(row.priceRule);
+  if (!sameOverride(priceRule, variant.priceRule)) patch.priceRule = priceRule;
   if (row.isEnabled !== variant.isEnabled) patch.isEnabled = row.isEnabled;
   // `null` removes the threshold; the count itself is not part of a patch.
   const threshold =
@@ -1047,6 +1069,11 @@ export function variantFieldAliases(row: number): Record<string, string> {
     "regularPrice",
     "salePrice",
     "discountPercent",
+    "cost",
+    "priceRule.fulfilmentPercent",
+    "priceRule.extraPercent",
+    "priceRule.extraAmount",
+    "priceRule.markupPercent",
     "isEnabled",
     "stockQuantity",
     "lowStockThreshold",

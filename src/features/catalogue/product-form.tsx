@@ -272,21 +272,27 @@ export function ProductForm({
   const categories = categoriesQuery.data?.items;
   // The price rule that counts for this product as the form stands (31):
   // the shop's values, those of the chosen category and the ones above it,
-  // and the product's own. A pack size that follows its buying price shows
-  // what the rule gives before it is saved.
+  // and the product's own; a pack size may set values of its own on top.
+  // A pack size that follows its buying price shows what the rule gives
+  // before it is saved.
   const shopRule = useSupplySettings().data?.pricing;
   const [chosenCategory, typedVat] = useWatch({
     control: form.control,
     name: ["categoryId", "vatRate"],
   });
   const ownRule = product?.pricing;
+  const productRule = useMemo(
+    () => inheritedRule(shopRule, categories, chosenCategory, ownRule),
+    [shopRule, categories, chosenCategory, ownRule],
+  );
   const quote = useCallback<Quote>(
-    (cost) => {
+    (cost, own) => {
       const resolved = inheritedRule(
         shopRule,
         categories,
         chosenCategory,
         ownRule,
+        own,
       );
       const vatRate = parseVatRate(typedVat ?? "");
       if (!resolved || vatRate === null) return null;
@@ -597,6 +603,7 @@ export function ProductForm({
             notices={notices}
             readSize={readSize}
             quote={quote}
+            inherited={productRule}
             onDisableInstead={(index) => {
               form.setValue(`variants.${index}.removed`, false, {
                 shouldDirty: true,

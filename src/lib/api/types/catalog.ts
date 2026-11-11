@@ -223,6 +223,12 @@ export interface ProductVariant {
    * the admin changes it.
    */
   priceMode: PriceMode;
+  /**
+   * The values of the price rule this pack size sets itself, below its
+   * product (31); `null`: it follows its product. Not to be mixed up with
+   * `pricing`, which on a pack size is the price.
+   */
+  priceRule: PricingOverride | null;
   /** `false`: not listed, not orderable, its URL answers 404. */
   isEnabled: boolean;
   isDefault: boolean;
@@ -459,6 +465,12 @@ export interface VariantInput {
   cost?: number | null;
   /** Left out: `manual`. */
   priceMode?: PriceMode;
+  /**
+   * The values of the price rule the pack size sets itself. Replaces what
+   * it had; `null` (or nothing set) removes it, and the pack size follows
+   * its product again. A pack size in `auto` is calculated again at once.
+   */
+  priceRule?: PricingOverride | null;
   /** Below `regularPrice`; `null` ends a sale. Not together with `discountPercent`. */
   salePrice?: Cents | null;
   discountPercent?: number | null;

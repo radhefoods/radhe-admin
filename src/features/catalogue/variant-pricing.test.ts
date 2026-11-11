@@ -36,6 +36,7 @@ function variant(overrides: Partial<ProductVariant> = {}): ProductVariant {
     },
     cost: 138,
     priceMode: "auto",
+    priceRule: null,
     isEnabled: true,
     isDefault: true,
     stock: { quantity: 8, lowStockThreshold: null, isLow: false },
@@ -57,6 +58,66 @@ describe("the row of a pack size", () => {
     // A new row: no buying price, and the price is the admin's.
     expect(emptyVariantRow().cost).toBe("");
     expect(emptyVariantRow().auto).toBe(false);
+  });
+
+  it("shows the values of the price rule the pack size sets itself", () => {
+    const empty = {
+      fulfilmentPercent: "",
+      extraPercent: "",
+      extraAmount: "",
+      markupPercent: "",
+    };
+    expect(variantRow(variant()).priceRule).toEqual(empty);
+    expect(emptyVariantRow().priceRule).toEqual(empty);
+    expect(
+      variantRow(
+        variant({
+          priceRule: {
+            fulfilmentPercent: 12,
+            markupPercent: 40,
+            extraAmount: 25,
+          },
+        }),
+      ).priceRule,
+    ).toEqual({
+      fulfilmentPercent: "12",
+      extraPercent: "",
+      extraAmount: "0.25",
+      markupPercent: "40",
+    });
+  });
+
+  it("refuses a value of the rule the API would refuse", () => {
+    const schema = productSchema({ creating: true });
+    const problems = (priceRule: Record<string, string>) => {
+      const values = productDefaults();
+      values.name.en = "Black Pepper";
+      values.categoryId = "66f000000000000000000001";
+      values.vatRate = "7";
+      const row = emptyVariantRow();
+      values.variants = [
+        {
+          ...row,
+          packSize: { value: "100", unit: "g" },
+          regularPrice: "2.19",
+          priceRule: { ...row.priceRule, ...priceRule },
+        },
+      ];
+      const result = schema.safeParse(values);
+      return result.success
+        ? []
+        : result.error.issues.map((issue) => issue.path.join("."));
+    };
+    expect(problems({})).toEqual([]);
+    expect(
+      problems({ markupPercent: "40", fulfilmentPercent: "12,5" }),
+    ).toEqual([]);
+    expect(problems({ markupPercent: "1001" })).toEqual([
+      "variants.0.priceRule.markupPercent",
+    ]);
+    expect(problems({ extraAmount: "1000.01" })).toEqual([
+      "variants.0.priceRule.extraAmount",
+    ]);
   });
 
   it("refuses a buying price the API would refuse", () => {
@@ -115,6 +176,25 @@ describe("a new pack size", () => {
       cost: 138,
     });
   });
+
+  it("sends the values of the rule it sets itself, and nothing when it sets none", () => {
+    expect(
+      toVariantInput({
+        ...typed,
+        priceRule: {
+          fulfilmentPercent: "12",
+          extraPercent: "",
+          extraAmount: "",
+          markupPercent: "40",
+        },
+      }),
+    ).toEqual({
+      packSize: { value: 100, unit: "g" },
+      regularPrice: 219,
+      priceRule: { fulfilmentPercent: 12, markupPercent: 40 },
+    });
+    expect(toVariantInput(typed)).not.toHaveProperty("priceRule");
+  });
 });
 
 describe("a change of a pack size", () => {
@@ -156,6 +236,80 @@ describe("a change of a pack size", () => {
         variant(),
       ),
     ).toEqual({ priceMode: "manual", regularPrice: 249 });
+  });
+
+  it("sends the rule of the pack size as a whole when a value changed", () => {
+    const row = variantRow(variant());
+    // Set for the first time.
+    expect(
+      toVariantPatch(
+        {
+          ...row,
+          priceRule: {
+            ...row.priceRule,
+            fulfilmentPercent: "12",
+            markupPercent: "40",
+          },
+        },
+        variant(),
+      ),
+    ).toEqual({ priceRule: { fulfilmentPercent: 12, markupPercent: 40 } });
+
+    // One value changed: every value the pack size keeps is sent along.
+    const own = variant({
+      priceRule: { fulfilmentPercent: 12, markupPercent: 40 },
+    });
+    const ownRow = variantRow(own);
+    expect(toVariantPatch(ownRow, own)).toEqual({});
+    expect(
+      toVariantPatch(
+        { ...ownRow, priceRule: { ...ownRow.priceRule, markupPercent: "45" } },
+        own,
+      ),
+    ).toEqual({ priceRule: { fulfilmentPercent: 12, markupPercent: 45 } });
+    // One value emptied: it follows the product again, the other stays.
+    expect(
+      toVariantPatch(
+        { ...ownRow, priceRule: { ...ownRow.priceRule, markupPercent: "" } },
+        own,
+      ),
+    ).toEqual({ priceRule: { fulfilmentPercent: 12 } });
+    // A zero is a value.
+    expect(
+      toVariantPatch(
+        {
+          ...ownRow,
+          priceRule: { ...ownRow.priceRule, fulfilmentPercent: "0" },
+        },
+        own,
+      ),
+    ).toEqual({ priceRule: { fulfilmentPercent: 0, markupPercent: 40 } });
+  });
+
+  it("removes the rule of the pack size with null", () => {
+    const own = variant({
+      priceRule: { fulfilmentPercent: 12, markupPercent: 40 },
+    });
+    expect(
+      toVariantPatch(
+        { ...variantRow(own), priceRule: emptyVariantRow().priceRule },
+        own,
+      ),
+    ).toEqual({ priceRule: null });
+  });
+
+  it("never sends a regular price with a rule for a price in auto", () => {
+    const row = variantRow(variant());
+    expect(
+      toVariantPatch(
+        {
+          ...row,
+          regularPrice: "2.38",
+          priceRule: { ...row.priceRule, markupPercent: "40" },
+        },
+        variant(),
+      ),
+    ).toEqual({ priceRule: { markupPercent: 40 } });
   });
 
   it("sends a price typed for a pack size that was the admin's already", () => {

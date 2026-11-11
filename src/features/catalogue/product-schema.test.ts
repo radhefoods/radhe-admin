@@ -61,6 +61,7 @@ function variant(overrides: Partial<ProductVariant> = {}): ProductVariant {
     pricing: pricing(2499, 1999),
     cost: null,
     priceMode: "manual",
+    priceRule: null,
     isEnabled: true,
     isDefault: true,
     stock: { quantity: 40, lowStockThreshold: null, isLow: false },

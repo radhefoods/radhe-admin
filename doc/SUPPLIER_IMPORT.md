@@ -67,18 +67,21 @@ With 10 % fulfilment and 35 % markup at 7 % VAT: 1.38 → 1.518 → 2.0493 → 2
 
 The buying price is the `Cost` cell exactly as the file states it, with all its decimals. Nothing is added to it.
 
-**Three levels set the rule**, value by value:
+**Four levels set the rule**, value by value:
 
 1. the shop, in the settings;
 2. a category, for its products and the categories below it (`pricing` on the category);
-3. a product (`pricing` on the product).
+3. a product (`pricing` on the product);
+4. a pack size, which is one article number (`priceRule` on the pack size).
 
-The nearest level that sets a value wins for that value. A product can set its own markup and still follow the shop's fulfilment charge.
+The nearest level that sets a value wins for that value. A product can set its own markup and still follow the shop's fulfilment charge, and so can one pack size of it.
+
+An example with one rice at 7 % VAT. The 5 kg bag sets nothing and follows the shop: 8.00 → 8.80 → 11.88 → **12.71**. The 10 kg bag has `priceRule: { "fulfilmentPercent": 12, "markupPercent": 40 }`: 15.00 → 16.80 → 23.52 → **25.17** (by the rule of the shop it would be 23.83). Every pack size follows its product until the admin sets something on it.
 
 **Each pack size has a price mode:**
 
-- `auto`: the regular price is calculated, and calculated again whenever the buying price, the rule, the category or the VAT rate of the product changes. Pack sizes created by an upload start in `auto`.
-- `manual`: the price is the admin's. Nothing changes it. A pack size becomes `manual` when the admin types a regular price; sending `priceMode: "auto"` hands it back to the calculation.
+- `auto`: the regular price is calculated, and calculated again whenever the buying price, the rule (of the shop, a category, the product or the pack size), the category or the VAT rate of the product changes. Pack sizes created by an upload start in `auto`. An upload calculates each pack size by its own rule.
+- `manual`: the price is the admin's. Nothing changes it, a rule of its own included: that rule then only says what the price earns. A pack size becomes `manual` when the admin types a regular price; sending `priceMode: "auto"` hands it back to the calculation.
 
 A sale price stays while it is below the regular price; if a new regular price falls to or below it, the sale ends. Every price change is in the price history.
 
@@ -304,6 +307,19 @@ How the price of each pack size of a product comes about. This is the breakdown 
       "packSize": { "value": 100, "unit": "g" },
       "priceMode": "auto",
       "cost": 138,
+      "rule": {
+        "fulfilmentPercent": 10,
+        "extraPercent": 0,
+        "extraAmount": 0,
+        "markupPercent": 35
+      },
+      "sources": {
+        "fulfilmentPercent": "shop",
+        "extraPercent": "shop",
+        "extraAmount": "shop",
+        "markupPercent": "category"
+      },
+      "override": null,
       "calculated": {
         "cost": 138,
         "fulfilment": 13.8,
@@ -339,8 +355,9 @@ How the price of each pack size of a product comes about. This is the breakdown 
 }
 ```
 
-- `sources` says where each value of the rule is set: `shop`, `category` or `product`.
-- `calculated` is what the rule gives, whatever the price mode; null without a buying price.
+- The top-level `rule`, `sources` and `override` are those of the product: what its pack sizes follow where they set nothing themselves. `sources` says where each value is set: `shop`, `category` or `product`.
+- Each pack size has its own `rule` (what it is calculated by), `sources` (the same, plus `variant` for a value the pack size sets itself) and `override` (what the pack size sets itself, the stored `priceRule`, or null).
+- `calculated` is what the rule of the pack size gives, whatever the price mode; null without a buying price.
 - `price` is what customers pay now, and `profit` what that earns: `profit.markupPercent` in percent of the costs, `profit.marginPercent` in percent of the net price. For a `manual` price this is where a price below cost shows (`profit.profit` negative).
 
 ### `POST /products/{id}/merge`
@@ -426,18 +443,19 @@ The check applies when a draft or an archived product is activated. A product cr
 ## Changes to existing endpoints
 
 - **Pack sizes** (`POST`/`PATCH /v1/admin/products/{id}/variants…`) accept `cost` (cents, decimals allowed, null removes it) and `priceMode` (`auto` or `manual`). Sending `regularPrice` without `priceMode` makes the pack size `manual`. The admin answers of a pack size include `cost` and `priceMode`.
+- **Pack sizes** also accept `priceRule`: `{ fulfilmentPercent?, extraPercent?, extraAmount?, markupPercent? }`, the values of the rule this pack size sets itself (added 2026-11-11). A value left out or null follows the product; what is sent replaces what was there; `priceRule: null` removes it. Percentages from 0 to 1000 with two decimals, `extraAmount` whole cents. The admin answers of a pack size include `priceRule` (the object, or null). Changing it calculates the price of an `auto` pack size again in the same request.
 - **Products** (`POST`/`PATCH /v1/admin/products…`) accept `pricing`: `{ fulfilmentPercent?, extraPercent?, extraAmount?, markupPercent? }`, null to remove. The detail answer includes `pricing`.
 - **Categories** (`POST`/`PATCH /v1/admin/categories…`) accept the same `pricing`; the answer includes it. They also accept and answer `nonFood` (default false), and the category spreadsheet has the column `non_food`.
 - **Products** accept and answer `publishWaivers`, and `PATCH` with `status: "active"` can answer `409 PRODUCT_NOT_READY`.
 - Changing `pricing`, the category or the VAT rate of a product, or the `pricing` or the parent of a category, calculates the `auto` prices under it again in the same request.
-- **Orders** remember what one pack cost when the order was placed and the price rule of its product (`unitCost` and `costing` on the order item, internal). The cost and profit breakdown of an order is in `ORDER_PROFIT.md`.
+- **Orders** remember what one pack cost when the order was placed and the price rule of its pack size, put together from all four levels (`unitCost` and `costing` on the order item, internal). The cost and profit breakdown of an order is in `ORDER_PROFIT.md`.
 
 ## Screens for the admin panel
 
 1. **Upload**: choose the CSV, parse it in the browser, call the preview. Show the summary as tiles and the rows in tabs by `action`. For `update` rows show `changes` as before → after. A button "Import" sends the same rows to `POST /import`. On `SUPPLY_FILE_INCOMPLETE`, a confirmation with the two numbers. Below, the history from `GET /imports`.
 2. **Review list**: tabs from `GET /items/counts` (by problem, plus "missing" and one per hint), rows from `GET /items`. A row opens a small form: pack size (value and unit), brand, title, buying price, VAT, saved with `PATCH`. When `ready`, the button "Create as draft" (`resolve` with `new`). For `possible_rename`, two buttons: "Same product as `renameOf.name`" (`same`) and "New product" (`new`). For `duplicate_listing`, show "Second listing of `renameOf.name`; the shop follows that line" and one button "Follow this line instead" (`same`); these rows need nothing done and belong in a tab of their own.
 3. **Pricing settings**: safety buffer, the four values of the rule, the brand list (a row with an empty brand name means "not a brand"), and the switch for the check before activation. Saving shows "`repriced` prices changed". Say next to the buffer that it applies from the next upload.
-4. **On the product page**: a block from `GET /products/{id}/pricing`. Per pack size: buying price, fulfilment, other expenses, markup, net, VAT, calculated price; the price customers pay; profit with markup and margin; a switch auto/manual; the supplier's line with its quantity and hints. A small form for the product's own `pricing`, with the source of each value shown (`shop` / `category` / `product`).
+4. **On the product page**: a block from `GET /products/{id}/pricing`. Per pack size: buying price, fulfilment, other expenses, markup, net, VAT, calculated price; the price customers pay; profit with markup and margin; a switch auto/manual; the supplier's line with its quantity and hints. A small form for the product's own `pricing`, with the source of each value shown (`shop` / `category` / `product`). The same small form per pack size for its `priceRule` (`ADMIN_PANEL_SKU_PRICE_RULE_AGENT_PROMPT.md`).
 5. **On the category page**: the same small form for the category's `pricing`, and a switch "goods that are not food".
 6. **Merge on the product page**: an action "Merge another product into this one". The admin searches the other product; a confirmation shows both side by side with their pack sizes and says what happens: the pack sizes of the other move here with their pictures, a pack size both have stays as this product has it, the other product is removed with its texts, and it cannot be undone. Then `POST /products/{id}/merge`, and the page is loaded again. Show `duplicates` and `waiting` of the answer in the success message.
 7. **Readiness on the product page**: a checklist from `GET /v1/admin/products/{id}/readiness`. Each entry of `missing` links to the field that fills it; entries can be waived with a confirmation ("does not apply to this product"); `waived` entries are shown as such and can be taken back. The "Activate" button shows the list instead of failing silently when the answer is `PRODUCT_NOT_READY`.

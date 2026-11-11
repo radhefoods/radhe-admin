@@ -9,6 +9,7 @@ import type {
   Customer,
   DeliveryMethod,
   PackUnit,
+  PricingOverride,
   Refund,
   Role,
   StorageType,
@@ -220,6 +221,8 @@ interface ProductSeed {
    * shop. `unknown`: set by hand, and no buying price is known.
    */
   pricing?: "auto" | "unknown";
+  /** A pack size with values of the price rule of its own (31): its place in `packs`, and the values. */
+  ownRule?: [number, PricingOverride];
   origin?: string;
   ingredients?: [string, string];
 }
@@ -234,6 +237,8 @@ const PRODUCTS: ProductSeed[] = [
       [5, "kg", 2499, 1999],
       [10, "kg", 4599],
     ],
+    // The big bag is handled and priced differently from the others.
+    ownRule: [2, { fulfilmentPercent: 12, markupPercent: 40 }],
     hue: 42,
     origin: "India",
     ingredients: ["Basmati rice", "Basmatireis"],
@@ -918,6 +923,7 @@ export function seed(options: SeedOptions): Db {
                 ).toFixed(4),
               ),
         priceMode: item.pricing === "auto" ? "auto" : "manual",
+        priceRule: item.ownRule?.[0] === index ? item.ownRule[1] : null,
         isEnabled: true,
         stock: {
           quantity: 0,

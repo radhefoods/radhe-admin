@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import {
   useFieldArray,
   useWatch,
+  type FieldPath,
   type FieldValues,
   type UseFormReturn,
 } from "react-hook-form";
@@ -14,7 +15,14 @@ import { SelectField, TextField } from "@/components/form/form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/surface";
-import type { Cents, ProductDetail, ProductVariant } from "@/lib/api/types";
+import {
+  PRICE_RULE_FIELDS,
+  type Cents,
+  type PriceRuleField,
+  type PricingOverride,
+  type ProductDetail,
+  type ProductVariant,
+} from "@/lib/api/types";
 import { cn } from "@/lib/cn";
 import { centsToInput, formatMoney } from "@/lib/format/money";
 import { PACK_UNIT_LABEL, plural } from "@/lib/format/names";
@@ -31,7 +39,13 @@ import {
   type SaleMode,
   type VariantRowValues,
 } from "./product-schema";
-import { parseCost } from "../supply/pricing";
+import {
+  parseCost,
+  sameOverride,
+  toOverride,
+  type ResolvedRule,
+} from "../supply/pricing";
+import { RuleOverrideFields } from "../supply/rule-fields";
 import { variantImages } from "./queries";
 import { stockState } from "./stock";
 import { VARIANTS_MAX, packLabelOf } from "./variants";
@@ -46,10 +60,13 @@ const SALE_LABEL: Record<SaleMode, string> = {
 
 /**
  * The price the price rule gives for a buying price (cents), with the
- * category and the VAT rate as the form has them; `null` while the rule is
- * not known.
+ * category and the VAT rate as the form has them and the values the pack
+ * size sets itself (`own`); `null` while the rule is not known.
  */
-export type Quote = (cost: number) => Cents | null;
+export type Quote = (
+  cost: number,
+  own?: PricingOverride | null,
+) => Cents | null;
 const noQuote: Quote = () => null;
 
 /** What the API said about one row when the product was saved, with the way out. */
@@ -77,6 +94,7 @@ function Row({
   notice,
   readSize,
   quote,
+  inherited,
   onRemove,
   onRestore,
   onDisableInstead,
@@ -95,6 +113,8 @@ function Row({
   readSize: SizeReader | undefined;
   /** What the price rule gives for a buying price; `null` while the rule is not known. */
   quote: Quote;
+  /** The rule of the product, which a pack size follows where it sets nothing; `null` while not known. */
+  inherited: ResolvedRule | null;
   onRemove: () => void;
   onRestore: () => void;
   onDisableInstead: () => void;
@@ -108,10 +128,21 @@ function Row({
   const name = (field: string) =>
     `variants.${index}.${field}` as `variants.${number}.sku`;
 
+  // The values of the price rule the pack size sets itself (31), as typed;
+  // `null` while it sets none and follows its product.
+  const ownRule = toOverride(row.priceRule);
+  const savedOwnRule = variant ? !sameOverride(variant.priceRule, null) : false;
+  const ruleNames = Object.fromEntries(
+    PRICE_RULE_FIELDS.map((field) => [
+      field,
+      `variants.${index}.priceRule.${field}`,
+    ]),
+  ) as Record<PriceRuleField, FieldPath<ProductFormValues>>;
+
   // The price of a pack size that follows its buying price (31): the API
   // calculates it; the form shows what the rule gives before it is saved.
   const cost = row.auto ? parseCost(row.cost) : null;
-  const calculated = cost !== null && cost > 0 ? quote(cost) : null;
+  const calculated = cost !== null && cost > 0 ? quote(cost, ownRule) : null;
   // The API wants a regular price for a new pack size also in `auto`, and
   // calculates over it: the form sends what the rule gives.
   const fill = !variant && calculated !== null && calculated >= 1;
@@ -159,6 +190,7 @@ function Row({
             <Badge tone="neutral">Not offered</Badge>
           ) : null}
           {state ? <Badge tone={state.tone}>{state.label}</Badge> : null}
+          {savedOwnRule ? <Badge tone="neutral">Own price rule</Badge> : null}
           {variant ? (
             <span className="text-13 text-ink-subtle tabular">
               {variant.sku} · /{variant.slug.en}
@@ -300,6 +332,57 @@ function Row({
               className="sm:pt-[26px]"
             />
           </div>
+          {/* The price rule of the pack size (31): saved with the row, as
+              `priceRule`. An empty field follows the product. */}
+          <div
+            role="group"
+            aria-label={`Price rule of ${title}`}
+            className="flex flex-col gap-3 border-t border-line pt-3"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-ink">
+                  Price rule of this pack size
+                </p>
+                <p className="mt-0.5 text-13 text-ink-muted">
+                  Set a value only where this pack size differs from its
+                  product. An empty field follows the product.
+                </p>
+              </div>
+              {manage && ownRule ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-label={`Follow the product: ${title}`}
+                  onClick={() => {
+                    for (const field of PRICE_RULE_FIELDS) {
+                      form.setValue(
+                        `variants.${index}.priceRule.${field}`,
+                        "",
+                        { shouldDirty: true, shouldValidate: true },
+                      );
+                    }
+                  }}
+                >
+                  <Undo2 />
+                  Follow the product
+                </Button>
+              ) : null}
+            </div>
+            <RuleOverrideFields
+              form={form}
+              names={ruleNames}
+              inherited={inherited}
+              unknown="Empty: the value of the product, its category or the shop counts."
+              className="xl:grid-cols-4"
+            />
+            {ownRule && !row.auto ? (
+              <p className="text-13 text-ink-muted">
+                The price of this pack size is set by hand. Its rule does not
+                change the price, only the profit shown.
+              </p>
+            ) : null}
+          </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <TextField
               form={form}
@@ -437,8 +520,8 @@ function Row({
 
 /**
  * The pack-size table of the product form (8): one row per pack size with
- * its article number, barcode, pack, prices, enabled switch, threshold,
- * stock and pictures. A new product sends the rows with `POST /products`;
+ * its article number, barcode, pack, prices, buying price, its own values
+ * of the price rule, enabled switch, threshold, stock and pictures. A new product sends the rows with `POST /products`;
  * an existing one sends each row to its own endpoint when it is saved. The
  * pictures of a saved pack size are saved by its gallery, not by the form.
  */
@@ -449,6 +532,7 @@ export function VariantRows({
   notices,
   readSize,
   quote = noQuote,
+  inherited = null,
   onDisableInstead,
   onChangeStock,
 }: {
@@ -459,8 +543,10 @@ export function VariantRows({
   /** What the API said about a row, by `rowKey`. */
   notices: Record<string, RowNotice>;
   readSize?: SizeReader;
-  /** What the price rule of the product gives for a buying price, as the form stands. */
+  /** What the price rule gives for a buying price, as the form stands. */
   quote?: Quote;
+  /** The rule of the product as the form stands: what a pack size follows where it sets nothing. */
+  inherited?: ResolvedRule | null;
   onDisableInstead: (index: number) => void;
   onChangeStock: (variant: ProductVariant) => void;
 }) {
@@ -497,6 +583,7 @@ export function VariantRows({
               notice={notices[rowKey(row, index)]}
               readSize={readSize}
               quote={quote}
+              inherited={inherited}
               onRemove={() => {
                 // A row that is not saved yet simply goes; a saved one is
                 // marked and removed when the product is saved.

@@ -52,15 +52,20 @@ export const PRICE_RULE_LIMITS = {
 } as const;
 
 /**
- * The values of the rule a category or a product sets differently. As the
- * API answers it, only the values that are set are there; `null` in a
- * request removes one. The whole object is replaced on every write, and
- * `null` (or nothing set) removes the override.
+ * The values of the rule a category, a product or a pack size sets
+ * differently (`pricing` on a category and on a product, `priceRule` on a
+ * pack size). As the API answers it, only the values that are set are
+ * there; `null` in a request removes one. The whole object is replaced on
+ * every write, and `null` (or nothing set) removes the override.
  */
 export type PricingOverride = Partial<Record<PriceRuleField, number | null>>;
 
-/** Where a value of the rule of a product is set. */
-export type RuleSource = "shop" | "category" | "product";
+/**
+ * Where a value of a rule is set. The nearest level that sets a value wins
+ * for that value: the pack size itself (`variant`), then its product, then
+ * the category, then the shop.
+ */
+export type RuleSource = "shop" | "category" | "product" | "variant";
 
 /** `auto`: the regular price follows the calculation. `manual`: only the admin changes it. */
 export type PriceMode = "auto" | "manual";
@@ -154,7 +159,13 @@ export interface VariantPricing {
   priceMode: PriceMode;
   /** `null`: no buying price. */
   cost: FineCents | null;
-  /** What the rule gives, whatever the price mode; `null` without a buying price. */
+  /** The rule this pack size is calculated by: its own values, and those of the product where it has none. */
+  rule: PriceRule;
+  /** Where each value of `rule` is set; `variant` for one the pack size sets itself. */
+  sources: Record<PriceRuleField, RuleSource>;
+  /** The values the pack size itself sets (its `priceRule`); `null` when it sets none. */
+  override: PricingOverride | null;
+  /** What the rule of the pack size gives, whatever the price mode; `null` without a buying price. */
   calculated: PriceCalculation | null;
   regularPrice: Cents;
   salePrice: Cents | null;
@@ -171,9 +182,12 @@ export interface ProductPricing {
   productId: Id;
   vatRate: VatRate;
   vatPercent: number;
-  /** The rule of the product, every value resolved. */
+  /**
+   * The rule of the product, every value resolved: what its pack sizes
+   * follow where they set nothing themselves.
+   */
   rule: PriceRule;
-  /** Where each value of `rule` is set. */
+  /** Where each value of `rule` is set: `shop`, `category` or `product`. */
   sources: Record<PriceRuleField, RuleSource>;
   /** The values the product itself sets; `null` when it sets none. */
   override: PricingOverride | null;

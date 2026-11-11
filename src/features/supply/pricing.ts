@@ -72,16 +72,19 @@ const isSet = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 
 /**
- * The rule of a product: its own values first, then those of its category
- * (the nearest one that says anything), then those of the shop. Value by
- * value, so a product can set its markup and still follow the shop's
- * fulfilment charge.
+ * The rule of a pack size: its own values first, then those of its
+ * product, then those of the category (the nearest one that says
+ * anything), then those of the shop. Value by value, so a pack size can
+ * set its markup and still follow the shop's fulfilment charge. Without
+ * `variant` it is the rule of the product: what its pack sizes follow
+ * where they set nothing themselves.
  * @param categories the overrides of the categories of the product, top first
  */
 export function resolveRule(
   shop: PriceRule,
   categories: readonly (PricingOverride | null | undefined)[],
   product?: PricingOverride | null,
+  variant?: PricingOverride | null,
 ): ResolvedRule {
   const rule = { ...shop };
   const sources = Object.fromEntries(
@@ -101,6 +104,7 @@ export function resolveRule(
   };
   for (const category of categories) take(category, "category");
   take(product, "product");
+  take(variant, "variant");
   return { rule, sources };
 }
 
@@ -239,7 +243,7 @@ export function sameRule(a: PriceRule, b: PriceRule): boolean {
   return PRICE_RULE_FIELDS.every((field) => a[field] === b[field]);
 }
 
-// --- An override: the values a category or a product sets itself -------------------
+// --- An override: the values a category, a product or a pack size sets itself ------
 
 const optionalPercent = z.string().superRefine((value, context) => {
   if (value.trim() !== "" && parseRulePercent(value) === null) {
@@ -325,6 +329,7 @@ export const RULE_SOURCE_LABEL: Record<RuleSource, string> = {
   shop: "the shop",
   category: "the category",
   product: "this product",
+  variant: "this pack size",
 };
 
 /** A value of the rule in words: "35 %", "€0.10". */

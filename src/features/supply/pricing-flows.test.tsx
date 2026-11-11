@@ -614,3 +614,247 @@ describe("the price rule of a category", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("the price rule of a pack size", () => {
+  const saveButton = () =>
+    screen.getByText("Save changes", { selector: "button" });
+
+  /** A field of the price rule in the row of a pack size. */
+  function ruleField(row: HTMLElement, name: string): HTMLInputElement {
+    const found = row.querySelector<HTMLInputElement>(
+      `[name$=".priceRule.${name}"]`,
+    );
+    if (!found) throw new Error(`No field "${name}" in the row`);
+    return found;
+  }
+
+  it("lets a pack size set its own fulfilment cost and markup, and its price follows", async () => {
+    const product = record("Garam Masala");
+    const masala = product.variants[0]!;
+    expect(masala.priceRule).toBeNull();
+    const { user } = renderProduct("Garam Masala");
+    await waitFor(() => field("variants.0.priceRule.markupPercent"));
+    const row = packRow(masala.packSize.label);
+    // Under an empty field: what the pack size follows, and who sets it.
+    expect(
+      await within(row).findByText("Empty: 35 % from the shop."),
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByText("Empty: 10 % from the shop."),
+    ).toBeInTheDocument();
+    expect(within(row).queryByText("Own price rule")).toBeNull();
+    expect(
+      within(row).queryByRole("button", { name: /Follow the product/ }),
+    ).toBeNull();
+
+    await user.type(ruleField(row, "fulfilmentPercent"), "12");
+    await user.type(ruleField(row, "markupPercent"), "40");
+    const own = { ...SHOP, fulfilmentPercent: 12, markupPercent: 40 };
+    const price = mockPrice(masala.cost!, own, 700).price;
+    expect(price).not.toBe(masala.regularPrice);
+    // The price is still the calculation's: shown, with what it will be.
+    expect(field("variants.0.regularPrice")).toHaveAttribute("readonly");
+    expect(
+      await within(row).findByText(
+        `Calculated. After saving: about ${formatMoney(price)}.`,
+      ),
+    ).toBeInTheDocument();
+    expect(writes()).toEqual([]);
+
+    await user.click(saveButton());
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    // The rule alone: no price is sent for a pack size in auto.
+    expect(writes()[0]).toEqual({
+      method: "PATCH",
+      path: `/v1/admin/products/${product.id}/variants/${masala.id}`,
+      body: { priceRule: { fulfilmentPercent: 12, markupPercent: 40 } },
+    });
+    expect(masala.priceRule).toEqual({
+      fulfilmentPercent: 12,
+      markupPercent: 40,
+    });
+    expect(masala.regularPrice).toBe(price);
+    await waitFor(() =>
+      expect(field("variants.0.regularPrice")).toHaveValue(
+        (price / 100).toFixed(2),
+      ),
+    );
+    expect(
+      await within(packRow(masala.packSize.label)).findByText("Own price rule"),
+    ).toBeInTheDocument();
+
+    // The pricing block is loaded again and names the pack size as the source.
+    const panel = screen.getByRole("region", { name: "Pricing" });
+    await waitFor(() =>
+      expect(
+        valueOf(
+          within(panel).getByLabelText("How the price is calculated"),
+          "Markup (40 %, this pack size)",
+        ),
+      ).not.toBe(""),
+    );
+    const calculation = within(panel).getByLabelText(
+      "How the price is calculated",
+    );
+    expect(
+      valueOf(calculation, "Fulfilment cost (12 %, this pack size)"),
+    ).not.toBe("");
+    expect(valueOf(calculation, "Calculated price")).toBe(formatMoney(price));
+    expect(within(panel).getByText("Own price rule")).toBeInTheDocument();
+
+    // "Follow the product" empties the four fields; saving removes the rule.
+    api.calls.length = 0;
+    await user.click(
+      within(packRow(masala.packSize.label)).getByRole("button", {
+        name: `Follow the product: ${masala.packSize.label}`,
+      }),
+    );
+    expect(field("variants.0.priceRule.fulfilmentPercent")).toHaveValue("");
+    expect(field("variants.0.priceRule.markupPercent")).toHaveValue("");
+    await user.click(saveButton());
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]?.body).toEqual({ priceRule: null });
+    expect(masala.priceRule).toBeNull();
+    expect(masala.regularPrice).toBe(mockPrice(masala.cost!, SHOP, 700).price);
+    await waitFor(() =>
+      expect(
+        within(packRow(masala.packSize.label)).queryByText("Own price rule"),
+      ).toBeNull(),
+    );
+  });
+
+  it("says that the rule of a price set by hand only changes the profit shown", async () => {
+    const product = record("Basmati Rice");
+    const big = product.variants.find(
+      (entry) => entry.packSize.label === "10 kg",
+    )!;
+    expect(big.priceMode).toBe("manual");
+    expect(big.priceRule).toEqual({ fulfilmentPercent: 12, markupPercent: 40 });
+    const priceBefore = big.regularPrice;
+
+    const { user } = renderProduct("Basmati Rice");
+    await waitFor(() => field("variants.0.priceRule.markupPercent"));
+    const row = packRow("10 kg");
+    expect(within(row).getByText("Own price rule")).toBeInTheDocument();
+    expect(ruleField(row, "fulfilmentPercent")).toHaveValue("12");
+    expect(ruleField(row, "markupPercent")).toHaveValue("40");
+    expect(ruleField(row, "extraPercent")).toHaveValue("");
+    expect(
+      within(row).getByText(
+        "The price of this pack size is set by hand. Its rule does not change the price, only the profit shown.",
+      ),
+    ).toBeInTheDocument();
+    // The other pack sizes follow the product and say nothing of the kind.
+    expect(within(packRow("1 kg")).queryByText("Own price rule")).toBeNull();
+    expect(
+      within(packRow("1 kg")).queryByText(/Its rule does not change the price/),
+    ).toBeNull();
+
+    // The pricing block shows the rule of the pack size that is chosen.
+    const panel = await screen.findByRole("region", { name: "Pricing" });
+    await within(panel).findByLabelText("How the price is calculated");
+    expect(within(panel).queryByText("Own price rule")).toBeNull();
+    await user.selectOptions(within(panel).getByLabelText("Pack size"), big.id);
+    const calculation = await within(panel).findByLabelText(
+      "How the price is calculated",
+    );
+    expect(
+      valueOf(calculation, "Fulfilment cost (12 %, this pack size)"),
+    ).not.toBe("");
+    expect(valueOf(calculation, "Markup (40 %, this pack size)")).not.toBe("");
+    expect(within(panel).getByText("Own price rule")).toBeInTheDocument();
+    expect(
+      within(panel).getByText(/its price is set by\s+hand/),
+    ).toBeInTheDocument();
+
+    // One value emptied: the value the pack size keeps is sent, the price stays.
+    await user.clear(ruleField(row, "markupPercent"));
+    await user.click(saveButton());
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({
+      method: "PATCH",
+      path: `/v1/admin/products/${product.id}/variants/${big.id}`,
+      body: { priceRule: { fulfilmentPercent: 12 } },
+    });
+    expect(big.priceRule).toEqual({ fulfilmentPercent: 12 });
+    expect(big.regularPrice).toBe(priceBefore);
+    expect(big.priceMode).toBe("manual");
+  });
+
+  it("creates a pack size with a rule of its own, priced by it", async () => {
+    const { user } = renderPanel(<ProductNewView />, {
+      path: "/catalogue/products/new",
+    });
+    await screen.findByText("Create product", { selector: "button" });
+    await user.type(field("name.en"), "Fennel Seeds");
+    const select = document.querySelector<HTMLSelectElement>(
+      '[name="categoryId"]',
+    );
+    const option = select?.options[1];
+    if (!select || !option) throw new Error("No category to choose");
+    await user.selectOptions(select, option.value);
+    await user.type(field("variants.0.packSize.value"), "100");
+    await user.type(field("vatRate"), "7");
+    await user.type(field("variants.0.cost"), "1.38");
+    await user.click(
+      screen.getByRole("switch", { name: "Price follows the buying price" }),
+    );
+    await waitFor(() =>
+      expect(field("variants.0.regularPrice")).toHaveValue("2.19"),
+    );
+    await user.type(field("variants.0.priceRule.markupPercent"), "40");
+    const price = mockPrice(138, { ...SHOP, markupPercent: 40 }, 700).price;
+    await waitFor(() =>
+      expect(field("variants.0.regularPrice")).toHaveValue(
+        (price / 100).toFixed(2),
+      ),
+    );
+
+    await user.click(
+      screen.getByText("Create product", { selector: "button" }),
+    );
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    const body = writes()[0]?.body as { variants: unknown[] };
+    expect(body.variants).toEqual([
+      {
+        packSize: { value: 100, unit: "g" },
+        regularPrice: price,
+        cost: 138,
+        priceMode: "auto",
+        priceRule: { markupPercent: 40 },
+      },
+    ]);
+    const created = record("Fennel Seeds").variants[0]!;
+    expect(created.priceRule).toEqual({ markupPercent: 40 });
+    expect(created.regularPrice).toBe(price);
+  });
+
+  it("does not send a value the API would refuse", async () => {
+    const { user } = renderProduct("Garam Masala");
+    await waitFor(() => field("variants.0.priceRule.markupPercent"));
+    await user.type(field("variants.0.priceRule.markupPercent"), "1001");
+    await user.click(saveButton());
+    expect(
+      await screen.findByText(
+        "A percentage from 0 to 1000 with at most two decimals, or empty. Example: 35",
+      ),
+    ).toBeInTheDocument();
+    expect(writes()).toEqual([]);
+  });
+
+  it("is read-only for a role that may only read the catalogue", async () => {
+    const { id } = record("Basmati Rice");
+    renderPanel(<ProductView />, {
+      path: `/catalogue/products/${id}`,
+      params: { id },
+      permissions: ["catalog.read"],
+    });
+    await waitFor(() => field("variants.0.priceRule.markupPercent"));
+    const row = packRow("10 kg");
+    expect(ruleField(row, "markupPercent")).toHaveValue("40");
+    expect(ruleField(row, "markupPercent")).toBeDisabled();
+    expect(
+      within(row).queryByRole("button", { name: /Follow the product/ }),
+    ).toBeNull();
+  });
+});

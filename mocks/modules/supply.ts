@@ -58,6 +58,8 @@ export function pricingOf(db: Db, product: ProductRecord): ProductPricing {
   const variants: VariantPricing[] = sortedVariants(product).map((variant) => {
     const cost = variant.cost && variant.cost > 0 ? variant.cost : null;
     const price = variant.salePrice ?? variant.regularPrice;
+    // Its own values, and those of the product where it has none.
+    const own = ruleOf(db, product, variant);
     return {
       variantId: variant.id,
       sku: variant.sku,
@@ -67,14 +69,17 @@ export function pricingOf(db: Db, product: ProductRecord): ProductPricing {
       },
       priceMode: variant.priceMode,
       cost,
-      // What the rule gives, whatever the price mode.
+      rule: own.rule,
+      sources: own.sources,
+      override: variant.priceRule,
+      // What the rule of the pack size gives, whatever the price mode.
       calculated:
-        cost === null ? null : priceFromCost(cost, rule, product.vatRate),
+        cost === null ? null : priceFromCost(cost, own.rule, product.vatRate),
       regularPrice: variant.regularPrice,
       salePrice: variant.salePrice,
       price,
       profit:
-        cost === null ? null : profitOf(price, product.vatRate, cost, rule),
+        cost === null ? null : profitOf(price, product.vatRate, cost, own.rule),
       stock: variant.stock.quantity,
       // The mock has no supplier's file yet: no pack size follows a line.
       supplier: null,

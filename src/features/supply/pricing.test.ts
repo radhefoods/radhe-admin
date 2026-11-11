@@ -100,6 +100,49 @@ describe("who sets a value of the rule", () => {
     });
   });
 
+  it("lets a pack size set values of its own, below its product", () => {
+    // The example of the documentation: a 10 kg bag with 12 % and 40 %.
+    const resolved = resolveRule(
+      SHOP,
+      [{ extraAmount: 5 }],
+      { markupPercent: 30 },
+      {
+        fulfilmentPercent: 12,
+        markupPercent: 40,
+      },
+    );
+    expect(resolved.rule).toEqual({
+      fulfilmentPercent: 12,
+      extraPercent: 0,
+      extraAmount: 5,
+      markupPercent: 40,
+    });
+    expect(resolved.sources).toEqual({
+      fulfilmentPercent: "variant",
+      extraPercent: "shop",
+      extraAmount: "category",
+      markupPercent: "variant",
+    });
+    // 15.00 → 16.80 → 23.52 → 25.17 at 7 % VAT; by the rule of the shop 23.83.
+    const own = resolveRule(SHOP, [], null, {
+      fulfilmentPercent: 12,
+      markupPercent: 40,
+    });
+    expect(priceFromCost(1500, own.rule, 700).price).toBe(2517);
+    expect(priceFromCost(1500, SHOP, 700).price).toBe(2383);
+    expect(
+      priceFromCost(800, resolveRule(SHOP, [], null, null).rule, 700).price,
+    ).toBe(1271);
+    // A pack size that sets nothing follows its product, value by value.
+    expect(resolveRule(SHOP, [], { markupPercent: 30 }, null).sources).toEqual(
+      resolveRule(SHOP, [], { markupPercent: 30 }).sources,
+    );
+    expect(
+      resolveRule(SHOP, [], { markupPercent: 30 }, { markupPercent: null })
+        .sources.markupPercent,
+    ).toBe("product");
+  });
+
   it("counts a zero as a value and a null as none", () => {
     const resolved = resolveRule(SHOP, [{ markupPercent: 0 }], {
       markupPercent: null,

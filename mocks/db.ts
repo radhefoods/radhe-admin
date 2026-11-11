@@ -17,6 +17,7 @@ import type {
   PackUnit,
   PaymentType,
   PriceChange,
+  PricingOverride,
   ProductDetail,
   Refund,
   OrderCostSettings,
@@ -111,6 +112,8 @@ export interface VariantRecord {
   cost: number | null;
   /** `auto`: the regular price follows the buying price and the price rule. */
   priceMode: "auto" | "manual";
+  /** The values of the price rule the pack size sets itself (31); `null`: it follows its product. */
+  priceRule: PricingOverride | null;
   isEnabled: boolean;
   stock: StockRecord;
   /** In the admin's order, at most 8. */
