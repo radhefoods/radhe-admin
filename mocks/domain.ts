@@ -3,6 +3,7 @@
 // become the API's objects.
 
 import type {
+  AdminImage,
   Category,
   Customer,
   InvoiceDetail,
@@ -186,6 +187,37 @@ export function defaultVariantOf(product: ProductRecord): VariantRecord {
   );
 }
 
+/** The most pictures one pack size holds (8). */
+export const MAX_IMAGES_PER_VARIANT = 8;
+
+/** The pictures of a pack size in the admin's order, exactly one of them the main one. */
+export function variantImages(variant: VariantRecord): AdminImage[] {
+  const marked = variant.images.some((image) => image.isPrimary);
+  return variant.images.map((image, index) => ({
+    ...image,
+    isPrimary: marked ? image.isPrimary : index === 0,
+  }));
+}
+
+/**
+ * The gallery that stands for the product in lists (8.1): that of the
+ * default pack size, else of the smallest pack size that has pictures;
+ * the main picture first. Empty when no pack size has any.
+ */
+export function productGallery(product: ProductRecord): AdminImage[] {
+  const first = defaultVariantOf(product);
+  const holder =
+    first.images.length > 0
+      ? first
+      : sortedVariants(product).find((variant) => variant.images.length > 0);
+  if (!holder) return [];
+  const images = variantImages(holder);
+  return [
+    ...images.filter((image) => image.isPrimary),
+    ...images.filter((image) => !image.isPrimary),
+  ];
+}
+
 export function variantView(
   product: ProductRecord,
   variant: VariantRecord,
@@ -205,6 +237,7 @@ export function variantView(
     isEnabled: variant.isEnabled,
     isDefault: defaultVariantOf(product).id === variant.id,
     stock: stockView(variant.stock),
+    images: variantImages(variant),
     createdAt: variant.createdAt,
   };
 }
@@ -228,8 +261,7 @@ export function productSummary(db: Db, product: ProductRecord): ProductSummary {
   const category = db.categories.find(
     (entry) => entry.id === product.categoryId,
   );
-  const primary =
-    product.images.find((image) => image.isPrimary) ?? product.images[0];
+  const primary = productGallery(product)[0];
   const variants = sortedVariants(product).map((variant) =>
     variantView(product, variant),
   );
@@ -253,7 +285,11 @@ export function productSummary(db: Db, product: ProductRecord): ProductSummary {
     variants,
     variantCount: variants.length,
     stock: stockOverview(product),
-    imageCount: product.images.length,
+    // The pictures of all pack sizes together; a copy counts where it is shown.
+    imageCount: product.variants.reduce(
+      (count, variant) => count + variant.images.length,
+      0,
+    ),
     image: primary
       ? {
           id: primary.id,
@@ -318,12 +354,6 @@ export function productDetail(db: Db, product: ProductRecord): ProductDetail {
     tags: product.tags,
     searchKeywords: product.searchKeywords,
     seo: product.seo,
-    images: product.images.map((image, index) => ({
-      ...image,
-      isPrimary: product.images.some((entry) => entry.isPrimary)
-        ? image.isPrimary
-        : index === 0,
-    })),
     publishedAt: product.publishedAt,
   };
 }

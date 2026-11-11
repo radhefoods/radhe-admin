@@ -655,7 +655,10 @@ describe("the wholesale products", () => {
       .wholesaleProducts.find((p) => p.retailProductId === retail.id)!;
     expect(copy.status).toBe("draft");
     expect(copy.skus.every((sku) => sku.stock === 0)).toBe(true);
-    expect(copy.images.length).toBe(retail.imageCount);
+    // The pictures of a retail product belong to its pack sizes (8): the copy
+    // takes the gallery of the pack size that stands for the product.
+    expect(retail.defaultVariant.images.length).toBeGreaterThan(0);
+    expect(copy.images.length).toBe(retail.defaultVariant.images.length);
     await waitFor(() =>
       expect(testNavigation.history.at(-1)).toBe(
         `/wholesale/products/${copy.id}`,

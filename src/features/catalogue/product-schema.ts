@@ -273,6 +273,16 @@ const variantRowFields = z.object({
   stockQuantity: following(zOptionalInt({ min: 0, max: LIMITS.stockMax })),
   /** Marked for removal: deleted when the product is saved. */
   removed: z.boolean(),
+  /**
+   * The pictures chosen for the pack size of a product that does not exist
+   * yet: uploaded to the pack size right after the product is created (8).
+   * A saved pack size has its gallery, which saves by itself.
+   */
+  pictures: z.array(
+    z.custom<File>(
+      (value) => typeof File !== "undefined" && value instanceof File,
+    ),
+  ),
 });
 
 export type VariantRowValues = z.input<typeof variantRowFields>;
@@ -419,6 +429,7 @@ export function variantRow(variant: ProductVariant): VariantRowValues {
         : String(variant.stock.lowStockThreshold),
     stockQuantity: "",
     removed: false,
+    pictures: [],
   };
 }
 
@@ -437,6 +448,7 @@ export function emptyVariantRow(unit: PackUnit = "g"): VariantRowValues {
     lowStockThreshold: "",
     stockQuantity: "0",
     removed: false,
+    pictures: [],
   };
 }
 
@@ -672,6 +684,25 @@ export function toVariantPatch(
     patch.lowStockThreshold = threshold;
   }
   return { ...patch, ...saleOf(row, variant.pricing.salePrice) };
+}
+
+/**
+ * The pictures chosen per pack size of a new product, each with its pack:
+ * the page uploads them once the product exists, and finds the pack sizes
+ * by their pack (the API answers them smallest first).
+ */
+export function rowPictures(
+  values: ProductFormValues,
+): { packSize: { value: number; unit: PackUnit }; files: File[] }[] {
+  return values.variants
+    .filter((row) => !row.removed && row.pictures.length > 0)
+    .map((row) => ({
+      packSize: {
+        value: parsePackValue(row.packSize.value) ?? Number.NaN,
+        unit: row.packSize.unit,
+      },
+      files: row.pictures,
+    }));
 }
 
 /** What `POST /products` gets: the product with its pack sizes; what is empty is left out. */

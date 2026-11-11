@@ -94,7 +94,9 @@ export interface StockRecord {
 /**
  * A pack size as stored (architecture, "Product document"): its URL, its
  * display name, its prices and whether it is the default are worked out
- * on reading.
+ * on reading. Its pictures are its own (doc/VARIANT_IMAGES.md): two pack
+ * sizes that show the same file have entries with different ids and the
+ * same `url`.
  */
 export interface VariantRecord {
   id: string;
@@ -105,6 +107,8 @@ export interface VariantRecord {
   salePrice: number | null;
   isEnabled: boolean;
   stock: StockRecord;
+  /** In the admin's order, at most 8. */
+  images: AdminImage[];
   createdAt: string;
 }
 

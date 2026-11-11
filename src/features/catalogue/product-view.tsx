@@ -44,7 +44,6 @@ import { plural, translated } from "@/lib/format/names";
 import { pageFailed } from "@/lib/query/page-state";
 import { routes } from "@/lib/routes";
 import { categoryPath } from "./category-tree";
-import { ImageManager } from "./image-manager";
 import { PriceHistoryPanel } from "./price-history-panel";
 import { ProductForm } from "./product-form";
 import { overviewState } from "./stock";
@@ -62,13 +61,12 @@ import {
  */
 const PARTS: { id: string; label: string; aside?: boolean }[] = [
   { id: "basics", label: "Basics" },
-  { id: "pack-sizes", label: "Pack sizes and prices" },
+  { id: "pack-sizes", label: "Pack sizes, prices and pictures" },
   { id: "status", label: "Status and ordering" },
   { id: "texts", label: "Texts" },
   { id: "food", label: "Food information" },
   { id: "seo", label: "Search and SEO" },
   { id: "stock", label: "Stock", aside: true },
-  { id: "pictures", label: "Pictures", aside: true },
   { id: "price-history", label: "Price history", aside: true },
 ];
 
@@ -152,10 +150,10 @@ export function RemoveProduct({
         open={step === "delete"}
         onOpenChange={closing("delete")}
         title={`Delete ${label} for good?`}
-        description="The product with its pack sizes and pictures is removed and cannot be brought back. The API only deletes a product no pack size of which is part of an order."
+        description="The product with its pack sizes and their pictures is removed and cannot be brought back. The API only deletes a product no pack size of which is part of an order."
         facts={[
           { label: "Pack sizes", value: sizes },
-          { label: "Pictures", value: product.images.length },
+          { label: "Pictures", value: product.imageCount },
         ]}
         confirmLabel="Delete the product"
         cancelLabel="Keep it"
@@ -267,7 +265,11 @@ function Record({ product }: { product: ProductDetail }) {
   );
 }
 
-/** One product: its form with the pack-size table, its stock, its pictures and its price history. */
+/**
+ * One product: its form with the pack-size table (each pack size with its
+ * pictures), its stock and its price history. The product itself has no
+ * pictures (8, doc/VARIANT_IMAGES.md).
+ */
 export function ProductView() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -454,11 +456,10 @@ export function ProductView() {
       >
         <ProductForm product={data} />
         <aside
-          aria-label="Stock, pictures and history"
+          aria-label="Stock and history"
           className="flex min-w-0 flex-col gap-6"
         >
           <StockPanel product={data} paused={deleting} />
-          <ImageManager product={data} />
           <PriceHistoryPanel product={data} paused={deleting} />
           <Record product={data} />
         </aside>

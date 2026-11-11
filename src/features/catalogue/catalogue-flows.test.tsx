@@ -18,7 +18,7 @@ import type { SizeReader } from "./image-rules";
 import { ProductNewView } from "./product-new-view";
 import { ProductView } from "./product-view";
 import { ProductsView } from "./products-view";
-import { useProduct } from "./queries";
+import { useProduct, variantImages } from "./queries";
 
 let api: TestApi;
 let products: ProductSummary[];
@@ -61,6 +61,27 @@ const record = (id: string) => {
   if (!found) throw new Error(`No product ${id} in the mock`);
   return found;
 };
+
+/** A pack size of a product as the mock stores it, with its pictures. */
+const pack = (productId: string, variantId: string) => {
+  const found = record(productId).variants.find(
+    (entry) => entry.id === variantId,
+  );
+  if (!found) throw new Error(`No pack size ${variantId} in the mock`);
+  return found;
+};
+
+/**
+ * The rows of the pack-size table: its own entries, not the pictures a row
+ * shows (each gallery is a list in its row).
+ */
+function packRows(): HTMLElement[] {
+  const table = screen.getByRole("list", { name: "Pack sizes" });
+  return Array.from(table.children).filter(
+    (child): child is HTMLElement =>
+      child instanceof HTMLElement && child.tagName === "LI",
+  );
+}
 
 /** The requests that change something. */
 const writes = () => api.calls.filter((call) => call.method !== "GET");
@@ -445,8 +466,15 @@ describe("saving a product", () => {
     expect(
       screen.queryByRole("button", { name: "More actions for this product" }),
     ).not.toBeInTheDocument();
+    // The pictures of the pack sizes are there to look at, not to change.
     expect(
-      screen.queryByLabelText("Choose pictures to upload"),
+      screen.getAllByRole("list", { name: /^Pictures of / }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.queryByLabelText(/^Choose pictures for/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Actions for picture/ }),
     ).not.toBeInTheDocument();
   });
 });
@@ -573,8 +601,8 @@ describe("the pack sizes of a product", () => {
   it("lists them smallest first in the form, marks the default, and names the URL of each", async () => {
     const rice = product("Basmati Rice");
     renderProduct(rice.id);
-    const table = await screen.findByRole("list", { name: "Pack sizes" });
-    const rows = within(table).getAllByRole("listitem");
+    await screen.findByRole("list", { name: "Pack sizes" });
+    const rows = packRows();
     expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
       "1 kg",
       "5 kg",
@@ -595,9 +623,7 @@ describe("the pack sizes of a product", () => {
     const { user } = renderProduct(dal.id);
     await waitFor(() => field("variants.0.regularPrice"));
     await user.click(screen.getByRole("button", { name: "Add a pack size" }));
-    const rows = within(
-      screen.getByRole("list", { name: "Pack sizes" }),
-    ).getAllByRole("listitem");
+    const rows = packRows();
     expect(rows).toHaveLength(2);
     expect(rows[1]).toHaveTextContent("Not saved yet");
     // The unit follows the pack sizes the product has.
@@ -642,11 +668,7 @@ describe("the pack sizes of a product", () => {
     expect(opening?.adminId).not.toBeNull();
     // The new row is a saved one now: it shows its article number.
     await waitFor(() =>
-      expect(
-        within(screen.getByRole("list", { name: "Pack sizes" })).getAllByRole(
-          "listitem",
-        )[1],
-      ).toHaveTextContent(added?.sku ?? "-"),
+      expect(packRows()[1]).toHaveTextContent(added?.sku ?? "-"),
     );
     expect(saveButton()).toBeDisabled();
   });
@@ -714,13 +736,7 @@ describe("the pack sizes of a product", () => {
     expect(
       record(rice.id).variants.map((entry) => entry.packSize.label),
     ).toEqual(["1 kg", "5 kg"]);
-    await waitFor(() =>
-      expect(
-        within(screen.getByRole("list", { name: "Pack sizes" })).getAllByRole(
-          "listitem",
-        ),
-      ).toHaveLength(2),
-    );
+    await waitFor(() => expect(packRows()).toHaveLength(2));
 
     // A product with one pack size offers no removal: disable it instead.
     view.unmount();
@@ -823,17 +839,26 @@ describe("the pack sizes of a product", () => {
   });
 });
 
-describe("the pictures of a product", () => {
+describe("the pictures of a pack size", () => {
   const sizes: Record<string, { width: number; height: number }> = {
     "small.jpg": { width: 120, height: 900 },
   };
   const readSize: SizeReader = async (file) =>
     sizes[file.name] ?? { width: 1200, height: 900 };
 
-  function Pictures({ id }: { id: string }) {
+  /** The gallery of one pack size, as the row of the pack size shows it. */
+  function Pictures({ id, label = "1 kg" }: { id: string; label?: string }) {
     const loaded = useProduct(id).data;
-    return loaded ? (
-      <ImageManager product={loaded} readSize={readSize} />
+    const variant = loaded?.variants.find(
+      (entry) => entry.packSize.label === label,
+    );
+    return loaded && variant ? (
+      <ImageManager
+        product={loaded}
+        target={variantImages(loaded.id, variant)}
+        readSize={readSize}
+        inline
+      />
     ) : null;
   }
 
@@ -851,7 +876,7 @@ describe("the pictures of a product", () => {
   it("checks the files before anything is sent and names each one it refuses", async () => {
     const rice = product("Basmati Rice");
     renderPanel(<Pictures id={rice.id} />);
-    await screen.findByRole("list", { name: "Pictures of Basmati Rice" });
+    await screen.findByRole("list", { name: "Pictures of 1 kg" });
 
     drop([
       picture("ok.jpg"),
@@ -877,21 +902,21 @@ describe("the pictures of a product", () => {
 
   it("says how many pictures still fit", async () => {
     const rice = product("Basmati Rice");
-    const stored = record(rice.id);
+    const stored = pack(rice.id, size("Basmati Rice", "1 kg").id);
     const first = stored.images[0];
-    if (!first) throw new Error("The demo product has no picture");
-    stored.images = Array.from({ length: 11 }, (_, index) => ({
+    if (!first) throw new Error("The demo pack size has no picture");
+    stored.images = Array.from({ length: 7 }, (_, index) => ({
       ...first,
       id: index.toString(16).padStart(24, "a"),
       isPrimary: index === 0,
     }));
     renderPanel(<Pictures id={rice.id} />);
-    await screen.findByRole("list", { name: "Pictures of Basmati Rice" });
+    await screen.findByRole("list", { name: "Pictures of 1 kg" });
 
     drop([picture("a.jpg"), picture("b.jpg"), picture("c.jpg")]);
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
-      "There is room for 1 more picture, and you chose 3. A product holds 12 at most.",
+      "There is room for 1 more picture, and you chose 3. A pack size holds 8 at most.",
     );
     expect(writes()).toEqual([]);
   });
@@ -900,19 +925,62 @@ describe("the pictures of a product", () => {
     const rice = product("Basmati Rice");
     renderPanel(<Pictures id={rice.id} />);
     expect(
-      await screen.findByText(
-        /if the API refuses one file of an upload, it stores none of them/,
-      ),
+      await screen.findByText(/Up to 6 at once, as a whole or not at all/),
     ).toBeInTheDocument();
+    // The counter of the pack size: two of the eight it holds.
+    expect(screen.getByText("2 of 8")).toBeInTheDocument();
+  });
+
+  it("shows the placeholder note for a pack size without pictures", async () => {
+    const rice = product("Basmati Rice");
+    renderPanel(<Pictures id={rice.id} label="10 kg" />);
+    expect(
+      await screen.findByText(/No picture: the shop shows the placeholder\./),
+    ).toBeInTheDocument();
+    expect(screen.getByText("0 of 8")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Choose pictures for 10 kg"),
+    ).toBeInTheDocument();
+  });
+
+  it("uploads to the pack size, and the first picture becomes its main one", async () => {
+    installUpload("works");
+    const rice = product("Basmati Rice");
+    const ten = size("Basmati Rice", "10 kg");
+    const { user } = renderPanel(<Pictures id={rice.id} label="10 kg" />);
+    await user.upload(
+      await screen.findByLabelText("Choose pictures for 10 kg"),
+      [samplePicture("front.png"), samplePicture("back.png")],
+    );
+    await waitFor(() =>
+      expect(writes().map((call) => `${call.method} ${call.path}`)).toEqual([
+        `POST /v1/admin/products/${rice.id}/variants/${ten.id}/images`,
+      ]),
+    );
+    expect(
+      pack(rice.id, ten.id).images.map((image) => image.isPrimary),
+    ).toEqual([true, false]);
+    // The other pack sizes keep what they had.
+    expect(pack(rice.id, size("Basmati Rice", "1 kg").id).images).toHaveLength(
+      2,
+    );
+    expect(
+      within(
+        await screen.findByRole("list", { name: "Pictures of 10 kg" }),
+      ).getAllByRole("listitem"),
+    ).toHaveLength(2);
   });
 
   it("moves a picture with the menu and sends every id in the new order", async () => {
     const rice = product("Basmati Rice");
-    const before = record(rice.id).images.map((image) => image.id);
+    const one = size("Basmati Rice", "1 kg");
+    const before = pack(rice.id, one.id).images.map((image) => image.id);
     expect(before).toHaveLength(2);
     const { user } = renderPanel(<Pictures id={rice.id} />);
     await user.click(
-      await screen.findByRole("button", { name: "Actions for picture 1" }),
+      await screen.findByRole("button", {
+        name: "Actions for picture 1 of 1 kg",
+      }),
     );
     await user.click(
       await screen.findByRole("menuitem", { name: "Move later" }),
@@ -922,31 +990,35 @@ describe("the pictures of a product", () => {
       expect(writes()).toEqual([
         {
           method: "PUT",
-          path: `/v1/admin/products/${rice.id}/images/order`,
+          path: `/v1/admin/products/${rice.id}/variants/${one.id}/images/order`,
           body: { orderedIds: [before[1], before[0]] },
         },
       ]),
     );
-    expect(record(rice.id).images.map((image) => image.id)).toEqual([
+    expect(pack(rice.id, one.id).images.map((image) => image.id)).toEqual([
       before[1],
       before[0],
     ]);
     // The handles take the keyboard: each picture can be picked up.
     expect(
-      screen.getByRole("button", { name: "Move picture 1, place 1 of 2" }),
+      screen.getByRole("button", {
+        name: "Move picture 1 of 1 kg, place 1 of 2",
+      }),
     ).toHaveAttribute("aria-roledescription", "sortable");
   });
 
   it("loads the product again when the pictures changed in the meantime", async () => {
     const rice = product("Basmati Rice");
     const { user, unhandled } = renderPanel(<Pictures id={rice.id} />);
-    await screen.findByRole("button", { name: "Actions for picture 2" });
+    await screen.findByRole("button", {
+      name: "Actions for picture 2 of 1 kg",
+    });
     // Someone else deletes a picture: the order this page knows is stale.
-    const stored = record(rice.id);
+    const stored = pack(rice.id, size("Basmati Rice", "1 kg").id);
     stored.images = stored.images.slice(0, 1);
 
     await user.click(
-      screen.getByRole("button", { name: "Actions for picture 1" }),
+      screen.getByRole("button", { name: "Actions for picture 1 of 1 kg" }),
     );
     await user.click(
       await screen.findByRole("menuitem", { name: "Move later" }),
@@ -967,13 +1039,23 @@ describe("the pictures of a product", () => {
 
   it("deletes a picture only after a confirmation", async () => {
     const rice = product("Basmati Rice");
-    const [main, second] = record(rice.id).images;
+    const one = size("Basmati Rice", "1 kg");
+    const five = size("Basmati Rice", "5 kg");
+    const [main, second] = pack(rice.id, one.id).images;
+    // The 5 kg bag shows the same file as the main picture of the 1 kg bag.
+    const copy = pack(rice.id, five.id).images[0];
+    expect(copy?.url).toBe(main?.url);
     const { user } = renderPanel(<Pictures id={rice.id} />);
     await user.click(
-      await screen.findByRole("button", { name: "Actions for picture 1" }),
+      await screen.findByRole("button", {
+        name: "Actions for picture 1 of 1 kg",
+      }),
     );
     await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
     const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent(
+      "The picture is taken off this pack size for good.",
+    );
     expect(dialog).toHaveTextContent(
       "It is the main picture: the first remaining one takes its place.",
     );
@@ -986,22 +1068,29 @@ describe("the pictures of a product", () => {
       expect(writes()).toEqual([
         {
           method: "DELETE",
-          path: `/v1/admin/products/${rice.id}/images/${main?.id}`,
+          path: `/v1/admin/products/${rice.id}/variants/${one.id}/images/${main?.id}`,
           body: undefined,
         },
       ]),
     );
-    expect(record(rice.id).images.map((image) => image.id)).toEqual([
+    expect(pack(rice.id, one.id).images.map((image) => image.id)).toEqual([
       second?.id,
+    ]);
+    // The pack size it was copied to keeps its picture.
+    expect(pack(rice.id, five.id).images.map((image) => image.id)).toEqual([
+      copy?.id,
     ]);
   });
 
   it("makes another picture the main one", async () => {
     const rice = product("Basmati Rice");
-    const second = record(rice.id).images[1];
+    const one = size("Basmati Rice", "1 kg");
+    const second = pack(rice.id, one.id).images[1];
     const { user } = renderPanel(<Pictures id={rice.id} />);
     await user.click(
-      await screen.findByRole("button", { name: "Actions for picture 2" }),
+      await screen.findByRole("button", {
+        name: "Actions for picture 2 of 1 kg",
+      }),
     );
     await user.click(
       await screen.findByRole("menuitem", { name: "Make it the main picture" }),
@@ -1010,7 +1099,7 @@ describe("the pictures of a product", () => {
       expect(writes()).toEqual([
         {
           method: "PATCH",
-          path: `/v1/admin/products/${rice.id}/images/${second?.id}`,
+          path: `/v1/admin/products/${rice.id}/variants/${one.id}/images/${second?.id}`,
           body: { isPrimary: true },
         },
       ]),
@@ -1019,12 +1108,13 @@ describe("the pictures of a product", () => {
 
   it("marks a missing description and saves both languages, clearing an emptied one", async () => {
     const rice = product("Basmati Rice");
-    const [first, second] = record(rice.id).images;
+    const one = size("Basmati Rice", "1 kg");
+    const [first, second] = pack(rice.id, one.id).images;
     const { user } = renderPanel(<Pictures id={rice.id} />);
     // The second picture of the demo data has no German description.
     await user.click(
       await screen.findByRole("button", {
-        name: "Describe picture 2: the German description is missing",
+        name: "Describe picture 2 of 1 kg: the German description is missing",
       }),
     );
     const dialog = await screen.findByRole("dialog");
@@ -1036,7 +1126,7 @@ describe("the pictures of a product", () => {
       expect(writes()).toEqual([
         {
           method: "PATCH",
-          path: `/v1/admin/products/${rice.id}/images/${second?.id}`,
+          path: `/v1/admin/products/${rice.id}/variants/${one.id}/images/${second?.id}`,
           body: {
             alt: { en: "Basmati Rice", de: "Basmati Reis in der Schale" },
           },
@@ -1050,7 +1140,7 @@ describe("the pictures of a product", () => {
     api.calls.length = 0;
     await user.click(
       await screen.findByRole("button", {
-        name: "Describe picture 1: described in English and German",
+        name: "Describe picture 1 of 1 kg: described in English and German",
       }),
     );
     await user.clear(field("alt.de"));
@@ -1059,7 +1149,7 @@ describe("the pictures of a product", () => {
       expect(writes()).toEqual([
         {
           method: "PATCH",
-          path: `/v1/admin/products/${rice.id}/images/${first?.id}`,
+          path: `/v1/admin/products/${rice.id}/variants/${one.id}/images/${first?.id}`,
           body: { alt: { en: "Basmati Rice", de: null } },
         },
       ]),
@@ -1596,14 +1686,15 @@ describe("creating a product with pictures", () => {
       path: "/catalogue/products/new",
     });
     await fillNewProduct(user);
-    await user.upload(screen.getByLabelText("Choose pictures to upload"), [
+    await user.upload(screen.getByLabelText("Choose pictures for 500 g"), [
       picture("front.png"),
       picture("back.png"),
     ]);
     const chosen = await screen.findByRole("list", {
-      name: "Pictures chosen for the new product",
+      name: "Pictures chosen for 500 g",
     });
     expect(within(chosen).getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.getByText("2 of 8")).toBeInTheDocument();
     expect(writes()).toEqual([]);
 
     await user.click(
@@ -1611,14 +1702,15 @@ describe("creating a product with pictures", () => {
     );
     await waitFor(() => createdId());
     const id = createdId();
+    const created = record(id).variants[0];
     await waitFor(() =>
       expect(writes().map((call) => `${call.method} ${call.path}`)).toEqual([
         "POST /v1/admin/products",
-        `POST /v1/admin/products/${id}/images`,
+        `POST /v1/admin/products/${id}/variants/${created?.id}/images`,
       ]),
     );
-    expect(record(id).images).toHaveLength(2);
-    expect(record(id).images[0]?.isPrimary).toBe(true);
+    expect(created?.images).toHaveLength(2);
+    expect(created?.images[0]?.isPrimary).toBe(true);
     expect(
       await screen.findByText(
         "2 pictures stored. 1 pack size. It is a draft: set it active when it is ready.",
@@ -1633,12 +1725,10 @@ describe("creating a product with pictures", () => {
     });
     await fillNewProduct(user);
     await user.upload(
-      screen.getByLabelText("Choose pictures to upload"),
+      screen.getByLabelText("Choose pictures for 500 g"),
       picture("front.png"),
     );
-    await screen.findByRole("list", {
-      name: "Pictures chosen for the new product",
-    });
+    await screen.findByRole("list", { name: "Pictures chosen for 500 g" });
 
     await user.click(
       screen.getByText("Create product", { selector: "button" }),
@@ -1648,7 +1738,7 @@ describe("creating a product with pictures", () => {
     expect(writes().map((call) => `${call.method} ${call.path}`)).toEqual([
       "POST /v1/admin/products",
     ]);
-    expect(record(id).images).toHaveLength(0);
+    expect(record(id).variants[0]?.images).toHaveLength(0);
     // The toast: its title and, under it, what the API said.
     expect(
       (await screen.findAllByText(/created without its pictures/)).length,
@@ -1667,10 +1757,10 @@ describe("creating a product with pictures", () => {
       path: "/catalogue/products/new",
     });
     await screen.findByText("Create product", { selector: "button" });
-    await user.upload(screen.getByLabelText("Choose pictures to upload"), [
-      picture("tiny.png"),
-      picture("front.png"),
-    ]);
+    await user.upload(
+      screen.getByLabelText("Choose pictures for the new pack size"),
+      [picture("tiny.png"), picture("front.png")],
+    );
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("One file cannot be uploaded");
     expect(alert).toHaveTextContent(
@@ -1678,9 +1768,181 @@ describe("creating a product with pictures", () => {
     );
     expect(alert).toHaveTextContent("1 other picture was added.");
     const chosen = screen.getByRole("list", {
-      name: "Pictures chosen for the new product",
+      name: "Pictures chosen for the new pack size",
     });
     expect(within(chosen).getAllByRole("listitem")).toHaveLength(1);
     expect(writes()).toEqual([]);
+  });
+
+  it("sends the pictures of each pack size to that pack size, whatever the order of the rows", async () => {
+    installUpload("works");
+    const { user } = renderPanel(<ProductNewView readSize={readSize} />, {
+      path: "/catalogue/products/new",
+    });
+    await fillNewProduct(user);
+    // A second row with a smaller pack: the API answers smallest first, so
+    // the rows of the form and the pack sizes of the answer differ in order.
+    await user.click(screen.getByRole("button", { name: "Add a pack size" }));
+    await user.type(field("variants.1.packSize.value"), "100");
+    await user.type(field("variants.1.regularPrice"), "0.99");
+    await user.upload(screen.getByLabelText("Choose pictures for 500 g"), [
+      picture("large-front.png"),
+      picture("large-back.png"),
+    ]);
+    await user.upload(
+      screen.getByLabelText("Choose pictures for 100 g"),
+      picture("small-front.png"),
+    );
+
+    await user.click(
+      screen.getByText("Create product", { selector: "button" }),
+    );
+    await waitFor(() => createdId());
+    const id = createdId();
+    const bySize = (label: string) => {
+      const found = record(id).variants.find(
+        (entry) => entry.packSize.label === label,
+      );
+      if (!found) throw new Error(`No pack size ${label}`);
+      return found;
+    };
+    await waitFor(() =>
+      expect(writes().map((call) => `${call.method} ${call.path}`)).toEqual([
+        "POST /v1/admin/products",
+        `POST /v1/admin/products/${id}/variants/${bySize("500 g").id}/images`,
+        `POST /v1/admin/products/${id}/variants/${bySize("100 g").id}/images`,
+      ]),
+    );
+    expect(bySize("500 g").images).toHaveLength(2);
+    expect(bySize("100 g").images).toHaveLength(1);
+    expect(
+      await screen.findByText(
+        "3 pictures stored. 2 pack sizes. It is a draft: set it active when it is ready.",
+      ),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("the pictures on the page of a product", () => {
+  it("shows a gallery in each pack size and none for the product", async () => {
+    const rice = product("Basmati Rice");
+    renderProduct(rice.id);
+    await screen.findByRole("list", { name: "Pictures of 1 kg" });
+    expect(
+      within(
+        screen.getByRole("list", { name: "Pictures of 1 kg" }),
+      ).getAllByRole("listitem"),
+    ).toHaveLength(2);
+    expect(
+      within(
+        screen.getByRole("list", { name: "Pictures of 5 kg" }),
+      ).getAllByRole("listitem"),
+    ).toHaveLength(1);
+    // The 10 kg bag has none: the shop shows its placeholder.
+    expect(
+      screen.getByText(/No picture: the shop shows the placeholder\./),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Pictures" }),
+    ).not.toBeInTheDocument();
+    expect(writes()).toEqual([]);
+  });
+
+  it("copies ticked pictures from another pack size and leaves out what is shown already", async () => {
+    const rice = product("Basmati Rice");
+    const one = size("Basmati Rice", "1 kg");
+    const five = size("Basmati Rice", "5 kg");
+    const [first, second] = pack(rice.id, one.id).images;
+    const { user } = renderProduct(rice.id);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Copy pictures from another pack size to 5 kg",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    // The 5 kg bag shows the first picture of the 1 kg bag already.
+    expect(
+      within(dialog).getByRole("checkbox", {
+        name: "picture 1 of 1 kg, shown here already",
+      }),
+    ).toBeDisabled();
+    const copyButton = within(dialog).getByRole("button", { name: "Copy" });
+    expect(copyButton).toBeDisabled();
+    await user.click(
+      within(dialog).getByRole("checkbox", { name: "Copy picture 2 of 1 kg" }),
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "Copy 1 picture" }),
+    );
+
+    await waitFor(() =>
+      expect(writes()).toEqual([
+        {
+          method: "POST",
+          path: `/v1/admin/products/${rice.id}/variants/${five.id}/images/copy`,
+          body: { fromVariantId: one.id, imageIds: [second?.id] },
+        },
+      ]),
+    );
+    // An entry of its own for the same file; the source is untouched.
+    const copied = pack(rice.id, five.id).images;
+    expect(copied.map((image) => image.url)).toEqual([first?.url, second?.url]);
+    expect(copied[1]?.id).not.toBe(second?.id);
+    expect(pack(rice.id, one.id).images).toHaveLength(2);
+    expect(
+      await screen.findByText("1 picture copied to 5 kg"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        within(
+          screen.getByRole("list", { name: "Pictures of 5 kg" }),
+        ).getAllByRole("listitem"),
+      ).toHaveLength(2),
+    );
+  });
+
+  it("does not offer a copy for a product with one pack size", async () => {
+    const single = products.find((entry) => entry.variants.length === 1);
+    if (!single)
+      throw new Error("No product with one pack size in the demo data");
+    renderProduct(single.id);
+    await waitFor(() => field("variants.0.regularPrice"));
+    expect(
+      screen.queryByRole("button", { name: /^Copy pictures from another/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("says that the pictures of a removed pack size are deleted with it", async () => {
+    const rice = product("Basmati Rice");
+    const { user } = renderProduct(rice.id);
+    await user.click(
+      await screen.findByRole("button", { name: "Remove the pack size 1 kg" }),
+    );
+    expect(
+      screen.getByText(/Its 2 pictures are deleted with it/),
+    ).toBeInTheDocument();
+    await user.click(saveButton());
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent(
+      "The pictures and the price history of a removed pack size are deleted with it",
+    );
+    expect(dialog).toHaveTextContent("Pictures deleted with it");
+    expect(writes()).toEqual([]);
+  });
+
+  it("answers 404 on the picture paths of the product, which are gone", async () => {
+    const rice = product("Basmati Rice");
+    const first = pack(rice.id, size("Basmati Rice", "1 kg").id).images[0];
+    await expect(
+      api.request("PUT", `/v1/admin/products/${rice.id}/images/order`, {
+        orderedIds: [first?.id],
+      }),
+    ).rejects.toThrow(/answered 404/);
+    await expect(
+      api.request(
+        "DELETE",
+        `/v1/admin/products/${rice.id}/images/${first?.id}`,
+      ),
+    ).rejects.toThrow(/answered 404/);
   });
 });

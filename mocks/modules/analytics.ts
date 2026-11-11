@@ -17,6 +17,7 @@ import type {
   StockLine,
 } from "../../src/lib/api/types/index.ts";
 import type { Db, OrderRecord, ProductRecord } from "../db.ts";
+import { productGallery } from "../domain.ts";
 import { enumParam, fail, intParam, json } from "../http.ts";
 import type { Router } from "../router.ts";
 import { addDays, berlinDay } from "../time.ts";
@@ -412,8 +413,7 @@ function productRef(
       image: null,
     };
   }
-  const primary =
-    product.images.find((image) => image.isPrimary) ?? product.images[0];
+  const primary = productGallery(product)[0];
   return {
     id: product.id,
     name: product.name,

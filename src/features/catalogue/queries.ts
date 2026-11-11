@@ -15,27 +15,32 @@ import {
   type ApiErrorCode,
 } from "@/lib/api/errors";
 import { invalidation, queryKeys } from "@/lib/api/query-keys";
-import type {
-  AdminImage,
-  Category,
-  CategoryInput,
-  Id,
-  ImagePatch,
-  ListResult,
-  PageResult,
-  ProductDetail,
-  ProductInput,
-  ProductPatch,
-  ProductQuery,
-  ProductSummary,
-  StockChangeInput,
-  Translated,
-  TranslatedOptional,
+import {
+  IMAGE_LIMITS,
+  type AdminImage,
+  type Category,
+  type CategoryInput,
+  type Id,
+  type ImageCopyInput,
+  type ImagePatch,
+  type ListResult,
+  type PackUnit,
+  type PageResult,
+  type ProductDetail,
+  type ProductInput,
+  type ProductPatch,
+  type ProductQuery,
+  type ProductSummary,
+  type ProductVariant,
+  type StockChangeInput,
+  type Translated,
+  type TranslatedOptional,
 } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
 import type { Permission } from "@/lib/auth/permissions";
 import { reorderSiblings } from "./category-tree";
 import type { ProductPlan } from "./product-schema";
+import { baseQuantity } from "./variants";
 
 // --- Reading ----------------------------------------------------------------
 
@@ -106,43 +111,88 @@ function keepProduct(client: QueryClient, product: ProductDetail): void {
   client.setQueryData(queryKeys.products.detail(product.id), product);
 }
 
+/** The pictures chosen for one pack size of a product that does not exist yet. */
+export interface RowPictures {
+  packSize: { value: number; unit: PackUnit };
+  files: File[];
+}
+
 export interface CreateWithImagesInput {
   input: ProductInput;
-  /** The pictures chosen before the product existed; uploaded right after. */
-  files: File[];
+  /** Per pack size, the pictures chosen before the product existed. */
+  pictures: RowPictures[];
   onProgress?: (fraction: number) => void;
+}
+
+/** What came of the pictures of one pack size. */
+export interface PictureUpload {
+  /** "5 kg". */
+  label: string;
+  count: number;
+  /** `null` when the pictures are stored; what the API said otherwise. */
+  error: unknown;
 }
 
 export interface CreateWithImagesResult {
   product: ProductDetail;
-  /** `null` when every picture is stored; what the API said otherwise. */
-  upload: unknown;
+  /** One entry per pack size that had pictures chosen. */
+  uploads: PictureUpload[];
 }
 
 /**
- * Creates a product, then uploads its pictures: the API takes pictures only
- * for a product that exists (8), so they are two requests. A refused upload
- * does not undo the creation: the product is there, without pictures, and
- * the result says so.
+ * Creates a product, then uploads the pictures of each pack size to it: the
+ * API takes pictures only for a pack size that exists (8), so they are
+ * requests of their own. The pack sizes are found by their pack, not by
+ * their place: the API answers them smallest first. A refused upload does
+ * not undo the creation, and does not stop the pictures of the other pack
+ * sizes: the result says what was stored.
  */
 export function useCreateProductWithImages() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async ({
       input,
-      files,
+      pictures,
       onProgress,
     }: CreateWithImagesInput): Promise<CreateWithImagesResult> => {
-      const created = (await api.products.create(input)).product;
-      if (files.length === 0) return { product: created, upload: null };
-      try {
-        const withImages = (
-          await api.products.uploadImages(created.id, files, onProgress)
-        ).product;
-        return { product: withImages, upload: null };
-      } catch (error) {
-        return { product: created, upload: error };
+      let product = (await api.products.create(input)).product;
+      const chosen = pictures.filter((entry) => entry.files.length > 0);
+      const total = chosen.reduce((sum, entry) => sum + entry.files.length, 0);
+      const uploads: PictureUpload[] = [];
+      let sent = 0;
+      for (const { packSize, files } of chosen) {
+        const wanted = baseQuantity(packSize.value, packSize.unit);
+        const variant = product.variants.find(
+          (entry) =>
+            baseQuantity(entry.packSize.value, entry.packSize.unit) === wanted,
+        );
+        const label =
+          variant?.packSize.label ?? `${packSize.value} ${packSize.unit}`;
+        const before = sent;
+        try {
+          if (!variant) {
+            throw new Error(
+              `The API did not answer the pack size ${label}. Add its pictures on the page of the product.`,
+            );
+          }
+          product = (
+            await api.products.uploadImages(
+              product.id,
+              variant.id,
+              files,
+              (fraction) =>
+                onProgress?.((before + fraction * files.length) / total),
+            )
+          ).product;
+          uploads.push({ label, count: files.length, error: null });
+        } catch (error) {
+          if (isSessionError(error)) throw error;
+          uploads.push({ label, count: files.length, error });
+        }
+        sent += files.length;
+        onProgress?.(sent / total);
       }
+      return { product, uploads };
     },
     onSuccess: ({ product }) => keepProduct(client, product),
     meta: { invalidates: invalidation.catalog, silent: true },
@@ -324,13 +374,16 @@ export function useSetAvailable() {
   });
 }
 
-// --- Images of a product ----------------------------------------------------
+// --- Images ---------------------------------------------------------------
 
-/** A record with a list of pictures: a retail or a wholesale product. */
+/**
+ * A record the picture manager works on: a wholesale product, which holds
+ * its pictures itself, or a retail product, whose pictures belong to its
+ * pack sizes (doc/VARIANT_IMAGES.md).
+ */
 export interface ImageOwner {
   id: Id;
   name: Translated;
-  images: AdminImage[];
 }
 
 type Progress = (fraction: number) => void;
@@ -360,9 +413,11 @@ export interface ImageEndpoints<P extends ImageOwner> {
 }
 
 /**
- * Where the pictures of a record live: the endpoints, the query that
- * holds the record, what to load again, and who may change them. The
- * retail and the wholesale product share the picture manager through it.
+ * Where one gallery lives: the endpoints, the query that holds the record,
+ * what to load again, who may change the pictures, and, where the record
+ * does not hold them itself, where in it they are and how many fit. The
+ * pack size of a retail product and the wholesale product share the
+ * picture manager through it.
  */
 export interface ImageTarget<P extends ImageOwner> {
   id: Id;
@@ -374,19 +429,121 @@ export interface ImageTarget<P extends ImageOwner> {
   permission: Permission;
   /** Where the record is shown: "the shop", "the wholesale site". */
   site: string;
+  /**
+   * Where the pictures are in the record, and the record with them in
+   * another order. Left out: the record holds them itself as `images`.
+   */
+  gallery?: {
+    of: (record: P) => AdminImage[];
+    put: (record: P, images: AdminImage[]) => P;
+  };
+  /** How many pictures fit. Left out: those of a wholesale product. */
+  limit?: number;
+  /** What holds the pictures, in words: "pack size". Left out: "product". */
+  holder?: string;
+  /** What holds them, by name: "5 kg". Left out: the name of the record. */
+  label?: string;
+  /** Further codes that say the holder is gone. */
+  gone?: readonly ApiErrorCode[];
 }
 
-/** The pictures of a retail product (8). */
-export function retailImages(id: Id): ImageTarget<ProductDetail> {
+/** The pictures of a gallery, as the record has them. */
+export function imagesOf<P extends ImageOwner>(
+  target: ImageTarget<P>,
+  record: P,
+): AdminImage[] {
+  if (target.gallery) return target.gallery.of(record);
+  return (record as { images?: AdminImage[] }).images ?? [];
+}
+
+function withImages<P extends ImageOwner>(
+  target: ImageTarget<P>,
+  record: P,
+  images: AdminImage[],
+): P {
+  return target.gallery
+    ? target.gallery.put(record, images)
+    : { ...record, images };
+}
+
+/** How many pictures the gallery holds at most. */
+export function imageLimit<P extends ImageOwner>(
+  target: ImageTarget<P>,
+): number {
+  return target.limit ?? IMAGE_LIMITS.wholesaleProduct;
+}
+
+/** The codes that say the record, or what holds the pictures in it, is gone. */
+export function goneCodes<P extends ImageOwner>(
+  target: ImageTarget<P>,
+): ApiErrorCode[] {
+  return [target.notFound, ...(target.gone ?? [])];
+}
+
+/**
+ * The pictures of one pack size of a retail product (8): at most 8, with
+ * the calls under `…/variants/{variantId}/images`. Every call answers the
+ * whole product, which replaces the product of the page.
+ */
+export function variantImages(
+  productId: Id,
+  variant: Pick<ProductVariant, "id" | "packSize">,
+): ImageTarget<ProductDetail> {
+  const variantId = variant.id;
+  const { products } = api;
   return {
-    id,
-    endpoints: api.products,
-    detailKey: queryKeys.products.detail(id),
+    id: productId,
+    endpoints: {
+      uploadImages: (id, files, onProgress, signal) =>
+        products.uploadImages(id, variantId, files, onProgress, signal),
+      replaceImage: (id, imageId, file, onProgress, signal) =>
+        products.replaceImage(id, variantId, imageId, file, onProgress, signal),
+      patchImage: (id, imageId, input) =>
+        products.patchImage(id, variantId, imageId, input),
+      removeImage: (id, imageId) =>
+        products.removeImage(id, variantId, imageId),
+      reorderImages: (id, orderedIds) =>
+        products.reorderImages(id, variantId, orderedIds),
+    },
+    detailKey: queryKeys.products.detail(productId),
     invalidates: invalidation.catalog,
     notFound: "PRODUCT_NOT_FOUND",
+    gone: ["PRODUCT_VARIANT_NOT_FOUND"],
     permission: "catalog.manage",
     site: "the shop",
+    gallery: {
+      of: (product) =>
+        product.variants.find((entry) => entry.id === variantId)?.images ?? [],
+      put: (product, images) => ({
+        ...product,
+        variants: product.variants.map((entry) =>
+          entry.id === variantId ? { ...entry, images } : entry,
+        ),
+        defaultVariant:
+          product.defaultVariant.id === variantId
+            ? { ...product.defaultVariant, images }
+            : product.defaultVariant,
+      }),
+    },
+    limit: IMAGE_LIMITS.variant,
+    holder: "pack size",
+    label: variant.packSize.label,
   };
+}
+
+/**
+ * Shows pictures of another pack size of the product on this one too (8).
+ * No file is stored twice; each pack size keeps its own order, main
+ * picture and descriptions.
+ */
+export function useCopyImages(productId: Id, variantId: Id) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ImageCopyInput) =>
+      (await api.products.copyImages(productId, variantId, input)).product,
+    onSuccess: (product) => keepProduct(client, product),
+    meta: { invalidates: invalidation.catalog, silent: true },
+  });
 }
 
 export interface UploadInput {
@@ -485,10 +642,11 @@ export function useReorderImages<P extends ImageOwner>(target: ImageTarget<P>) {
       await client.cancelQueries({ queryKey: key });
       const before = client.getQueryData<P>(key);
       if (before) {
-        const byId = new Map(before.images.map((image) => [image.id, image]));
+        const current = imagesOf(target, before);
+        const byId = new Map(current.map((image) => [image.id, image]));
         const images = orderedIds.flatMap((imageId) => byId.get(imageId) ?? []);
-        if (images.length === before.images.length) {
-          client.setQueryData<P>(key, { ...before, images });
+        if (images.length === current.length) {
+          client.setQueryData<P>(key, withImages(target, before, images));
         }
       }
       return { before };

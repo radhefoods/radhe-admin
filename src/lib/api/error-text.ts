@@ -106,7 +106,8 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   IMAGE_FORMAT_NOT_ALLOWED: "Only JPEG, PNG and WebP pictures are accepted.",
   IMAGE_DIMENSIONS_INVALID:
     "The picture is too small. Each side needs at least 200 pixels.",
-  IMAGE_LIMIT_REACHED: "A product holds 12 pictures at most.",
+  // 8 for a pack size, 12 for a wholesale product: `details.maximum` says which.
+  IMAGE_LIMIT_REACHED: "No more pictures fit here.",
   IMAGE_ORDER_INVALID:
     "The pictures changed in the meantime. The product was loaded again.",
   IMAGE_NOT_FOUND: "This picture does not exist (any more).",
@@ -277,7 +278,7 @@ export function errorMessage(error: unknown): string {
   if (hasErrorCode(error, "IMAGE_LIMIT_REACHED")) {
     const d = error.details;
     if (d && typeof d.remaining === "number") {
-      return `A product holds ${d.maximum} pictures at most. There is room for ${d.remaining} more.`;
+      return `At most ${d.maximum} pictures fit here. There is room for ${d.remaining} more.`;
     }
   }
   if (hasErrorCode(error, "STOCK_INSUFFICIENT")) {

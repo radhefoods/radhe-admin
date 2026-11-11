@@ -54,7 +54,15 @@ export const IMAGE_RULES = {
   maxBytes: 10 * 1024 * 1024,
   minSidePx: 200,
   maxFilesPerRequest: 10,
-  maxImagesPerProduct: 12,
+} as const;
+
+/**
+ * How many pictures one record holds. A retail picture belongs to a pack
+ * size (8, doc/VARIANT_IMAGES.md); a wholesale product holds its own (25).
+ */
+export const IMAGE_LIMITS = {
+  variant: 8,
+  wholesaleProduct: 12,
 } as const;
 
 // --- Categories (7) ---------------------------------------------------------
@@ -179,8 +187,8 @@ export interface ProductStockOverview {
 
 /**
  * A pack size of a product (8.1): its own article number, barcode, pack,
- * URL, prices, enabled switch and stock. `isDefault` marks the one that
- * stands for the product in lists; the API computes it.
+ * URL, prices, enabled switch, stock and pictures. `isDefault` marks the
+ * one that stands for the product in lists; the API computes it.
  */
 export interface ProductVariant {
   id: Id;
@@ -196,6 +204,14 @@ export interface ProductVariant {
   isEnabled: boolean;
   isDefault: boolean;
   stock: ProductStock;
+  /**
+   * The pictures of this pack size in the admin's order, at most 8;
+   * `isPrimary` marks the main one. Without any, the shop shows its
+   * placeholder, never the picture of another pack size. Two pack sizes
+   * that show the same file have entries with different ids and the same
+   * `url`.
+   */
+  images: AdminImage[];
   createdAt: IsoDateTime;
 }
 
@@ -220,7 +236,12 @@ export interface ProductSummary {
   variants: ProductVariant[];
   variantCount: number;
   stock: ProductStockOverview;
+  /** The pictures of all pack sizes together. */
   imageCount: number;
+  /**
+   * One picture for lists: the main picture of the default pack size, else
+   * of the smallest pack size that has one, else `null`.
+   */
   image: SummaryImage | null;
   createdAt: IsoDateTime;
   updatedAt: IsoDateTime;
@@ -260,8 +281,6 @@ export interface ProductDetail extends ProductSummary {
   tags: string[];
   searchKeywords: string[];
   seo: ProductSeo | null;
-  /** In the admin's order; shown for every pack size. */
-  images: AdminImage[];
   publishedAt: IsoDateTime | null;
 }
 
@@ -465,4 +484,16 @@ export interface ImagePatch {
   alt?: TranslatedOptional;
   /** May only be `true`. */
   isPrimary?: true;
+}
+
+/**
+ * `POST …/variants/{variantId}/images/copy` (8): shows pictures of another
+ * pack size of the same product on this one too, without storing a file
+ * twice. Without `imageIds`, all of them; a picture this pack size shows
+ * already is left out.
+ */
+export interface ImageCopyInput {
+  fromVariantId: Id;
+  /** 1 to 8 pictures of `fromVariantId`. */
+  imageIds?: Id[];
 }

@@ -4,7 +4,7 @@ import { expect, signIn, test } from "./support";
 // What only a real browser can show: a file that travels to the API, with
 // the panel's own check in front of it.
 
-test("a picture is uploaded to a product, and one that is too small is refused before it is sent", async ({
+test("a picture is uploaded to a pack size, and one that is too small is refused before it is sent", async ({
   page,
 }) => {
   await signIn(page, "owner", "/catalogue/products");
@@ -13,13 +13,17 @@ test("a picture is uploaded to a product, and one that is too small is refused b
     .getByRole("link", { name: /Urad Papad/ })
     .click();
 
-  const pictures = page.getByRole("region", { name: "Pictures" });
+  // The pictures belong to the pack size: its row holds its gallery.
+  const pictures = page
+    .getByRole("list", { name: "Pack sizes" })
+    .getByRole("listitem", { name: "200 g" });
   const tiles = pictures
-    .getByRole("list", { name: /^Pictures of/ })
+    .getByRole("list", { name: "Pictures of 200 g" })
     .getByRole("listitem");
   await expect(tiles.first()).toBeVisible();
   const before = await tiles.count();
-  const input = page.getByLabel("Choose pictures to upload");
+  await expect(pictures.getByText(`${before} of 8`)).toBeVisible();
+  const input = page.getByLabel("Choose pictures for 200 g");
 
   // 120 px: the API would refuse it, so the panel does not send it at all.
   let uploads = 0;
@@ -47,6 +51,7 @@ test("a picture is uploaded to a product, and one that is too small is refused b
   });
   await expect(page.getByText("Picture added")).toBeVisible();
   await expect(tiles).toHaveCount(before + 1);
+  await expect(pictures.getByText(`${before + 1} of 8`)).toBeVisible();
   expect(uploads).toBe(1);
 });
 
@@ -92,12 +97,12 @@ test("a new product takes its pictures with it: created first, then the upload, 
   await page.locator('[name="variants.0.packSize.value"]').fill("500");
   await page.locator('[name="variants.0.regularPrice"]').fill("3.49");
   await page.locator('[name="vatRate"]').fill("7");
-  await page.getByLabel("Choose pictures to upload").setInputFiles([
+  await page.getByLabel("Choose pictures for 500 g").setInputFiles([
     { name: "front.png", mimeType: "image/png", buffer: png(640, 480) },
     { name: "back.png", mimeType: "image/png", buffer: png(640, 480) },
   ]);
   const chosen = page.getByRole("list", {
-    name: "Pictures chosen for the new product",
+    name: "Pictures chosen for 500 g",
   });
   await expect(chosen.getByRole("listitem")).toHaveCount(2);
   expect(posts).toEqual([]);
@@ -106,12 +111,13 @@ test("a new product takes its pictures with it: created first, then the upload, 
   await expect(page).toHaveURL(/\/catalogue\/products\/[0-9a-f]{24}$/);
   await expect(page.getByText("2 pictures stored.")).toBeVisible();
   const id = page.url().split("/").pop();
-  expect(posts).toEqual([
-    "/v1/admin/products",
-    `/v1/admin/products/${id}/images`,
-  ]);
-  const pictures = page.getByRole("region", { name: "Pictures" });
+  // The product first, then the pictures to its one pack size.
+  expect(posts).toHaveLength(2);
+  expect(posts[0]).toBe("/v1/admin/products");
+  expect(posts[1]).toMatch(
+    new RegExp(`^/v1/admin/products/${id}/variants/[0-9a-f]{24}/images$`),
+  );
   await expect(
-    pictures.getByRole("list", { name: /^Pictures of/ }).getByRole("listitem"),
+    page.getByRole("list", { name: "Pictures of 500 g" }).getByRole("listitem"),
   ).toHaveCount(2);
 });

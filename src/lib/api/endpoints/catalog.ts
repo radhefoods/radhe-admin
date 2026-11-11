@@ -13,6 +13,7 @@ import type {
   ImportBody,
   ImportResult,
   ImportSheetType,
+  ImageCopyInput,
   ImagePatch,
   ListResult,
   PageResult,
@@ -94,6 +95,8 @@ export function categoriesApi({ request, upload }: SessionTransport) {
 
 export function productsApi({ request, upload }: SessionTransport) {
   const base = "/v1/admin/products";
+  const images = (id: Id, variantId: Id) =>
+    `${base}/${id}/variants/${variantId}/images`;
   return {
     list: (query: ProductQuery = {}, signal?: AbortSignal) =>
       request<PageResult<ProductSummary>>(base, {
@@ -154,49 +157,58 @@ export function productsApi({ request, upload }: SessionTransport) {
         `${base}/${id}/variants/${variantId}/stock/movements`,
         { query: query as Query, signal },
       ),
+    // The pictures of one pack size (8, doc/VARIANT_IMAGES.md). Every call
+    // answers the whole product.
     /** All-or-nothing: if one file is refused, nothing is stored. */
     uploadImages: (
       id: Id,
+      variantId: Id,
       files: File[],
       onProgress?: Progress,
       signal?: AbortSignal,
     ) => {
       const form = new FormData();
       for (const file of files) form.append("files", file);
-      return upload<{ product: ProductDetail }>(`${base}/${id}/images`, {
+      return upload<{ product: ProductDetail }>(images(id, variantId), {
         method: "POST",
         formData: form,
         onProgress,
         signal,
       });
     },
-    reorderImages: (id: Id, orderedIds: Id[]) =>
-      request<{ product: ProductDetail }>(`${base}/${id}/images/order`, {
+    /** Shows pictures of another pack size here too; no file is stored twice. */
+    copyImages: (id: Id, variantId: Id, input: ImageCopyInput) =>
+      request<{ product: ProductDetail }>(`${images(id, variantId)}/copy`, {
+        method: "POST",
+        body: input,
+      }),
+    reorderImages: (id: Id, variantId: Id, orderedIds: Id[]) =>
+      request<{ product: ProductDetail }>(`${images(id, variantId)}/order`, {
         method: "PUT",
         body: { orderedIds },
       }),
     replaceImage: (
       id: Id,
+      variantId: Id,
       imageId: Id,
       file: File,
       onProgress?: Progress,
       signal?: AbortSignal,
     ) =>
-      upload<{ product: ProductDetail }>(`${base}/${id}/images/${imageId}`, {
-        method: "PUT",
-        formData: oneFile(file),
-        onProgress,
-        signal,
-      }),
-    patchImage: (id: Id, imageId: Id, input: ImagePatch) =>
-      request<{ product: ProductDetail }>(`${base}/${id}/images/${imageId}`, {
-        method: "PATCH",
-        body: input,
-      }),
-    removeImage: (id: Id, imageId: Id) =>
-      request<{ product: ProductDetail }>(`${base}/${id}/images/${imageId}`, {
-        method: "DELETE",
-      }),
+      upload<{ product: ProductDetail }>(
+        `${images(id, variantId)}/${imageId}`,
+        { method: "PUT", formData: oneFile(file), onProgress, signal },
+      ),
+    patchImage: (id: Id, variantId: Id, imageId: Id, input: ImagePatch) =>
+      request<{ product: ProductDetail }>(
+        `${images(id, variantId)}/${imageId}`,
+        { method: "PATCH", body: input },
+      ),
+    removeImage: (id: Id, variantId: Id, imageId: Id) =>
+      request<{ product: ProductDetail }>(
+        `${images(id, variantId)}/${imageId}`,
+        { method: "DELETE" },
+      ),
   };
 }
 

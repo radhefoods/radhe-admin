@@ -1248,7 +1248,6 @@ function writeProduct(
       tags: [],
       searchKeywords: [],
       seo: null,
-      images: [],
       publishedAt: status === "active" ? iso(now) : null,
       createdAt: iso(now),
       updatedAt: iso(now),

@@ -11,7 +11,7 @@ import {
   Star,
   Trash2,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { BilingualField } from "@/components/form/fields";
 import { FormError, useSubmit, useZodForm } from "@/components/form/form";
@@ -59,7 +59,9 @@ import {
   type SizeReader,
 } from "./image-rules";
 import {
-  retailImages,
+  goneCodes,
+  imageLimit,
+  imagesOf,
   usePatchImage,
   useRemoveImage,
   useReorderImages,
@@ -442,27 +444,32 @@ function Tile({
   );
 }
 
-// --- The pictures of a product ---------------------------------------------------
+// --- The pictures of a gallery ---------------------------------------------------
 
 /**
- * The pictures of a product, retail or wholesale: upload (dropped or
- * chosen, several at once), order, main picture, descriptions, a new file
- * for a picture, deletion. Files are checked against the rules of the API
- * before anything is sent.
+ * One gallery: the pictures of a pack size of a retail product, or of a
+ * wholesale product. Upload (dropped or chosen, several at once), order,
+ * main picture, descriptions, a new file for a picture, deletion. Files are
+ * checked against the rules of the API before anything is sent. The
+ * pictures, their limit and the calls come from the target.
  */
 export function ImageManager<P extends ImageOwner>({
   product,
-  target: given,
+  target,
   readSize,
+  inline = false,
+  actions,
 }: {
   product: P;
-  /** The endpoints and the query of the record; the retail product by default. */
-  target?: ImageTarget<P>;
+  /** The endpoints and the query of the record, and where its pictures are. */
+  target: ImageTarget<P>;
   /** How the size of a file is read; tests have no decoder. */
   readSize?: SizeReader;
+  /** A part of another card (the section of a pack size) instead of a card of its own. */
+  inline?: boolean;
+  /** Further actions next to the title: "Copy from another pack size". */
+  actions?: ReactNode;
 }) {
-  const target =
-    given ?? (retailImages(product.id) as unknown as ImageTarget<P>);
   const manage = useCan()(target.permission);
   const client = useQueryClient();
   const upload = useUploadImages(target);
@@ -487,11 +494,19 @@ export function ImageManager<P extends ImageOwner>({
   const replaceInput = useRef<HTMLInputElement>(null);
   const replaceTarget = useRef<string | null>(null);
 
-  const images = product.images;
+  const images = imagesOf(target, product);
   const ids = images.map((image) => image.id);
-  const room = remainingImages(images.length);
+  const limit = imageLimit(target);
+  const holder = target.holder ?? "product";
+  const rules = { limit, holder };
+  const room = remainingImages(images.length, limit);
   const productName = translated(product.name);
-  const nameOf = (id: string) => `picture ${ids.indexOf(id) + 1}`;
+  /** What the pictures are of: the pack size by its label, else the product. */
+  const subject = target.label ?? productName;
+  /** Several galleries share a page: each picture says whose it is. */
+  const whose = target.label ? ` of ${target.label}` : "";
+  const nameOf = (id: string) => `picture ${ids.indexOf(id) + 1}${whose}`;
+  const site = target.site === "the shop" ? "The shop" : "The wholesale site";
   const busy = sending !== null || replacing !== null || checking;
 
   function reload(): void {
@@ -515,9 +530,10 @@ export function ImageManager<P extends ImageOwner>({
       );
     } catch (error) {
       if (isSessionError(error)) return;
-      setFailure(uploadFailure(error, files.length));
-      // The product is not what the panel thought: look again.
-      if (hasErrorCode(error, "IMAGE_LIMIT_REACHED", target.notFound)) reload();
+      setFailure(uploadFailure(error, files.length, rules));
+      // The record is not what the panel thought: look again.
+      if (hasErrorCode(error, "IMAGE_LIMIT_REACHED", ...goneCodes(target)))
+        reload();
     } finally {
       abort.current = null;
       setSending(null);
@@ -532,6 +548,7 @@ export function ImageManager<P extends ImageOwner>({
     try {
       check = await checkImageFiles(files, {
         existing: images.length,
+        ...rules,
         readSize,
       });
     } finally {
@@ -584,16 +601,19 @@ export function ImageManager<P extends ImageOwner>({
       });
       notify.success(
         "Picture replaced",
-        "Its place, description and main-picture setting are kept.",
+        target.gallery
+          ? `Its place, description and main-picture setting are kept. Only this ${holder} shows the new file.`
+          : "Its place, description and main-picture setting are kept.",
       );
     } catch (error) {
       if (isSessionError(error)) return;
-      const notice = uploadFailure(error, 1);
+      const notice = uploadFailure(error, 1, rules);
       setFailure({
         title: notice.title,
         detail: notice.detail ?? "The picture stays as it is.",
       });
-      if (hasErrorCode(error, "IMAGE_NOT_FOUND")) reload();
+      if (hasErrorCode(error, "IMAGE_NOT_FOUND", ...goneCodes(target)))
+        reload();
     } finally {
       setReplacing(null);
     }
@@ -605,178 +625,199 @@ export function ImageManager<P extends ImageOwner>({
       notify.success("Main picture changed");
     } catch (error) {
       notify.error(error);
-      if (hasErrorCode(error, "IMAGE_NOT_FOUND")) reload();
+      if (hasErrorCode(error, "IMAGE_NOT_FOUND", ...goneCodes(target)))
+        reload();
     }
   }
 
-  return (
-    <Card id="pictures" aria-label="Pictures" className="scroll-mt-20">
-      <CardHeader
-        title="Pictures"
-        description={
-          images.length === 0
-            ? "None yet"
-            : `${images.length} of ${IMAGE_RULES.maxImagesPerProduct}. The order here is the order on ${target.site}.`
-        }
-      />
-      <CardBody className="flex flex-col gap-4">
-        {images.length > 0 ? (
-          <SortableList
-            ids={ids}
-            labelOf={nameOf}
-            layout="grid"
-            disabled={!manage || busy}
-            onReorder={(ordered) => reorder.mutate(ordered)}
+  const body = (
+    <>
+      {images.length > 0 ? (
+        <SortableList
+          ids={ids}
+          labelOf={nameOf}
+          layout="grid"
+          disabled={!manage || busy}
+          onReorder={(ordered) => reorder.mutate(ordered)}
+        >
+          <ul
+            aria-label={`Pictures of ${subject}`}
+            className={cn(
+              "grid gap-3",
+              inline
+                ? "grid-cols-3 xs:grid-cols-4 md:grid-cols-6 xl:grid-cols-4 2xl:grid-cols-6"
+                : "grid-cols-2 xs:grid-cols-3 md:grid-cols-5 xl:grid-cols-3",
+            )}
           >
-            <ul
-              aria-label={`Pictures of ${productName}`}
-              className="grid grid-cols-2 gap-3 xs:grid-cols-3 md:grid-cols-5 xl:grid-cols-3"
-            >
-              {images.map((image, index) => (
-                <Tile
-                  key={image.id}
-                  image={image}
-                  index={index}
-                  count={images.length}
-                  name={`picture ${index + 1}`}
-                  manage={manage}
-                  busy={busy}
-                  progress={
-                    replacing?.imageId === image.id ? replacing.fraction : null
-                  }
-                  onDescribe={() => setDescribing(image)}
-                  onMove={(to) => reorder.mutate(moveItem(ids, index, to))}
-                  onMakeMain={() => void makeMain(image)}
-                  onReplace={() => {
-                    replaceTarget.current = image.id;
-                    replaceInput.current?.click();
-                  }}
-                  onDelete={() => setDeleting(image)}
-                />
-              ))}
-            </ul>
-          </SortableList>
-        ) : (
-          <div className="flex items-center gap-3 text-13 text-ink-muted">
-            <span
-              aria-hidden="true"
-              className="flex size-10 shrink-0 items-center justify-center rounded-full bg-sunken text-ink-subtle"
-            >
-              <ImageOff className="size-4.5" />
-            </span>
+            {images.map((image, index) => (
+              <Tile
+                key={image.id}
+                image={image}
+                index={index}
+                count={images.length}
+                name={`picture ${index + 1}${whose}`}
+                manage={manage}
+                busy={busy}
+                progress={
+                  replacing?.imageId === image.id ? replacing.fraction : null
+                }
+                onDescribe={() => setDescribing(image)}
+                onMove={(to) => reorder.mutate(moveItem(ids, index, to))}
+                onMakeMain={() => void makeMain(image)}
+                onReplace={() => {
+                  replaceTarget.current = image.id;
+                  replaceInput.current?.click();
+                }}
+                onDelete={() => setDeleting(image)}
+              />
+            ))}
+          </ul>
+        </SortableList>
+      ) : (
+        <div className="flex items-center gap-3 text-13 text-ink-muted">
+          <span
+            aria-hidden="true"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-sunken text-ink-subtle"
+          >
+            <ImageOff className="size-4.5" />
+          </span>
+          {target.gallery ? (
             <p>
-              {target.site === "the shop" ? "The shop" : "The wholesale site"}{" "}
-              shows the product without a picture. The first picture you upload
-              becomes the main picture.
+              No picture: {target.site} shows the placeholder.
+              {manage
+                ? " The first picture you upload becomes the main picture."
+                : ""}
             </p>
-          </div>
-        )}
+          ) : (
+            <p>
+              {site} shows the product without a picture. The first picture you
+              upload becomes the main picture.
+            </p>
+          )}
+        </div>
+      )}
 
-        {sending ? (
-          <div className="glass-inset flex flex-col gap-2 rounded-lg p-3">
-            <UploadProgress
-              fraction={sending.fraction}
-              label={
-                sending.fraction < 1
-                  ? `Uploading ${plural(sending.count, "picture")}`
-                  : "Uploaded. The API converts the pictures to WebP"
-              }
-            />
-            {sending.fraction < 1 ? (
+      {sending ? (
+        <div className="glass-inset flex flex-col gap-2 rounded-lg p-3">
+          <UploadProgress
+            fraction={sending.fraction}
+            label={
+              sending.fraction < 1
+                ? `Uploading ${plural(sending.count, "picture")}`
+                : "Uploaded. The API converts the pictures to WebP"
+            }
+          />
+          {sending.fraction < 1 ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="self-start"
+              onClick={() => abort.current?.abort()}
+            >
+              Stop the upload
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {failure ? (
+        <Alert
+          tone="danger"
+          title={failure.title}
+          actions={
+            <>
+              {failure.rest && failure.rest.length > 0 ? (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const rest = failure.rest ?? [];
+                    void send(rest);
+                  }}
+                >
+                  Upload the other {plural(failure.rest.length, "picture")}
+                </Button>
+              ) : null}
               <Button
                 size="sm"
                 variant="ghost"
-                className="self-start"
-                onClick={() => abort.current?.abort()}
+                onClick={() => setFailure(null)}
               >
-                Stop the upload
+                Dismiss
               </Button>
-            ) : null}
-          </div>
-        ) : null}
+            </>
+          }
+        >
+          {failure.refused && failure.refused.length > 0 ? (
+            <ul className="mb-1 flex flex-col gap-0.5">
+              {failure.refused.map((entry, index) => (
+                <li key={`${entry.name}-${index}`} className="break-words">
+                  <span className="font-medium text-ink">{entry.name}</span>:{" "}
+                  {entry.problem}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {failure.detail}
+        </Alert>
+      ) : null}
 
-        {failure ? (
-          <Alert
-            tone="danger"
-            title={failure.title}
-            actions={
-              <>
-                {failure.rest && failure.rest.length > 0 ? (
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      const rest = failure.rest ?? [];
-                      void send(rest);
-                    }}
-                  >
-                    Upload the other {plural(failure.rest.length, "picture")}
-                  </Button>
-                ) : null}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setFailure(null)}
-                >
-                  Dismiss
-                </Button>
-              </>
+      {manage ? (
+        room > 0 ? (
+          <ImageDrop
+            onFiles={(files) => void add(files)}
+            inputLabel={
+              target.label
+                ? `Choose pictures for ${target.label}`
+                : "Choose pictures to upload"
             }
-          >
-            {failure.refused && failure.refused.length > 0 ? (
-              <ul className="mb-1 flex flex-col gap-0.5">
-                {failure.refused.map((entry, index) => (
-                  <li key={`${entry.name}-${index}`} className="break-words">
-                    <span className="font-medium text-ink">{entry.name}</span>:{" "}
-                    {entry.problem}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {failure.detail}
-          </Alert>
-        ) : null}
-
-        {manage ? (
-          room > 0 ? (
-            <ImageDrop
-              onFiles={(files) => void add(files)}
-              inputLabel="Choose pictures to upload"
-              disabled={busy}
-              hint={
+            disabled={busy}
+            compact={inline}
+            hint={
+              inline ? (
+                <>
+                  {IMAGE_RULES_TEXT} Up to{" "}
+                  {Math.min(room, IMAGE_RULES.maxFilesPerRequest)} at once, as a
+                  whole or not at all.
+                </>
+              ) : (
                 <>
                   {IMAGE_RULES_TEXT} Up to{" "}
                   {Math.min(room, IMAGE_RULES.maxFilesPerRequest)} at once; if
                   the API refuses one file of an upload, it stores none of them.
                 </>
-              }
-            >
-              {checking ? "Checking the files…" : "Drop pictures here, or"}
-            </ImageDrop>
-          ) : (
-            <p className="rounded-lg border border-dashed border-line-strong px-3 py-2.5 text-13 text-ink-muted">
-              The product holds {IMAGE_RULES.maxImagesPerProduct} pictures, the
-              most it can. Delete one to add another.
-            </p>
-          )
-        ) : null}
+              )
+            }
+          >
+            {checking ? "Checking the files…" : "Drop pictures here, or"}
+          </ImageDrop>
+        ) : (
+          <p className="rounded-lg border border-dashed border-line-strong px-3 py-2.5 text-13 text-ink-muted">
+            The {holder} holds {limit} pictures, the most it can. Delete one to
+            add another.
+          </p>
+        )
+      ) : null}
 
-        <input
-          ref={replaceInput}
-          type="file"
-          accept={IMAGE_ACCEPT}
-          aria-label="Choose the new file for the picture"
-          tabIndex={-1}
-          className="sr-only"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-            const imageId = replaceTarget.current;
-            replaceTarget.current = null;
-            if (file && imageId) void replaceFile(imageId, file);
-          }}
-        />
-      </CardBody>
+      <input
+        ref={replaceInput}
+        type="file"
+        accept={IMAGE_ACCEPT}
+        aria-label={`Choose the new file for the picture${whose}`}
+        tabIndex={-1}
+        className="sr-only"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          const imageId = replaceTarget.current;
+          replaceTarget.current = null;
+          if (file && imageId) void replaceFile(imageId, file);
+        }}
+      />
+    </>
+  );
 
+  const dialogs = (
+    <>
       <ImageAltDialog
         image={describing}
         title={
@@ -800,13 +841,21 @@ export function ImageManager<P extends ImageOwner>({
         title={
           deleting ? `Delete ${nameOf(deleting.id)}?` : "Delete the picture?"
         }
-        description={
+        description={[
+          target.gallery
+            ? `The picture is taken off this ${holder} for good. Another ${holder} that shows the same picture keeps it; the file is deleted when none shows it any more.`
+            : "The picture is removed from the product for good; the file is not kept.",
           deleting?.isPrimary && images.length > 1
-            ? "The picture is removed from the product for good; the file is not kept. It is the main picture: the first remaining one takes its place."
-            : "The picture is removed from the product for good; the file is not kept."
-        }
+            ? "It is the main picture: the first remaining one takes its place."
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" ")}
         facts={[
           { label: "Product", value: productName },
+          ...(target.label
+            ? [{ label: "Pack size", value: target.label }]
+            : []),
           {
             label: "Pictures afterwards",
             value: Math.max(0, images.length - 1),
@@ -830,6 +879,46 @@ export function ImageManager<P extends ImageOwner>({
           />
         ) : null}
       </ConfirmDialog>
+    </>
+  );
+
+  if (inline) {
+    return (
+      <div className="flex flex-col gap-3 border-t border-line pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <p className="flex items-baseline gap-2 text-sm font-semibold text-ink">
+            Pictures
+            <span className="text-13 font-normal text-ink-muted tabular">
+              {images.length} of {limit}
+            </span>
+          </p>
+          {actions}
+        </div>
+        {images.length > 1 ? (
+          <p className="-mt-1.5 text-xs text-ink-subtle">
+            The order here is the order in {target.site}; the main picture is
+            the one lists show.
+          </p>
+        ) : null}
+        {body}
+        {dialogs}
+      </div>
+    );
+  }
+
+  return (
+    <Card id="pictures" aria-label="Pictures" className="scroll-mt-20">
+      <CardHeader
+        title="Pictures"
+        description={
+          images.length === 0
+            ? "None yet"
+            : `${images.length} of ${limit}. The order here is the order on ${target.site}.`
+        }
+        actions={actions}
+      />
+      <CardBody className="flex flex-col gap-4">{body}</CardBody>
+      {dialogs}
     </Card>
   );
 }

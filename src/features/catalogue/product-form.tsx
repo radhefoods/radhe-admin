@@ -37,6 +37,7 @@ import type {
 import { useCan } from "@/lib/auth/auth-provider";
 import { plural, translated } from "@/lib/format/names";
 import { indentedName } from "./category-tree";
+import type { SizeReader } from "./image-rules";
 import {
   LIMITS,
   PRODUCT_FIELD_ALIASES,
@@ -48,6 +49,7 @@ import {
   productDefaults,
   productErrorField,
   productSchema,
+  rowPictures,
   toProductInput,
   toTag,
   variantErrorRow,
@@ -59,6 +61,7 @@ import {
 import {
   useCategories,
   useSaveProduct,
+  type RowPictures,
   type SaveReport,
   type SaveStep,
 } from "./queries";
@@ -216,6 +219,8 @@ function afterPartialSave(
  * existing one is saved in a sequence: the product fields, then every pack
  * size that is removed, changed or added; the sequence stops at the first
  * refusal, what went through stays saved, and the form says what is left.
+ * The pictures belong to the pack sizes: a saved one has its gallery in its
+ * row, a new product takes the files chosen per row along.
  */
 export function ProductForm({
   product,
@@ -223,21 +228,22 @@ export function ProductForm({
   onCreate,
   onSaved,
   onCancel,
-  pictures,
-  alsoUnsaved = false,
+  progress,
+  readSize,
 }: {
   /** Set when an existing product is changed. */
   product?: ProductDetail;
   /** The category a new product starts in (the list was filtered by it). */
   categoryId?: string;
-  onCreate?: (input: ProductInput) => Promise<unknown>;
+  /** Creates the product; `pictures` are the files chosen per pack size. */
+  onCreate?: (input: ProductInput, pictures: RowPictures[]) => Promise<unknown>;
   /** An existing product was saved, wholly or in part: the product as the API has it now. */
   onSaved?: (product: ProductDetail) => void;
   onCancel?: () => void;
-  /** For a new product: the pictures that go with it, as a part of the form. */
-  pictures?: ReactNode;
-  /** Something outside the fields would be lost on leaving (chosen pictures). */
-  alsoUnsaved?: boolean;
+  /** What runs after the creation (the upload of the pictures), above the buttons. */
+  progress?: ReactNode;
+  /** How the size of a picture file is read; tests have no decoder. */
+  readSize?: SizeReader;
 }) {
   const creating = !product;
   const manage = useCan()("catalog.manage");
@@ -369,7 +375,7 @@ export function ProductForm({
       setNotices({});
       if (!baseline.current) {
         try {
-          await onCreate?.(toProductInput(values));
+          await onCreate?.(toProductInput(values), rowPictures(values));
         } catch (error) {
           // A documented refusal that belongs to a field is shown there; one
           // about a pack size at its row, when the row can be told.
@@ -427,6 +433,10 @@ export function ProductForm({
     })),
   ];
   const removing = confirming?.plan.remove ?? [];
+  const removedPictures = removing.reduce(
+    (sum, entry) => sum + entry.images.length,
+    0,
+  );
   const staying = confirming
     ? confirming.values.variants.filter((row) => !row.removed)
     : [];
@@ -438,10 +448,7 @@ export function ProductForm({
         // existing one is guarded whenever it differs from what is saved:
         // the flag of the last submit stays set after a save, and after a
         // removal that was asked about and not confirmed.
-        when={
-          (dirty || alsoUnsaved) &&
-          !(creating && form.formState.isSubmitSuccessful)
-        }
+        when={dirty && !(creating && form.formState.isSubmitSuccessful)}
       />
 
       <fieldset disabled={!manage} className="flex min-w-0 flex-col gap-6">
@@ -504,12 +511,14 @@ export function ProductForm({
           </div>
         </Section>
 
-        {pictures}
-
         <Section
           id="pack-sizes"
-          title="Pack sizes and prices"
-          description="Each pack size has its own article number, price and stock; the VAT rate is the product's. Prices are typed in euros and include VAT."
+          title="Pack sizes, prices and pictures"
+          description={
+            creating
+              ? "Each pack size has its own article number, price, stock and pictures; the VAT rate is the product's. Prices are typed in euros and include VAT."
+              : "Each pack size has its own article number, price, stock and pictures; the VAT rate is the product's. Prices are typed in euros and include VAT. Pictures are saved at once, not with the form."
+          }
         >
           <div className="flex items-start gap-2 sm:max-w-80">
             <UnitField
@@ -547,6 +556,7 @@ export function ProductForm({
             product={product}
             manage={manage}
             notices={notices}
+            readSize={readSize}
             onDisableInstead={(index) => {
               form.setValue(`variants.${index}.removed`, false, {
                 shouldDirty: true,
@@ -794,6 +804,7 @@ export function ProductForm({
 
       <div className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-3 border-t border-glass-line bg-glass px-4 pt-3 pb-safe backdrop-blur-xl sm:mx-0 sm:px-0 sm:pb-3">
         <FormError state={state} />
+        {progress}
         {report?.failed ? (
           <Alert
             tone="warning"
@@ -881,12 +892,15 @@ export function ProductForm({
             ? `Remove the pack size ${removing[0]!.packSize.label}?`
             : `Remove ${plural(removing.length, "pack size")}?`
         }
-        description="Removed for good when the product is saved. The price history of a removed pack size goes with it; its stock history stays. A pack size an order holds cannot be removed: the API says so, and you can disable it instead."
+        description="Removed for good when the product is saved. The pictures and the price history of a removed pack size are deleted with it; its stock history stays. A pack size an order holds cannot be removed: the API says so, and you can disable it instead."
         facts={[
           {
             label: "Removed",
             value: removing.map((entry) => entry.packSize.label).join(", "),
           },
+          ...(removedPictures > 0
+            ? [{ label: "Pictures deleted with it", value: removedPictures }]
+            : []),
           {
             label: staying.length === 1 ? "Stays" : "Stay",
             value:

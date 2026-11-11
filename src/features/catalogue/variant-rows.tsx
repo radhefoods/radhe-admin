@@ -17,6 +17,10 @@ import type { ProductDetail, ProductVariant } from "@/lib/api/types";
 import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format/money";
 import { PACK_UNIT_LABEL, plural } from "@/lib/format/names";
+import { CopyPictures } from "./copy-pictures";
+import { ImageManager } from "./image-manager";
+import type { SizeReader } from "./image-rules";
+import { NewRowPictures } from "./new-product-pictures";
 import {
   PACK_UNITS,
   SALE_MODES,
@@ -26,6 +30,7 @@ import {
   type SaleMode,
   type VariantRowValues,
 } from "./product-schema";
+import { variantImages } from "./queries";
 import { stockState } from "./stock";
 import { VARIANTS_MAX, packLabelOf } from "./variants";
 
@@ -55,10 +60,12 @@ export function rowKey(
 function Row({
   form,
   index,
+  product,
   variant,
   manage,
   removable,
   notice,
+  readSize,
   onRemove,
   onRestore,
   onDisableInstead,
@@ -66,11 +73,15 @@ function Row({
 }: {
   form: ProductForm;
   index: number;
+  /** The product the row belongs to; `undefined` while a new one is typed. */
+  product: ProductDetail | undefined;
   /** The pack size as the API has it; `undefined` for a row that is not saved yet. */
   variant: ProductVariant | undefined;
   manage: boolean;
   removable: boolean;
   notice: RowNotice | undefined;
+  /** How the size of a picture file is read; tests have no decoder. */
+  readSize: SizeReader | undefined;
   onRemove: () => void;
   onRestore: () => void;
   onDisableInstead: () => void;
@@ -140,8 +151,11 @@ function Row({
 
       {row.removed ? (
         <p className="text-13 text-gold">
-          Removed for good when you save. Its price history goes with it; its
-          stock history stays. A pack size an order holds cannot be removed:
+          Removed for good when you save.{" "}
+          {variant && variant.images.length > 0
+            ? `Its ${variant.images.length === 1 ? "picture is" : `${variant.images.length} pictures are`} deleted with it, and its price history goes too; `
+            : "Its pictures and its price history go with it; "}
+          its stock history stays. A pack size an order holds cannot be removed:
           disable it instead.
         </p>
       ) : (
@@ -299,6 +313,40 @@ function Row({
               className="sm:max-w-72"
             />
           </div>
+          {/* The pictures belong to the pack size (8): a saved one has its
+              gallery, which saves by itself; a new product takes the files
+              along and uploads them once it exists. */}
+          {product && variant ? (
+            <ImageManager
+              product={product}
+              target={variantImages(product.id, variant)}
+              readSize={readSize}
+              inline
+              actions={
+                manage && product.variants.length > 1 ? (
+                  <CopyPictures product={product} variant={variant} />
+                ) : undefined
+              }
+            />
+          ) : product ? (
+            <p className="border-t border-line pt-3 text-13 text-ink-muted">
+              <span className="font-semibold text-ink">Pictures</span> can be
+              added here once the pack size is saved: up to 8 of its own, or
+              copies of the pictures of another pack size.
+            </p>
+          ) : (
+            <NewRowPictures
+              files={row.pictures}
+              onChange={(files) =>
+                form.setValue(`variants.${index}.pictures`, files, {
+                  shouldDirty: true,
+                })
+              }
+              label={label}
+              disabled={!manage || form.formState.isSubmitting}
+              readSize={readSize}
+            />
+          )}
         </>
       )}
 
@@ -321,15 +369,17 @@ function Row({
 
 /**
  * The pack-size table of the product form (8): one row per pack size with
- * its article number, barcode, pack, prices, enabled switch, threshold and
- * stock. A new product sends the rows with `POST /products`; an existing
- * one sends each row to its own endpoint when it is saved.
+ * its article number, barcode, pack, prices, enabled switch, threshold,
+ * stock and pictures. A new product sends the rows with `POST /products`;
+ * an existing one sends each row to its own endpoint when it is saved. The
+ * pictures of a saved pack size are saved by its gallery, not by the form.
  */
 export function VariantRows({
   form,
   product,
   manage,
   notices,
+  readSize,
   onDisableInstead,
   onChangeStock,
 }: {
@@ -339,6 +389,7 @@ export function VariantRows({
   manage: boolean;
   /** What the API said about a row, by `rowKey`. */
   notices: Record<string, RowNotice>;
+  readSize?: SizeReader;
   onDisableInstead: (index: number) => void;
   onChangeStock: (variant: ProductVariant) => void;
 }) {
@@ -368,10 +419,12 @@ export function VariantRows({
               key={field.id}
               form={form}
               index={index}
+              product={product}
               variant={byId.get(row.variantId)}
               manage={manage}
               removable={live.length > 1}
               notice={notices[rowKey(row, index)]}
+              readSize={readSize}
               onRemove={() => {
                 // A row that is not saved yet simply goes; a saved one is
                 // marked and removed when the product is saved.

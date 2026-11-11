@@ -9,6 +9,7 @@ import type {
   VariantRecord,
 } from "../db.ts";
 import {
+  MAX_IMAGES_PER_VARIANT,
   UNIT_FAMILY,
   ancestorsOf,
   baseQuantity,
@@ -523,6 +524,7 @@ export function createVariant(
     salePrice,
     isEnabled: input.isEnabled ?? true,
     stock: { quantity: 0, lowStockThreshold: input.lowStockThreshold ?? null },
+    images: [],
     createdAt: iso(now),
   };
   product.variants.push(variant);
@@ -655,19 +657,31 @@ export function nextProductPosition(db: Db, categoryId: string): number {
   return positions.length === 0 ? 0 : Math.max(...positions) + 1;
 }
 
-function imageOf(product: ProductRecord, imageId: string): AdminImage {
-  const image = product.images.find((entry) => entry.id === imageId);
-  if (!image) throw fail(404, "IMAGE_NOT_FOUND", "The image was not found.");
+function imageOf(variant: VariantRecord, imageId: string): AdminImage {
+  const image = variant.images.find((entry) => entry.id === imageId);
+  if (!image) {
+    throw fail(404, "IMAGE_NOT_FOUND", "The pack size has no such image.");
+  }
   return image;
 }
 
-function ensurePrimary(product: ProductRecord): void {
+/** A pack size with pictures has exactly one main picture: else the first one. */
+function ensurePrimary(variant: VariantRecord): void {
   if (
-    product.images.length > 0 &&
-    !product.images.some((image) => image.isPrimary)
+    variant.images.length > 0 &&
+    !variant.images.some((image) => image.isPrimary)
   ) {
-    product.images[0]!.isPrimary = true;
+    variant.images[0]!.isPrimary = true;
   }
+}
+
+function imageLimitReached(remaining: number): HttpError {
+  return fail(
+    400,
+    "IMAGE_LIMIT_REACHED",
+    `A pack size can have ${MAX_IMAGES_PER_VARIANT} images at most.`,
+    { maximum: MAX_IMAGES_PER_VARIANT, remaining: Math.max(0, remaining) },
+  );
 }
 
 export function registerCatalog(router: Router): void {
@@ -1031,7 +1045,6 @@ export function registerCatalog(router: Router): void {
       tags: [],
       searchKeywords: [],
       seo: null,
-      images: [],
       publishedAt: status === "active" ? iso(ctx.now) : null,
       createdAt: iso(ctx.now),
       updatedAt: iso(ctx.now),
@@ -1217,78 +1230,126 @@ export function registerCatalog(router: Router): void {
     },
   );
 
-  // --- Images of a product --------------------------------------------------
+  // --- Images of a pack size (8, doc/VARIANT_IMAGES.md) ----------------------
+  //
+  // A picture belongs to one pack size; the product has none. The paths
+  // `…/products/:id/images…` of before are gone: the router answers 404.
 
-  router.post(
-    `${products}/:id/images`,
-    { permission: "catalog.manage" },
-    async (ctx) => {
-      const product = productById(ctx.db, ctx.params.id ?? "");
-      const files = await uploadedFiles(ctx.request, "files", 10);
-      const remaining = 12 - product.images.length;
-      if (files.length > remaining) {
-        throw fail(
-          400,
-          "IMAGE_LIMIT_REACHED",
-          "A product can have 12 images at most.",
-          {
-            maximum: 12,
-            remaining,
-          },
-        );
-      }
-      // All or nothing: every file is checked before one is stored, and
-      // the error names every refused file (8).
-      const read = [];
-      const refused: Record<string, unknown>[] = [];
-      let first: HttpError | null = null;
-      for (const file of files) {
-        try {
-          read.push(await readImage(file));
-        } catch (error) {
-          if (!(error instanceof HttpError)) throw error;
-          first ??= error;
-          const measured = (error.details ?? {}) as {
-            width?: number;
-            height?: number;
-          };
-          refused.push({
-            name: file.name,
-            code: error.code,
-            bytes: file.size,
-            ...(typeof measured.width === "number"
-              ? { width: measured.width, height: measured.height }
-              : {}),
-          });
-        }
-      }
-      if (first) {
-        const details =
-          typeof first.details === "object" && first.details !== null
-            ? (first.details as Record<string, unknown>)
-            : {};
-        throw fail(first.status, first.code, first.message, {
-          ...details,
-          files: refused,
+  const images = `${products}/:id/variants/:variantId/images`;
+
+  router.post(images, { permission: "catalog.manage" }, async (ctx) => {
+    const product = productById(ctx.db, ctx.params.id ?? "");
+    const variant = variantById(product, ctx.params.variantId ?? "");
+    const files = await uploadedFiles(ctx.request, "files", 10);
+    const remaining = MAX_IMAGES_PER_VARIANT - variant.images.length;
+    if (files.length > remaining) throw imageLimitReached(remaining);
+    // All or nothing: every file is checked before one is stored, and
+    // the error names every refused file (8).
+    const read = [];
+    const refused: Record<string, unknown>[] = [];
+    let first: HttpError | null = null;
+    for (const file of files) {
+      try {
+        read.push(await readImage(file));
+      } catch (error) {
+        if (!(error instanceof HttpError)) throw error;
+        first ??= error;
+        const measured = (error.details ?? {}) as {
+          width?: number;
+          height?: number;
+        };
+        refused.push({
+          name: file.name,
+          code: error.code,
+          bytes: file.size,
+          ...(typeof measured.width === "number"
+            ? { width: measured.width, height: measured.height }
+            : {}),
         });
       }
-      for (const image of read)
-        product.images.push(storeImage(ctx.db, image, ctx.now));
-      ensurePrimary(product);
-      product.updatedAt = iso(ctx.now);
-      return json({ product: productDetail(ctx.db, product) }, 201);
+    }
+    if (first) {
+      const details =
+        typeof first.details === "object" && first.details !== null
+          ? (first.details as Record<string, unknown>)
+          : {};
+      throw fail(first.status, first.code, first.message, {
+        ...details,
+        files: refused,
+      });
+    }
+    read.forEach((image, index) =>
+      variant.images.push(storeImage(ctx.db, image, ctx.now + index)),
+    );
+    ensurePrimary(variant);
+    product.updatedAt = iso(ctx.now);
+    return json({ product: productDetail(ctx.db, product) }, 201);
+  });
+
+  // Shows pictures of another pack size here too: an entry of its own
+  // (id, place, main-picture setting, description) for the same files.
+  router.post(
+    `${images}/copy`,
+    { permission: "catalog.manage" },
+    async (ctx) => {
+      const input = await ctx.body(
+        z.strictObject({
+          fromVariantId: zId,
+          imageIds: z
+            .array(zId)
+            .min(1)
+            .max(MAX_IMAGES_PER_VARIANT)
+            .refine((ids) => new Set(ids).size === ids.length, {
+              message: "All imageIds must be unique.",
+            })
+            .optional(),
+        }),
+      );
+      const product = productById(ctx.db, ctx.params.id ?? "");
+      const variant = variantById(product, ctx.params.variantId ?? "");
+      const from = variantById(product, input.fromVariantId);
+      if (from.id === variant.id) {
+        throw fail(
+          400,
+          "VALIDATION_FAILED",
+          "Choose another pack size to copy the pictures from.",
+        );
+      }
+      const wanted = input.imageIds
+        ? input.imageIds.map((id) => imageOf(from, id))
+        : from.images;
+      // A picture this pack size shows already is left out: the call can be repeated.
+      const shown = new Set(variant.images.map((image) => image.url));
+      const fresh = wanted.filter((image) => {
+        if (shown.has(image.url)) return false;
+        shown.add(image.url);
+        return true;
+      });
+      const remaining = MAX_IMAGES_PER_VARIANT - variant.images.length;
+      if (fresh.length > remaining) throw imageLimitReached(remaining);
+      fresh.forEach((image, index) =>
+        variant.images.push({
+          ...image,
+          id: newId(ctx.now + index + 1),
+          isPrimary: false,
+        }),
+      );
+      ensurePrimary(variant);
+      if (fresh.length > 0) product.updatedAt = iso(ctx.now);
+      return json({ product: productDetail(ctx.db, product) });
     },
   );
 
   router.put(
-    `${products}/:id/images/order`,
+    `${images}/order`,
     { permission: "catalog.manage" },
     async (ctx) => {
       const input = await ctx.body(
         z.strictObject({ orderedIds: z.array(zId).min(1) }),
       );
       const product = productById(ctx.db, ctx.params.id ?? "");
-      const expected = product.images.map((image) => image.id);
+      const variant = variantById(product, ctx.params.variantId ?? "");
+      const expected = variant.images.map((image) => image.id);
       const same =
         expected.length === input.orderedIds.length &&
         new Set(input.orderedIds).size === input.orderedIds.length &&
@@ -1297,25 +1358,27 @@ export function registerCatalog(router: Router): void {
         throw fail(
           400,
           "IMAGE_ORDER_INVALID",
-          "The list must contain every image of the product.",
+          "The list must contain every image of the pack size exactly once.",
           { expected },
         );
       }
-      product.images = input.orderedIds.map((id) => imageOf(product, id));
+      variant.images = input.orderedIds.map((id) => imageOf(variant, id));
       product.updatedAt = iso(ctx.now);
       return json({ product: productDetail(ctx.db, product) });
     },
   );
 
   router.put(
-    `${products}/:id/images/:imageId`,
+    `${images}/:imageId`,
     { permission: "catalog.manage" },
     async (ctx) => {
       const product = productById(ctx.db, ctx.params.id ?? "");
-      const image = imageOf(product, ctx.params.imageId ?? "");
+      const variant = variantById(product, ctx.params.variantId ?? "");
+      const image = imageOf(variant, ctx.params.imageId ?? "");
       const [file] = await uploadedFiles(ctx.request, "file", 1);
       const stored = storeImage(ctx.db, await readImage(file as File), ctx.now);
-      // Position, description and main-image setting are kept.
+      // Position, description and main-image setting are kept. Only this
+      // pack size shows the new file: a copy elsewhere keeps the old one.
       Object.assign(image, {
         url: stored.url,
         sizes: stored.sizes,
@@ -1328,15 +1391,16 @@ export function registerCatalog(router: Router): void {
   );
 
   router.patch(
-    `${products}/:id/images/:imageId`,
+    `${images}/:imageId`,
     { permission: "catalog.manage" },
     async (ctx) => {
       const input = await ctx.body(imagePatch);
       const product = productById(ctx.db, ctx.params.id ?? "");
-      const image = imageOf(product, ctx.params.imageId ?? "");
+      const variant = variantById(product, ctx.params.variantId ?? "");
+      const image = imageOf(variant, ctx.params.imageId ?? "");
       if (input.alt !== undefined) image.alt = { ...image.alt, ...input.alt };
       if (input.isPrimary) {
-        for (const entry of product.images)
+        for (const entry of variant.images)
           entry.isPrimary = entry.id === image.id;
       }
       product.updatedAt = iso(ctx.now);
@@ -1345,13 +1409,14 @@ export function registerCatalog(router: Router): void {
   );
 
   router.delete(
-    `${products}/:id/images/:imageId`,
+    `${images}/:imageId`,
     { permission: "catalog.manage" },
     (ctx) => {
       const product = productById(ctx.db, ctx.params.id ?? "");
-      const image = imageOf(product, ctx.params.imageId ?? "");
-      product.images = product.images.filter((entry) => entry.id !== image.id);
-      ensurePrimary(product);
+      const variant = variantById(product, ctx.params.variantId ?? "");
+      const image = imageOf(variant, ctx.params.imageId ?? "");
+      variant.images = variant.images.filter((entry) => entry.id !== image.id);
+      ensurePrimary(variant);
       product.updatedAt = iso(ctx.now);
       return json({ product: productDetail(ctx.db, product) });
     },

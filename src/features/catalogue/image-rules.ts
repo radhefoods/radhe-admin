@@ -5,9 +5,10 @@ import { plural } from "@/lib/format/names";
 
 // What the API accepts as a picture (documentation, 7 and 8): JPEG, PNG or
 // WebP, at most 10 MB, at least 200 px on each side, at most 40 megapixels;
-// at most 10 files per request and 12 pictures per product. The panel
-// checks the same rules before it sends anything, so that the admin learns
-// about every unusable file at once and not one refusal at a time.
+// at most 10 files per request, 8 pictures per pack size of a retail
+// product and 12 per wholesale product. The panel checks the same rules
+// before it sends anything, so that the admin learns about every unusable
+// file at once and not one refusal at a time.
 
 /** Above this the API refuses a picture (documentation, 8: upload). */
 export const MAX_PIXELS = 40_000_000;
@@ -114,20 +115,34 @@ export interface FileCheck {
   refused: { name: string; problem: string }[];
   /**
    * The selection as a whole cannot be sent (nothing chosen, too many for
-   * one request, more than the product has room for).
+   * one request, more than there is room for).
    */
   blocked: string | null;
 }
 
+/** What holds a gallery: how many pictures fit, and what it is called. */
+export interface GalleryRules {
+  /** 8 for a pack size, 12 for a wholesale product (`IMAGE_LIMITS`). */
+  limit: number;
+  /** "pack size"; left out: "product". */
+  holder?: string;
+}
+
 /**
  * Checks a selection of files against the rules of the API before the
- * upload. `existing` is how many pictures the product has already.
+ * upload. `existing` is how many pictures the gallery has already, `limit`
+ * how many it holds.
  */
 export async function checkImageFiles(
   files: readonly File[],
-  options: { existing: number; readSize?: SizeReader },
+  options: GalleryRules & { existing: number; readSize?: SizeReader },
 ): Promise<FileCheck> {
-  const { existing, readSize = readImageSize } = options;
+  const {
+    existing,
+    limit,
+    holder = "product",
+    readSize = readImageSize,
+  } = options;
   const refused: FileCheck["refused"] = [];
   const accepted: File[] = [];
   for (const file of files) {
@@ -136,23 +151,23 @@ export async function checkImageFiles(
     else accepted.push(file);
   }
 
-  const remaining = Math.max(0, IMAGE_RULES.maxImagesPerProduct - existing);
+  const remaining = remainingImages(existing, limit);
   let blocked: string | null = null;
   if (files.length === 0) {
     blocked = "Choose a picture first.";
   } else if (remaining === 0) {
-    blocked = `The product has ${IMAGE_RULES.maxImagesPerProduct} pictures already, which is the most it can hold. Delete one first.`;
+    blocked = `The ${holder} has ${limit} pictures already, which is the most it can hold. Delete one first.`;
   } else if (accepted.length > remaining) {
-    blocked = `There is room for ${plural(remaining, "more picture")}, and you chose ${accepted.length}. A product holds ${IMAGE_RULES.maxImagesPerProduct} at most.`;
+    blocked = `There is room for ${plural(remaining, "more picture")}, and you chose ${accepted.length}. A ${holder} holds ${limit} at most.`;
   } else if (accepted.length > IMAGE_RULES.maxFilesPerRequest) {
     blocked = `At most ${IMAGE_RULES.maxFilesPerRequest} pictures can be uploaded at once, and you chose ${accepted.length}. Add the rest in a second step.`;
   }
   return { accepted, refused, blocked };
 }
 
-/** How many more pictures a product can take. */
-export function remainingImages(existing: number): number {
-  return Math.max(0, IMAGE_RULES.maxImagesPerProduct - existing);
+/** How many more pictures a gallery of `limit` can take. */
+export function remainingImages(existing: number, limit: number): number {
+  return Math.max(0, limit - existing);
 }
 
 export interface UploadFailure {
@@ -216,9 +231,14 @@ function refusedFiles(error: unknown): UploadFailure["refused"] {
  * What to say when the API refuses an upload. Every documented code of the
  * image endpoints has its sentence; the numbers of `details` are named.
  * `count` is the number of files that were sent: with more than one, the
- * admin is told that none of them was stored.
+ * admin is told that none of them was stored. `gallery` names what holds
+ * the pictures, for the refusal of one picture too many.
  */
-export function uploadFailure(error: unknown, count: number): UploadFailure {
+export function uploadFailure(
+  error: unknown,
+  count: number,
+  gallery: Partial<GalleryRules> = {},
+): UploadFailure {
   const nothingStored =
     count > 1
       ? "None of the pictures was stored: an upload is all or nothing."
@@ -245,8 +265,13 @@ export function uploadFailure(error: unknown, count: number): UploadFailure {
     const details = error.details as
       { maximum?: number; remaining?: number } | undefined;
     const remaining = details?.remaining;
+    const holder = gallery.holder ?? "product";
+    const maximum = details?.maximum ?? gallery.limit;
     return {
-      title: `A product holds ${details?.maximum ?? IMAGE_RULES.maxImagesPerProduct} pictures at most`,
+      title:
+        typeof maximum === "number"
+          ? `A ${holder} holds ${maximum} pictures at most`
+          : `The ${holder} cannot hold more pictures`,
       detail:
         typeof remaining === "number"
           ? remaining > 0

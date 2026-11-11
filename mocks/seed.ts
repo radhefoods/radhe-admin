@@ -806,8 +806,8 @@ export function seed(options: SeedOptions): Db {
   for (const item of PRODUCTS) {
     const category = categoryByName.get(item.category);
     if (!category) continue;
-    // One product with its pack sizes (8): the texts and pictures are the
-    // product's, each pack size has its own article number, price and stock.
+    // One product with its pack sizes (8): the texts are the product's,
+    // each pack size has its own article number, price, stock and pictures.
     db.counters.sku += 1;
     const at = long + db.counters.sku * 3600_000;
     const status = item.status ?? "active";
@@ -870,7 +870,6 @@ export function seed(options: SeedOptions): Db {
       tags: item.packs.some((pack) => pack[3]) ? ["offer"] : [],
       searchKeywords: [item.name[1]],
       seo: null,
-      images,
       publishedAt: status === "draft" ? null : iso(at + HOUR),
       createdAt: iso(at),
       updatedAt: iso(at + HOUR),
@@ -902,6 +901,21 @@ export function seed(options: SeedOptions): Db {
                 ? 8
                 : null,
         },
+        // The first pack size has two pictures of its own; the second one
+        // shows the first of them too (a copy: its own entry, the same
+        // file); a third one has none, and the shop shows its placeholder.
+        images:
+          index === 0
+            ? images
+            : index === 1
+              ? [
+                  {
+                    ...images[0]!,
+                    id: newId(at + 5),
+                    alt: { en: null, de: null },
+                  },
+                ]
+              : [],
         createdAt: iso(at),
       };
       product.variants.push(variant);
@@ -1067,7 +1081,10 @@ export function seed(options: SeedOptions): Db {
         name: product.name,
         displayName: `${product.name.en} (${variant.packSize.label})`,
         packSize: variant.packSize,
-        imageUrl: product.images[0]?.sizes.small.url ?? null,
+        // The main picture of the pack size that was ordered.
+        imageUrl:
+          (variant.images.find((image) => image.isPrimary) ?? variant.images[0])
+            ?.sizes.small.url ?? null,
         quantity,
         unitPrice,
         regularUnitPrice:

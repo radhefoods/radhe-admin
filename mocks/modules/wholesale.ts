@@ -18,7 +18,12 @@ import type {
   WholesaleStockReason,
 } from "../../src/lib/api/types/index.ts";
 import type { Db } from "../db.ts";
-import { UNIT_FAMILY, baseQuantity, packLabel } from "../domain.ts";
+import {
+  UNIT_FAMILY,
+  baseQuantity,
+  packLabel,
+  productGallery,
+} from "../domain.ts";
 import {
   HttpError,
   boolParam,
@@ -1088,7 +1093,9 @@ export function registerWholesale(router: Router): void {
     const images =
       input.copyImages === false
         ? []
-        : retail.images.map((image, index) => ({
+        : // The gallery that stands for the retail product: that of its
+          // default pack size, else of the smallest one with pictures.
+          productGallery(retail).map((image, index) => ({
             ...image,
             id: newId(ctx.now + index + 1),
             uploadedAt: iso(ctx.now),

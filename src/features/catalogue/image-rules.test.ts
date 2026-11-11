@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api/errors";
-import { IMAGE_RULES } from "@/lib/api/types";
+import { IMAGE_LIMITS, IMAGE_RULES } from "@/lib/api/types";
 import {
   MAX_PIXELS,
   checkImageFiles,
@@ -104,6 +104,7 @@ describe("a selection of files", () => {
   it("passes files that are fine", async () => {
     const check = await checkImageFiles(jpegs(3), {
       existing: 2,
+      limit: 12,
       readSize: fine,
     });
     expect(check.accepted).toHaveLength(3);
@@ -117,7 +118,11 @@ describe("a selection of files", () => {
       file("anim.gif", "image/gif"),
       file("huge.png", "image/png", 11 * 1024 * 1024),
     ];
-    const check = await checkImageFiles(files, { existing: 0, readSize: fine });
+    const check = await checkImageFiles(files, {
+      existing: 0,
+      limit: 12,
+      readSize: fine,
+    });
     expect(check.accepted.map((entry) => entry.name)).toEqual(["ok.jpg"]);
     expect(check.refused).toEqual([
       { name: "anim.gif", problem: "Not a JPEG, PNG or WebP picture." },
@@ -126,12 +131,13 @@ describe("a selection of files", () => {
     expect(check.blocked).toBeNull();
   });
 
-  it("stops at 12 pictures per product and says how many still fit", async () => {
-    expect(remainingImages(9)).toBe(3);
-    expect(remainingImages(12)).toBe(0);
-    expect(remainingImages(14)).toBe(0);
+  it("stops at 12 pictures per wholesale product and says how many still fit", async () => {
+    expect(remainingImages(9, 12)).toBe(3);
+    expect(remainingImages(12, 12)).toBe(0);
+    expect(remainingImages(14, 12)).toBe(0);
     const tooMany = await checkImageFiles(jpegs(4), {
       existing: 9,
+      limit: 12,
       readSize: fine,
     });
     expect(tooMany.blocked).toBe(
@@ -139,11 +145,42 @@ describe("a selection of files", () => {
     );
     const full = await checkImageFiles(jpegs(1), {
       existing: 12,
+      limit: 12,
       readSize: fine,
     });
-    expect(full.blocked).toMatch(/has 12 pictures already/);
+    expect(full.blocked).toMatch(/The product has 12 pictures already/);
     const exact = await checkImageFiles(jpegs(3), {
       existing: 9,
+      limit: 12,
+      readSize: fine,
+    });
+    expect(exact.blocked).toBeNull();
+  });
+
+  it("stops at 8 pictures per pack size of a retail product", async () => {
+    expect(IMAGE_LIMITS).toEqual({ variant: 8, wholesaleProduct: 12 });
+    expect(remainingImages(5, IMAGE_LIMITS.variant)).toBe(3);
+    expect(remainingImages(8, IMAGE_LIMITS.variant)).toBe(0);
+    const rules = { limit: IMAGE_LIMITS.variant, holder: "pack size" };
+    const tooMany = await checkImageFiles(jpegs(4), {
+      existing: 5,
+      ...rules,
+      readSize: fine,
+    });
+    expect(tooMany.blocked).toBe(
+      "There is room for 3 more pictures, and you chose 4. A pack size holds 8 at most.",
+    );
+    const full = await checkImageFiles(jpegs(1), {
+      existing: 8,
+      ...rules,
+      readSize: fine,
+    });
+    expect(full.blocked).toBe(
+      "The pack size has 8 pictures already, which is the most it can hold. Delete one first.",
+    );
+    const exact = await checkImageFiles(jpegs(3), {
+      existing: 5,
+      ...rules,
       readSize: fine,
     });
     expect(exact.blocked).toBeNull();
@@ -152,6 +189,7 @@ describe("a selection of files", () => {
   it("stops at 10 files per request", async () => {
     const eleven = await checkImageFiles(jpegs(11), {
       existing: 0,
+      limit: 12,
       readSize: fine,
     });
     expect(eleven.blocked).toMatch(
@@ -159,6 +197,7 @@ describe("a selection of files", () => {
     );
     const ten = await checkImageFiles(jpegs(10), {
       existing: 0,
+      limit: 12,
       readSize: fine,
     });
     expect(ten.blocked).toBeNull();
@@ -166,14 +205,22 @@ describe("a selection of files", () => {
 
   it("counts only the usable files against the limits", async () => {
     const files = [...jpegs(3), file("anim.gif", "image/gif")];
-    const check = await checkImageFiles(files, { existing: 9, readSize: fine });
+    const check = await checkImageFiles(files, {
+      existing: 9,
+      limit: 12,
+      readSize: fine,
+    });
     expect(check.blocked).toBeNull();
     expect(check.accepted).toHaveLength(3);
     expect(check.refused).toHaveLength(1);
   });
 
   it("asks for a file when none was chosen", async () => {
-    const none = await checkImageFiles([], { existing: 0, readSize: fine });
+    const none = await checkImageFiles([], {
+      existing: 0,
+      limit: 8,
+      readSize: fine,
+    });
     expect(none.blocked).toBe("Choose a picture first.");
   });
 });
@@ -233,6 +280,25 @@ describe("what the API refuses, in the panel's words", () => {
         1,
       ).detail,
     ).toBe("There is no room left. Delete a picture first.");
+  });
+
+  it("names the pack size when its gallery is full", () => {
+    const rules = { limit: 8, holder: "pack size" };
+    expect(
+      uploadFailure(
+        error("IMAGE_LIMIT_REACHED", 400, { maximum: 8, remaining: 1 }),
+        3,
+        rules,
+      ),
+    ).toEqual({
+      title: "A pack size holds 8 pictures at most",
+      detail:
+        "There is room for 1 more picture. Nothing was stored: choose fewer files.",
+    });
+    // Without the numbers of the API, the limit of the gallery is named.
+    expect(
+      uploadFailure(error("IMAGE_LIMIT_REACHED", 400), 1, rules).title,
+    ).toBe("A pack size holds 8 pictures at most");
   });
 
   it("has a sentence for every documented code of the image endpoints", () => {

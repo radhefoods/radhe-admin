@@ -62,6 +62,7 @@ function variant(overrides: Partial<ProductVariant> = {}): ProductVariant {
     isEnabled: true,
     isDefault: true,
     stock: { quantity: 40, lowStockThreshold: null, isLow: false },
+    images: [],
     createdAt: "2026-09-01T08:00:00.000Z",
     ...overrides,
   };
@@ -125,7 +126,6 @@ function product(overrides: Partial<ProductDetail> = {}): ProductDetail {
     tags: ["new"],
     searchKeywords: ["Reis"],
     seo: null,
-    images: [],
     publishedAt: "2026-09-01T08:00:00.000Z",
     ...overrides,
   };
