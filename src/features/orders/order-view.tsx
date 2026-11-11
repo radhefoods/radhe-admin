@@ -86,6 +86,7 @@ import { OrderItemsCard } from "./order-items";
 import { useOrderIssues } from "@/features/issues/queries";
 import { useOrderReview } from "@/features/reviews/queries";
 import { OrderPaymentCard, refundOnItsWay } from "./order-payment";
+import { OrderProfitCard } from "./order-profit";
 import {
   useOrder,
   useOrderActions,
@@ -636,6 +637,8 @@ export function OrderView() {
           <div className="flex min-w-0 flex-col gap-6">
             <OrderItemsCard order={data} actions={actions} />
             <OrderPaymentCard order={data} actions={actions} />
+            {/* Only with "Costs and profit: read"; nothing is asked without it. */}
+            <OrderProfitCard orderId={data.id} />
             <Related order={data} />
           </div>
 

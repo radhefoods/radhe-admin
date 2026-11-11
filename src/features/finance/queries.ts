@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/api/query-keys";
-import type { OrderCostSettings } from "@/lib/api/types";
+import type { Id, OrderCostSettings } from "@/lib/api/types";
 import { useCan } from "@/lib/auth/auth-provider";
 
 // Costs and profit (documentation, 32). Everything here is internal and has
@@ -16,6 +16,21 @@ export function useOrderCostSettings() {
     queryKey: queryKeys.finance.settings,
     queryFn: async ({ signal }) =>
       (await api.finance.getSettings(signal)).settings,
+    enabled: can("finance.read"),
+  });
+}
+
+/**
+ * What an order cost and what it earned. The key belongs to the orders, so
+ * whatever loads an order again (a correction, a return, a cancellation, a
+ * refund, a status change) loads its breakdown again. Without
+ * `finance.read` the API is not asked.
+ */
+export function useOrderProfit(orderId: Id) {
+  const can = useCan();
+  return useQuery({
+    queryKey: queryKeys.orders.profit(orderId),
+    queryFn: ({ signal }) => api.finance.orderProfit(orderId, signal),
     enabled: can("finance.read"),
   });
 }
