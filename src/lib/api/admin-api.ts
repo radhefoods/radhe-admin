@@ -19,6 +19,7 @@ import {
 } from "./endpoints/orders";
 import { faqGroupsApi, faqsApi } from "./endpoints/faq";
 import { quotationsApi } from "./endpoints/quotations";
+import { financeApi } from "./endpoints/finance";
 import { rewardsApi } from "./endpoints/rewards";
 import { customersApi, legalApi, settingsApi } from "./endpoints/shop";
 import {
@@ -65,6 +66,7 @@ export function createAdminApi(transport: SessionTransport) {
     reviews: reviewsApi(transport),
     issues: issuesApi(transport),
     rewards: rewardsApi(transport),
+    finance: financeApi(transport),
   };
 }
 

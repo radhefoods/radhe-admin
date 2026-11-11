@@ -1,7 +1,6 @@
-import { redirect } from "next/navigation";
-import { routes } from "@/lib/routes";
+import { SettingsIndex } from "@/features/settings/settings-index";
 
-/** The shop settings open on their first section. */
+/** The shop settings open on the first section the admin may open. */
 export default function Page() {
-  redirect(routes.settingsCompany);
+  return <SettingsIndex />;
 }

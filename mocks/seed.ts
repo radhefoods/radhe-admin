@@ -97,6 +97,8 @@ export const ALL_PERMISSIONS = [
   "reviews.manage",
   "rewards.read",
   "rewards.manage",
+  "finance.read",
+  "finance.manage",
 ];
 
 /** The sign-ins of the demo. Every admin also accepts the code 000000. */

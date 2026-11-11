@@ -40,6 +40,8 @@ export interface NavItem {
   icon: LucideIcon;
   /** Hidden without this permission. `null`: every admin sees it. */
   requires: Permission | null;
+  /** Shown with one of these as well: a page of the entry has a permission of its own. */
+  orWith?: readonly Permission[];
   /** Addresses that belong to another entry although they start the same. */
   except?: readonly string[];
   /** What waits here, from the attention overview. */
@@ -289,8 +291,11 @@ export const NAVIGATION: NavGroup[] = [
         href: routes.settings,
         icon: Settings,
         requires: "settings.read",
+        // "Order costs" opens with the permission of costs and profit (32).
+        orWith: ["finance.read"],
         except: [routes.legal, routes.team, routes.roles],
-        keywords: "company delivery fee estimate returns payment page",
+        keywords:
+          "company delivery fee estimate returns payment page order costs packaging payment fee profit",
       },
       {
         label: "Legal texts",
@@ -334,7 +339,10 @@ export function visibleNavigation(
   return NAVIGATION.map((group) => ({
     ...group,
     items: group.items.filter(
-      (item) => item.requires === null || can(item.requires),
+      (item) =>
+        item.requires === null ||
+        can(item.requires) ||
+        (item.orWith ?? []).some(can),
     ),
   })).filter((group) => group.items.length > 0);
 }

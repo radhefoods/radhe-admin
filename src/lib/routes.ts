@@ -77,6 +77,8 @@ export const routes = {
   settings: "/settings" as Route,
   settingsCompany: "/settings/company" as Route,
   settingsDeliveryFee: "/settings/delivery-fee" as Route,
+  /** What one order costs the shop (32); needs `finance.read`. */
+  settingsOrderCosts: "/settings/order-costs" as Route,
   settingsOrders: "/settings/orders" as Route,
   settingsPayments: "/settings/payments" as Route,
   legal: "/settings/legal" as Route,

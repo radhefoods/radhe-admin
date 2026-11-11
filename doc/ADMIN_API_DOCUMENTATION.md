@@ -2014,6 +2014,7 @@ Stripe's webhook (header `stripe-signature`, verified with the webhook secret; t
 | Order reviews | `reviews.read` | `reviews.manage` |
 | Problem reports | `orders.read` | `orders.manage` |
 | Referrals | `customers.read` | |
+| Costs and profit of orders (section 32) | `finance.read` | `finance.manage` |
 
 Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 
@@ -2399,3 +2400,32 @@ Added on 2026-11-10 (`doc/SUPPLIER_IMPORT.md` has the long version, with the bod
 **Before a product is shown (added 2026-11-10).** `PATCH /v1/admin/products/{id}` with `status: "active"` on a draft or archived product answers `409 PRODUCT_NOT_READY` with `details: { missing, warnings }` while something is missing: `category` (still in "Unsorted"), for food `name_de`, `ingredients_de`, `allergens_de`, `responsible_business` (`food.manufacturer`), and for goods the supplier's file marks `alcohol`, `tobacco`, `deposit`, `fireworks`, `hair_dye`, `health_product`. Food is every product outside a category with `nonFood: true` (categories accept and answer `nonFood`; it counts for the categories below). A check that does not apply is waived per product with `publishWaivers: [...]` on the product. `GET /v1/admin/products/{id}/readiness` answers `{ readiness: { ready, missing, waived, warnings }, enforced }`. The supply settings carry `publishCheck` (default true) to switch the check off, and a brand with an empty `name` marks a prefix that is not a brand.
 
 **Permissions:** `catalog.read` to look, `catalog.manage` to upload, resolve and set the rule. Nothing of this is in any customer endpoint.
+
+---
+
+## 32. Costs and profit of an order
+
+Added on 2026-11-11 (`doc/ORDER_PROFIT.md` has the long version, with every field, the rules and the screens of the panel). What an order earned: the price of each product as it came about from its buying price (the price rule of section 31), and the costs of the order itself. Internal; a permission of its own, because buying prices and profit are not for everyone who works on orders.
+
+| Endpoint | Body | Answers |
+| -------- | ---- | ------- |
+| `GET /v1/admin/finance/settings` | | `{ settings: { deliveryCost, packagingCost, otherCost, paymentFee: { percent, fixed } } }` |
+| `PUT /v1/admin/finance/settings` | the same document, whole | `{ settings }`; `400 VALIDATION_FAILED` |
+| `GET /v1/admin/finance/orders/{id}/profit` | | the breakdown of the order; `404 ORDER_NOT_FOUND` |
+
+**Settings.** Cents without VAT per order: `deliveryCost`, `packagingCost`, `otherCost` (whole, 0 to 1,000,000). `paymentFee` is the estimate of what the payment provider takes: `percent` of what the customer pays (0 to 100, two decimals) plus `fixed` cents per payment (0 to 10,000); the default is Stripe's price for a standard European card in Germany, 1.5 % + 25 cents. A change counts for orders placed from then on: every order keeps the costs that were valid when it was placed.
+
+**The breakdown.** Cents; everything without VAT unless a field says otherwise; buying prices and what follows from them with up to four decimals.
+
+- `state`: `paid`, `not_paid` (the figures are what is expected) or `cancelled`. `complete` is false when a line has no buying price (`linesWithoutCost`): the profit is then too high.
+- `lines[]`: `productId`, `variantId`, `sku`, `name`, `packSize`, `vatRate`, `vatPercent`; `unit { cost, rule, priceMode, calculation { cost, fulfilment, extra, markup, net, vat, price }, price, regularPrice }` (one pack: its buying price, the rule of its product, the steps to the calculated price, the price charged); `quantity { ordered, delivered, returned, restocked, kept }`; and `ordered` and `final`, each `{ units, gross, discount, vat, netRevenue, costUnits, handledUnits, buyingCost, fulfilmentCost, extraCost, profit, marginPercent, markupPercent }`.
+- `ordered` and `final` for the whole order: `revenue { products, delivery, vatRounding, total }`, `costs { buying, fulfilment, extra, delivery, packaging, paymentFee, other, goodwill, total }`, `netProfit`, `marginPercent`. `ordered` is the order as the customer agreed to it, `final` as it ended after corrections, returns and a cancellation.
+- `summary`: the table for the screen. `productRevenue`, `buyingCosts`, `fulfilmentCosts`, `extraCosts`, `deliveryRevenue`, `deliveryCost`, `packagingCost`, `paymentFee`, `otherCosts`, `profitAsOrdered`, `refundAdjustment`, `netProfit`, `marginPercent`. `profitAsOrdered + refundAdjustment = netProfit`.
+- `refunds { revenue, costsRecovered, goodwill, profit }`: how refunds changed the result.
+- `paymentFee { amount, source, estimate, actual, percent, fixed, reportedAt }`: `source` is `actual` once Stripe reported the fee, `estimate` until then, `none` without a payment. The fee is read when the money is captured, and by `POST /v1/jobs/run` for up to 14 days if Stripe had not booked the payment yet. Stripe keeps it when a payment is refunded.
+- `customer { agreed, paid, refunded, kept, bill, vat, pendingRefund }`: what the customer paid and got back, VAT included.
+- `costs`: the costs of an order as they were when it was placed, or `null` on orders from before they were kept.
+
+**Rules.** The costs come from the order itself: the buying price of every pack, the price rule of its product and the costs of an order are copied into the order when it is placed, and nothing that changes afterwards changes its profit. A unit that went back on the shelf (corrected away, returned and put back, or part of a cancelled order) was not spent; a unit that came back and was not put back stays a cost. Delivery, packaging and other costs count unless the order was cancelled before it left. Money given back beyond the bill is `goodwill`.
+
+**Permissions:** `finance.read` for the settings and the breakdown, `finance.manage` to change the settings. Nothing of this is in any customer endpoint, nor in the order answers of section 9.

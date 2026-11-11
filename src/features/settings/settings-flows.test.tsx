@@ -6,6 +6,7 @@ import { installTestApi, type TestApi } from "@/test/api";
 import { renderPanel } from "@/test/render";
 import { CompanySection } from "./company-section";
 import { DeliveryFeeSection } from "./delivery-fee-section";
+import { OrderCostsSection } from "./order-costs-section";
 import { OrdersSection } from "./orders-section";
 import { PaymentsSection } from "./payments-section";
 import { SettingsFrame } from "./settings-frame";
@@ -416,11 +417,164 @@ describe("permissions", () => {
     ).toEqual([
       "/settings/company",
       "/settings/delivery-fee",
+      "/settings/order-costs",
       "/settings/orders",
       "/settings/payments",
     ]);
     expect(
       within(nav).getByRole("link", { name: "Delivery fee" }),
     ).toHaveAttribute("aria-current", "page");
+  });
+});
+
+describe("the order costs", () => {
+  const field = (name: string) => {
+    const found = document.querySelector<HTMLInputElement>(`[name="${name}"]`);
+    if (!found) throw new Error(`No field "${name}" on the page`);
+    return found;
+  };
+  const render = (permissions?: string[]) =>
+    renderSection(<OrderCostsSection />, "/settings/order-costs", permissions);
+
+  it("shows what the API has and sends the whole document as whole cents", async () => {
+    const { user } = render();
+    const save = await screen.findByRole("button", {
+      name: "Save the order costs",
+    });
+    // Until an admin saves something: no costs, and 1.5 % + 0.25 euros.
+    expect(field("deliveryCost")).toHaveValue("0.00");
+    expect(field("paymentFee.percent")).toHaveValue("1.5");
+    expect(field("paymentFee.fixed")).toHaveValue("0.25");
+    expect(save).toBeDisabled();
+
+    await user.clear(field("deliveryCost"));
+    await user.type(field("deliveryCost"), "4.5");
+    await user.clear(field("packagingCost"));
+    await user.type(field("packagingCost"), "0,80");
+    await user.click(save);
+
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({
+      method: "PUT",
+      path: "/v1/admin/finance/settings",
+      body: {
+        deliveryCost: 450,
+        packagingCost: 80,
+        otherCost: 0,
+        paymentFee: { percent: 1.5, fixed: 25 },
+      },
+    });
+    expect(api.mock.db().orderCosts.deliveryCost).toBe(450);
+    expect(await screen.findByText("Order costs saved")).toBeInTheDocument();
+    // The form follows what the API keeps, and has nothing left to save.
+    await waitFor(() => expect(field("deliveryCost")).toHaveValue("4.50"));
+    expect(save).toBeDisabled();
+  });
+
+  it("gives an example of the payment fee that follows the inputs", async () => {
+    const { user } = render();
+    expect(
+      await screen.findByText(
+        "An order of €50.00 would cost €0.75 + €0.25 = €1.00 in payment fees.",
+      ),
+    ).toBeInTheDocument();
+    await user.clear(field("paymentFee.percent"));
+    await user.type(field("paymentFee.percent"), "2.8");
+    expect(
+      screen.getByText(
+        "An order of €50.00 would cost €1.40 + €0.25 = €1.65 in payment fees.",
+      ),
+    ).toBeInTheDocument();
+    await user.clear(field("paymentFee.fixed"));
+    expect(
+      screen.getByText(
+        "The example follows once the percentage and the amount are complete.",
+      ),
+    ).toBeInTheDocument();
+    expect(writes()).toEqual([]);
+  });
+
+  it("says what a change counts for and where product prices come from", async () => {
+    render();
+    await screen.findByRole("button", { name: "Save the order costs" });
+    expect(
+      screen.getByText(
+        "Counts for orders placed from now on. Earlier orders keep the costs they were placed with.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The payment fee is an estimate. The real fee of each payment replaces it once Stripe reports it.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Product prices are calculated on the page Pricing & supplier.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("does not send a value the API would refuse", async () => {
+    const { user } = render();
+    const save = await screen.findByRole("button", {
+      name: "Save the order costs",
+    });
+    await user.clear(field("paymentFee.percent"));
+    await user.type(field("paymentFee.percent"), "101");
+    await user.click(save);
+    expect(
+      await screen.findByText(
+        "A percentage from 0 to 100 with at most two decimals. Example: 1.5",
+      ),
+    ).toBeInTheDocument();
+    expect(writes()).toEqual([]);
+  });
+
+  it("is read-only without the right to change order costs", async () => {
+    render(["finance.read"]);
+    const save = await screen.findByRole("button", {
+      name: "Save the order costs",
+    });
+    expect(save).toBeDisabled();
+    expect(field("deliveryCost")).toBeDisabled();
+    expect(
+      screen.getByLabelText(
+        'Your role does not include "Costs and profit: manage".',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("opens for a role that holds only costs and profit, with its tab alone", async () => {
+    render(["finance.read", "finance.manage"]);
+    await screen.findByRole("button", { name: "Save the order costs" });
+    const nav = screen.getByRole("navigation", {
+      name: "Sections of the shop settings",
+    });
+    expect(
+      within(nav)
+        .getAllByRole("link")
+        .map((link) => link.getAttribute("href")),
+    ).toEqual(["/settings/order-costs"]);
+    // The other settings are not this role's: they are not asked for.
+    expect(api.calls.map((call) => call.path)).toEqual([
+      "/v1/admin/finance/settings",
+    ]);
+  });
+
+  it("stays shut, tab and page, without the right to see costs and profit", async () => {
+    render(["settings.read", "settings.manage"]);
+    expect(
+      await screen.findByText("Your role does not open this page"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Costs and profit: read/)).toBeInTheDocument();
+    const nav = screen.getByRole("navigation", {
+      name: "Sections of the shop settings",
+    });
+    expect(
+      within(nav).queryByRole("link", { name: "Order costs" }),
+    ).not.toBeInTheDocument();
+    expect(
+      api.calls.some((call) => call.path.startsWith("/v1/admin/finance")),
+    ).toBe(false);
   });
 });

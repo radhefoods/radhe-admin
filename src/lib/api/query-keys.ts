@@ -88,6 +88,8 @@ export const queryKeys = {
     count: (query: OrderQuery) => ["orders", "count", query] as const,
     detail: (id: Id) => ["orders", "detail", id] as const,
     payment: (id: Id) => ["orders", "payment", id] as const,
+    /** What the order cost and earned (32): needs `finance.read`. */
+    profit: (id: Id) => ["orders", "profit", id] as const,
   },
   returns: {
     all: ["returns"] as const,
@@ -160,6 +162,14 @@ export const queryKeys = {
     list: (query: ReviewQuery = {}) => ["reviews", "list", query] as const,
     count: (query: ReviewQuery = {}) => ["reviews", "count", query] as const,
     detail: (id: Id) => ["reviews", "detail", id] as const,
+  },
+  /**
+   * Costs and profit (32). The breakdown of an order is a key of the
+   * orders (`orders.profit`), so that whatever loads an order again loads
+   * its profit again.
+   */
+  finance: {
+    settings: ["finance", "settings"] as const,
   },
   /** Points and rewards (30): the rules, the overview, the accounts, the ledger. */
   rewards: {

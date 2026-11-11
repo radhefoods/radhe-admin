@@ -430,7 +430,7 @@ The check applies when a draft or an archived product is activated. A product cr
 - **Categories** (`POST`/`PATCH /v1/admin/categories…`) accept the same `pricing`; the answer includes it. They also accept and answer `nonFood` (default false), and the category spreadsheet has the column `non_food`.
 - **Products** accept and answer `publishWaivers`, and `PATCH` with `status: "active"` can answer `409 PRODUCT_NOT_READY`.
 - Changing `pricing`, the category or the VAT rate of a product, or the `pricing` or the parent of a category, calculates the `auto` prices under it again in the same request.
-- **Orders** remember what one pack cost when the order was placed (`unitCost` on the order item, internal). It is stored from now on; the view of profit per order is not built yet.
+- **Orders** remember what one pack cost when the order was placed and the price rule of its product (`unitCost` and `costing` on the order item, internal). The cost and profit breakdown of an order is in `ORDER_PROFIT.md`.
 
 ## Screens for the admin panel
 
@@ -451,7 +451,7 @@ Buying prices, markups and supplier lines must not be shown to roles without `ca
 - **Goods sold by weight** are 1 kg packs with whole kilograms in stock. Packs of 250 g or 500 g cut from them cannot be kept in step by the file: they are separate rows without price and quantity.
 - **Prices move with the supplier's average.** A buying price that changes by a fraction of a cent can move a calculated price by a cent from one day to the next.
 - **A product has one VAT rate.** If the pack sizes of one product come with different rates in the file, the first decides and the others get the note `vat_differs`.
-- **Profit per order** (delivery, packaging and payment fees against the buying prices) is not built yet. The buying price of every ordered pack is recorded from now on, so that it can be.
+- **Profit per order** (delivery, packaging and payment fees against the buying prices) is in `ORDER_PROFIT.md`.
 
 ## Starting from zero
 

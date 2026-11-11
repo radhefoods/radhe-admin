@@ -11,16 +11,53 @@ import { tabClass } from "@/components/ui/controls";
 import { Alert, Skeleton } from "@/components/ui/surface";
 import { describeError } from "@/lib/api/error-text";
 import type { CompanyMissingField, Settings } from "@/lib/api/types";
+import { useCan } from "@/lib/auth/auth-provider";
+import type { Permission } from "@/lib/auth/permissions";
 import { cn } from "@/lib/cn";
 import { routes } from "@/lib/routes";
 import { useSettings } from "./queries";
 
-const SECTIONS: { href: Route; label: string }[] = [
-  { href: routes.settingsCompany, label: "Company" },
-  { href: routes.settingsDeliveryFee, label: "Delivery fee" },
-  { href: routes.settingsOrders, label: "Orders and returns" },
-  { href: routes.settingsPayments, label: "Payments" },
+/**
+ * The sections of the shop settings, each with the permission that opens
+ * it. Most are groups of `GET /settings` (5) and need `settings.read`;
+ * "Order costs" belongs to costs and profit (32) and needs `finance.read`.
+ */
+export const SETTINGS_SECTIONS: {
+  href: Route;
+  label: string;
+  requires: Permission;
+}[] = [
+  { href: routes.settingsCompany, label: "Company", requires: "settings.read" },
+  {
+    href: routes.settingsDeliveryFee,
+    label: "Delivery fee",
+    requires: "settings.read",
+  },
+  {
+    href: routes.settingsOrderCosts,
+    label: "Order costs",
+    requires: "finance.read",
+  },
+  {
+    href: routes.settingsOrders,
+    label: "Orders and returns",
+    requires: "settings.read",
+  },
+  {
+    href: routes.settingsPayments,
+    label: "Payments",
+    requires: "settings.read",
+  },
 ];
+
+/** The first section an admin may open, or `null` when there is none. */
+export function firstSettingsSection(
+  can: (permission: string) => boolean,
+): Route | null {
+  return (
+    SETTINGS_SECTIONS.find((section) => can(section.requires))?.href ?? null
+  );
+}
 
 /** What the API names as missing for invoices, in the admin's words. */
 export const MISSING_LABEL: Record<CompanyMissingField, string> = {
@@ -41,15 +78,37 @@ export function missingForInvoicesText(missing: readonly string[]): string {
 /**
  * The frame of the shop settings: one header, the sections as tabs, and
  * the warning that stays until invoices can be issued. Each section is its
- * own page with its own form, because each `PUT` replaces one group.
+ * own page with its own form, because each `PUT` replaces one group. A tab
+ * is shown with the permission of its section, and the frame opens for an
+ * admin who may open at least one of them.
  */
 export function SettingsFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const can = useCan();
   const settings = useSettings();
   const missing = settings.data?.company.missingForInvoices ?? [];
+  const sections = SETTINGS_SECTIONS.filter((section) => can(section.requires));
+  const current = SETTINGS_SECTIONS.find(
+    (section) => section.href === pathname,
+  );
+  /** What the page of this address needs; the groups of `GET /settings` by default. */
+  const needs: Permission = current?.requires ?? "settings.read";
+
+  // Nothing of the settings is open to this role: say which permission is missing.
+  if (sections.length === 0) {
+    return (
+      <RequirePermission permission="settings.read">{null}</RequirePermission>
+    );
+  }
 
   let body: ReactNode;
-  if (settings.data) {
+  if (!can(needs)) {
+    // Another section is open to this role, this one is not.
+    body = <RequirePermission permission={needs}>{null}</RequirePermission>;
+  } else if (needs !== "settings.read") {
+    // A section that does not live in `GET /settings` loads what it shows itself.
+    body = children;
+  } else if (settings.data) {
     body = (
       <>
         {missing.length > 0 ? (
@@ -105,7 +164,7 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
   }
 
   return (
-    <RequirePermission permission="settings.read">
+    <>
       <PageHeader
         title="Shop settings"
         description="The business rules of the shop. Each section is saved by itself and applies at once."
@@ -118,7 +177,7 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
           "no-scrollbar flex gap-5 overflow-x-auto border-b border-line",
         )}
       >
-        {SECTIONS.map((section) => (
+        {sections.map((section) => (
           <Link
             key={section.href}
             href={section.href}
@@ -139,7 +198,7 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
         ))}
       </nav>
       <div className={cn(gutter, "flex flex-col gap-6 pt-6 pb-12")}>{body}</div>
-    </RequirePermission>
+    </>
   );
 }
 

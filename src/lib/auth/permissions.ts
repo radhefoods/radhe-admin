@@ -7,6 +7,7 @@ export const RESOURCES = [
   "quotations",
   "wholesale",
   "payments",
+  "finance",
   "customers",
   "catalog",
   "discounts",
@@ -61,6 +62,11 @@ export const RESOURCE_LABELS: Record<
   payments: {
     label: "Payments",
     covers: "The payment of an order, refunds, invoices and credit notes",
+  },
+  finance: {
+    label: "Costs and profit",
+    covers:
+      "Read: see costs and profit, with the buying prices, of every order and the order costs in the settings. Manage: change order costs",
   },
   customers: {
     label: "Customers",

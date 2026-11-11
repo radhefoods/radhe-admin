@@ -19,6 +19,7 @@ import type {
   PriceChange,
   ProductDetail,
   Refund,
+  OrderCostSettings,
   RewardsSettings,
   Role,
   Settings,
@@ -241,6 +242,8 @@ export interface Db {
   referrals: ReferralRecord[];
   reviews: ReviewRecord[];
   issues: IssueRecord[];
+  /** Costs and profit (32): what one order costs besides its goods. */
+  orderCosts: OrderCostSettings;
   /** Points and rewards (30): the rules, one account per customer, the ledger. */
   rewardsSettings: RewardsSettings;
   rewardAccounts: RewardAccountRecord[];
@@ -340,6 +343,14 @@ export function emptyDb(config: MockConfig): Db {
     referrals: [],
     reviews: [],
     issues: [],
+    // Until an admin saves something: no costs, and Stripe's price for a
+    // standard European card in Germany as the estimate of the fee (32).
+    orderCosts: {
+      deliveryCost: 0,
+      packagingCost: 0,
+      otherCost: 0,
+      paymentFee: { percent: 1.5, fixed: 25 },
+    },
     rewardsSettings: DEFAULT_REWARDS_SETTINGS,
     rewardAccounts: [],
     rewardTransactions: [],
