@@ -40,6 +40,8 @@ For the Next.js Admin Panel. Generated from the implemented NestJS backend (`rad
 29. Problem reports
 30. Points and rewards (loyalty coins)
 31. Supplier file: import, stock and calculated prices
+32. Costs and profit of an order
+33. Fulfilment & Returns tracker
 
 Added on 2026-11-01 (`doc/CUSTOMER_ACCOUNTS.md` has the long version): guest orders and deleted accounts (sections 4 and 9), referrals (27), reviews (28), problem reports (29), the attention overview with reports and reviews (15), `issueWindowDays` in the return policy (5), the permissions `reviews.read` and `reviews.manage`.
 
@@ -1241,6 +1243,8 @@ Images belong to **one pack size**; the product itself has none. The 5 kg bag an
 
 All of these need `catalog.manage` and answer `{ "product": { … } }`, the whole admin product.
 
+**Old files stay for a day.** Replacing or deleting an image changes the answers of the API at once. The files of the old image stay reachable for 24 hours and are deleted then: the shop keeps a page for some minutes before it builds it again, and such a page shows the old picture until then, never a broken one. The same holds for the pictures of categories, banners, the blog and the wholesale catalogue. Uploading again does not make the shop show the new picture sooner.
+
 ### `POST /v1/admin/products/{id}/variants/{variantId}/images`
 
 **Purpose:** Upload one or more images (JPEG, PNG, WebP) to a pack size. The first image of a pack size becomes its main image. All-or-nothing: if one file is refused, nothing is stored, and the error names every refused file.
@@ -1253,7 +1257,7 @@ All of these need `catalog.manage` and answer `{ "product": { … } }`, the whol
 
 ### `POST /v1/admin/products/{id}/variants/{variantId}/images/copy`
 
-**Purpose:** Show images of another pack size of the same product on this one too, without storing a file twice. **Request Body:** `{ "fromVariantId": "…", "imageIds"?: [ "…" ] }`; without `imageIds`, all images of that pack size. The copies go to the end of the gallery. Each is an image of its own (own `id`, order, main-image setting, description) that points to the same files, so the two have the same `url`. An image this pack size shows already is left out, which makes the call repeatable. Deleting or replacing the image on one pack size leaves the other as it is; the files are deleted when no pack size of the product shows them any more.
+**Purpose:** Show images of another pack size of the same product on this one too, without storing a file twice. **Request Body:** `{ "fromVariantId": "…", "imageIds"?: [ "…" ] }`; without `imageIds`, all images of that pack size. The copies go to the end of the gallery. Each is an image of its own (own `id`, order, main-image setting, description) that points to the same files, so the two have the same `url`. An image this pack size shows already is left out, which makes the call repeatable. Deleting or replacing the image on one pack size leaves the other as it is; the files are deleted when no pack size of the product shows them any more, a day later.
 
 **Success Response (200):** `{ "product": { … } }`. **Possible Errors:** `400 IMAGE_LIMIT_REACHED` (the pack size would have more than 8), `400 VALIDATION_FAILED` (`fromVariantId` is the pack size itself), `404 PRODUCT_NOT_FOUND`, `404 PRODUCT_VARIANT_NOT_FOUND` (either pack size), `404 IMAGE_NOT_FOUND` (an id of `imageIds` is not an image of `fromVariantId`), `409 IMAGE_ORDER_INVALID` (the images changed in the meantime).
 
@@ -2044,21 +2048,23 @@ Documented so the whole surface is known.
 
 ### `POST /v1/jobs/run`
 
-**Purpose:** Runs every scheduled job in one call, for an external timer (a cron job every few minutes on the hosting, which also keeps a sleeping process awake): first the checkout cleanup, then the notification queue. The API runs both by itself while the process is up: the cleanup 15 seconds after the start and then at every full `PAYMENT_JOB_INTERVAL_MINUTES` on the clock (default 60), the queue every minute. **Authentication:** header `X-Jobs-Token: <JOBS_TOKEN>` (server secret; the endpoint is off when no token is configured). Not rate limited.
+**Purpose:** Runs every scheduled job in one call, for an external timer (a cron job every few minutes on the hosting, which also keeps a sleeping process awake): first the checkout cleanup, then the notification queue, the expiry of coins and the deletion of picture files that were replaced or removed a day ago. The API runs them by itself while the process is up: the cleanup 15 seconds after the start and then at every full `PAYMENT_JOB_INTERVAL_MINUTES` on the clock (default 60), the queue every minute, the expiry of coins once a day, the deletion of picture files every hour. **Authentication:** header `X-Jobs-Token: <JOBS_TOKEN>` (server secret; the endpoint is off when no token is configured). Not rate limited.
 
 The checkout cleanup gives up orders whose payment page expired and whose grace time passed (`cancelled`, reason `payment_not_completed`, no email; an open Stripe page is expired) and finishes orders whose payment was approved but never settled (a crash in between): they are settled late or, when sold out meanwhile, cancelled with `sold_out`.
+
+The files of a picture that was replaced or removed stay in the storage for 24 hours (a cached page of the shop may still show them) and are deleted by this job; `storage.deleted` is the number of files deleted in this run.
 
 **Success Response (200):**
 
 ```json
-{ "startedAt": "…", "finishedAt": "…", "checkout": { "expired": 1, "settled": 0 }, "notifications": { "sent": 5, "retried": 0, "failed": 0, "skipped": 0, "recovered": 0 } }
+{ "startedAt": "…", "finishedAt": "…", "checkout": { "expired": 1, "settled": 0 }, "notifications": { "sent": 5, "retried": 0, "failed": 0, "skipped": 0, "recovered": 0 }, "rewards": { "expired": 0 }, "storage": { "deleted": 3 } }
 ```
 
 **Possible Errors:** `403 JOBS_TOKEN_INVALID`.
 
 ### `POST /v1/webhooks/stripe`
 
-Stripe's webhook (header `stripe-signature`, verified with the webhook secret; the raw body is needed). Handles `checkout.session.completed` and `checkout.session.async_payment_succeeded` (settle the order: stock, capture, invoice, confirmation), `checkout.session.async_payment_failed` and `payment_intent.payment_failed` (payment `failed`, `payment_failed` email), `checkout.session.expired` (the page is forgotten), `refund.created`, `refund.updated`, `charge.refund.updated` and `charge.refunded` (the refund records follow Stripe). Every event is processed once (`paymentEvents`). Answers `{ "received": true, "handled": true | false }` (`false` for an event seen before); `400 WEBHOOK_SIGNATURE_INVALID`, `503 PAYMENTS_NOT_CONFIGURED`. Not for the panel.
+Stripe's webhook (header `stripe-signature`, verified with the webhook secret; the raw body is needed). Handles `checkout.session.completed` and `checkout.session.async_payment_succeeded` (settle the order: stock, capture, invoice, confirmation), `checkout.session.async_payment_failed` and `payment_intent.payment_failed` (payment `failed`, `payment_failed` email), `checkout.session.expired` (the page is forgotten), `refund.created`, `refund.updated`, `refund.failed`, `charge.refund.updated` and `charge.refunded` (the refund records follow Stripe). Every event is processed once (`paymentEvents`). Answers `{ "received": true, "handled": true | false }` (`false` for an event seen before); `400 WEBHOOK_SIGNATURE_INVALID`, `503 PAYMENTS_NOT_CONFIGURED`. Not for the panel.
 
 ### `GET /health`, `GET /health/live`
 
@@ -2126,7 +2132,7 @@ Auth endpoints (`me`, `change-password`, `logout-all`) need any signed-in admin.
 - **401**: `UNAUTHENTICATED` (generic), `AUTH_TOKEN_INVALID`, `AUTH_REFRESH_INVALID`, `AUTH_SESSION_REVOKED`, `ADMIN_CREDENTIALS_INVALID`, `ADMIN_MFA_TOKEN_INVALID`, `ADMIN_MFA_CODE_INVALID`, `CUSTOMER_CREDENTIALS_INVALID` (store).
 - **403**: `FORBIDDEN` (generic), `ADMIN_PERMISSION_DENIED`, `ADMIN_PASSWORD_CHANGE_REQUIRED`, `ADMIN_ACCOUNT_DISABLED`, `ADMIN_SELF_MODIFICATION`, `ROLE_IS_SYSTEM`, `ORIGIN_NOT_ALLOWED`, `CUSTOMER_BLOCKED`, `JOBS_TOKEN_INVALID`.
 - **404**: `NOT_FOUND`, `ADMIN_NOT_FOUND`, `ROLE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `ADDRESS_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `PRODUCT_VARIANT_NOT_FOUND`, `IMAGE_NOT_FOUND`, `BANNER_NOT_FOUND`, `CART_PRODUCT_NOT_FOUND`, `ORDER_NOT_FOUND`, `ORDER_ITEM_NOT_FOUND` (orders), `RETURN_NOT_FOUND`, `INVOICE_NOT_FOUND`, `REFUND_NOT_FOUND`, `LEGAL_DOCUMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `ANNOUNCEMENT_NOT_FOUND`, `FAQ_NOT_FOUND`, `FAQ_GROUP_NOT_FOUND`, `BLOG_POST_NOT_FOUND`, `BLOG_CATEGORY_NOT_FOUND`, `QUOTATION_NOT_FOUND`, `QUOTATION_ITEM_NOT_FOUND`, `WHOLESALE_CATEGORY_NOT_FOUND`, `WHOLESALE_PRODUCT_NOT_FOUND`, `WHOLESALE_SKU_NOT_FOUND`, `DISCOUNT_NOT_FOUND`.
-- **409**: `CONFLICT`, `ADMIN_EMAIL_TAKEN`, `ADMIN_SELF_MODIFICATION` (last super admin), `ROLE_KEY_TAKEN`, `ROLE_IN_USE`, `LEGAL_SLUG_TAKEN`, `CATEGORY_SLUG_TAKEN`, `CATEGORY_HAS_CHILDREN`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_SKU_TAKEN`, `PRODUCT_SLUG_TAKEN`, `PRODUCT_IS_ACTIVE`, `PRODUCT_IN_USE`, `PRODUCT_VARIANT_LAST`, `PRODUCT_VARIANT_IN_USE`, `STOCK_INSUFFICIENT`, `IMAGE_ORDER_INVALID` (changed meanwhile), `CART_EMPTY`, `ORDER_ITEMS_NOT_ORDERABLE`, `ORDER_TOTAL_CHANGED`, `ORDER_NOT_PAYABLE`, `ORDER_CANNOT_BE_CANCELLED`, `ORDER_TRANSITION_NOT_ALLOWED`, `ORDER_CANNOT_BE_CHANGED`, `ORDER_CHANGED_MEANWHILE`, `RETURN_NOT_POSSIBLE`, `RETURN_WINDOW_CLOSED`, `RETURN_QUANTITY_INVALID` (request/complete), `RETURN_TRANSITION_NOT_ALLOWED`, `LEGAL_DOCUMENT_PUBLISHED`, `LEGAL_DOCUMENTS_MISSING`, `LEGAL_VERSION_CHANGED`, `COMPANY_DETAILS_MISSING`, `REFUND_AMOUNT_INVALID` (nothing paid), `REFUND_TRANSITION_NOT_ALLOWED`, `NOTIFICATION_TRANSITION_NOT_ALLOWED`, `ANNOUNCEMENT_NO_RECIPIENTS`, `FAQ_GROUP_HAS_FAQS`, `BLOG_POST_SLUG_TAKEN`, `BLOG_CATEGORY_SLUG_TAKEN`, `BLOG_CATEGORY_HAS_POSTS`, `QUOTATION_STATUS_INVALID`, `WHOLESALE_CATEGORY_SLUG_TAKEN`, `WHOLESALE_PRODUCT_SLUG_TAKEN`, `WHOLESALE_SKU_TAKEN`, `WHOLESALE_CATEGORY_HAS_PRODUCTS`, `WHOLESALE_SKU_LAST`, `DISCOUNT_CODE_TAKEN`, `DISCOUNT_IN_USE`, `DISCOUNT_NOT_APPLICABLE` (store, at checkout).
+- **409**: `CONFLICT`, `FULFILMENT_ADJUSTMENT_INVALID`, `ADMIN_EMAIL_TAKEN`, `ADMIN_SELF_MODIFICATION` (last super admin), `ROLE_KEY_TAKEN`, `ROLE_IN_USE`, `LEGAL_SLUG_TAKEN`, `CATEGORY_SLUG_TAKEN`, `CATEGORY_HAS_CHILDREN`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_SKU_TAKEN`, `PRODUCT_SLUG_TAKEN`, `PRODUCT_IS_ACTIVE`, `PRODUCT_IN_USE`, `PRODUCT_VARIANT_LAST`, `PRODUCT_VARIANT_IN_USE`, `STOCK_INSUFFICIENT`, `IMAGE_ORDER_INVALID` (changed meanwhile), `CART_EMPTY`, `ORDER_ITEMS_NOT_ORDERABLE`, `ORDER_TOTAL_CHANGED`, `ORDER_NOT_PAYABLE`, `ORDER_CANNOT_BE_CANCELLED`, `ORDER_TRANSITION_NOT_ALLOWED`, `ORDER_CANNOT_BE_CHANGED`, `ORDER_CHANGED_MEANWHILE`, `RETURN_NOT_POSSIBLE`, `RETURN_WINDOW_CLOSED`, `RETURN_QUANTITY_INVALID` (request/complete), `RETURN_TRANSITION_NOT_ALLOWED`, `LEGAL_DOCUMENT_PUBLISHED`, `LEGAL_DOCUMENTS_MISSING`, `LEGAL_VERSION_CHANGED`, `COMPANY_DETAILS_MISSING`, `REFUND_AMOUNT_INVALID` (nothing paid), `REFUND_TRANSITION_NOT_ALLOWED`, `NOTIFICATION_TRANSITION_NOT_ALLOWED`, `ANNOUNCEMENT_NO_RECIPIENTS`, `FAQ_GROUP_HAS_FAQS`, `BLOG_POST_SLUG_TAKEN`, `BLOG_CATEGORY_SLUG_TAKEN`, `BLOG_CATEGORY_HAS_POSTS`, `QUOTATION_STATUS_INVALID`, `WHOLESALE_CATEGORY_SLUG_TAKEN`, `WHOLESALE_PRODUCT_SLUG_TAKEN`, `WHOLESALE_SKU_TAKEN`, `WHOLESALE_CATEGORY_HAS_PRODUCTS`, `WHOLESALE_SKU_LAST`, `DISCOUNT_CODE_TAKEN`, `DISCOUNT_IN_USE`, `DISCOUNT_NOT_APPLICABLE` (store, at checkout).
 - **413**: `FILE_TOO_LARGE`. **429**: `RATE_LIMITED`, `ADMIN_ACCOUNT_LOCKED`. **502**: `PAYMENT_PROVIDER_ERROR`. **503**: `SERVICE_UNAVAILABLE`, `PAYMENTS_NOT_CONFIGURED`, `STORAGE_UNAVAILABLE`. **500**: `INTERNAL_ERROR`.
 
 ---
@@ -2229,7 +2235,7 @@ All banners in display order: `{ "items": [ … ] }`.
 
 ### `PUT /v1/admin/banners/{id}/image`
 
-Replace the picture (same request and rules as the creation). The old files are deleted; the description stays. **Success Response (200):** `{ "banner": { … } }`.
+Replace the picture (same request and rules as the creation). The old files are deleted a day later; the description stays. **Success Response (200):** `{ "banner": { … } }`.
 
 ### `PUT /v1/admin/banners/order`
 
@@ -2506,3 +2512,32 @@ Added on 2026-11-11 (`doc/ORDER_PROFIT.md` has the long version, with every fiel
 **Rules.** The costs come from the order itself: the buying price of every pack, the price rule of its pack size (its own values, and those of its product, its category and the shop where it has none) and the costs of an order are copied into the order when it is placed, and nothing that changes afterwards changes its profit. A unit that went back on the shelf (corrected away, returned and put back, or part of a cancelled order) was not spent; a unit that came back and was not put back stays a cost. Delivery, packaging and other costs count unless the order was cancelled before it left. Money given back beyond the bill is `goodwill`.
 
 **Permissions:** `finance.read` for the settings and the breakdown, `finance.manage` to change the settings. Nothing of this is in any customer endpoint, nor in the order answers of section 9.
+
+---
+
+## 33. Fulfilment & Returns tracker
+
+Added on 2026-11-17 (`doc/FULFILMENT_RETURNS.md` has the long version, with an example of every answer and the screens of the panel). Per pack size: the units that were dispatched, that were returned, and that stay sold. Computed from the orders and the returns when asked; only adjustments by hand are stored.
+
+| Endpoint | Query or body | Answers |
+| -------- | ------------- | ------- |
+| `GET /v1/admin/fulfilment-tracker` | the filters, `page`, `limit` (default 25, ≤100) | `{ range, totals, items, page, limit, total, totalPages }` |
+| `GET /v1/admin/fulfilment-tracker/brands` | the filters (`brand` is ignored) | `{ range, items: [{ brand, packSizes, dispatched, returned, net }] }`, by name, `brand: null` last |
+| `GET /v1/admin/fulfilment-tracker/variants/{variantId}` | `from`, `to`, `page`, `limit` | `{ range, row, fromOrders, orders: { items, page, limit, total, totalPages }, adjustments }`; `404 PRODUCT_VARIANT_NOT_FOUND` |
+| `GET /v1/admin/fulfilment-tracker/export` | the filters, `columns` | `{ range, fileName, columns: [{ key, label }], rows, totals }`: every row, the chosen columns |
+| `GET /v1/admin/fulfilment-tracker/adjustments` | `variantId?`, `page`, `limit` | a page of adjustments, newest first |
+| `POST /v1/admin/fulfilment-tracker/adjustments` | `{ variantId, dispatched?, returned?, reason, date? }` | `201 { adjustment, totals }`; `409 FULFILMENT_ADJUSTMENT_INVALID`, `404 PRODUCT_VARIANT_NOT_FOUND`, `400 VALIDATION_FAILED` |
+
+**The filters** (all optional): `from`, `to` (`YYYY-MM-DD`, calendar days of the business time zone, both included; without them all dates), `q` (2 to 80 characters: every word in the product name of either language, the brand or the SKU), `brand` (repeatable, any of them), `productId`, `variantId`, `sort` (`name`, `brand`, `sku`, `dispatched`, `returned`, `net`, with `:asc` or `:desc`; default `dispatched:desc`).
+
+**A row:** `productId`, `variantId`, `sku`, `name { en, de? }`, `brand` (or `null`), `packSize { value, unit, label }`, `dispatched`, `returned`, `net`, `orders`, `returns`, `adjusted { dispatched, returned }`, `inCatalogue`. `totals { packSizes, products, dispatched, returned, net, adjusted }` are those of every row under the filters, not of the page.
+
+**What counts.** `dispatched`: the delivered units (the ordered ones after the admin's corrections) of orders whose status is `dispatched`, `delivered` or `returned`, for the day of `delivery.dispatchedAt`. `returned`: the accepted units of returns whose status is `completed`, for the day of `completedAt`, as long as their order still counts. `net`: `dispatched − returned`. Cancelled orders and orders that wait count nothing; a return never lowers `dispatched`. With a date range a row can have a negative `net` (a unit came back from an order that left before the range).
+
+**The orders of a pack size.** Every order that adds to `dispatched` in the period and every order with a return that adds to `returned`: `orderId`, `orderNumber`, `placedAt`, `orderStatus`, `paymentStatus`, `customerName`, `delivery { method, trackingNumber, dispatchedAt, deliveredAt }`, `orderedQuantity`, `deliveredQuantity`, `dispatched` and `returned` (what the order adds in the period), `corrections [{ from, to, reason, at }]`, and `returns [{ id, returnNumber, status, reason, requestedQuantity, acceptedQuantity, countedQuantity, requestedAt, completedAt, restocked }]` with every return of the order for this pack size, whatever its status. `fromOrders` is the sum of the entries; the rest of `row` is `adjustments`.
+
+**The export.** `columns`: keys, comma separated or repeated, in the order wanted: `product_name`, `product_name_de`, `brand`, `sku`, `pack_size`, `dispatched`, `returned`, `net`, `orders`, `completed_returns`, `adjusted_dispatched`, `adjusted_returned`, `product_id`, `variant_id`. Left out: `product_name`, `brand`, `sku`, `pack_size`, `dispatched`, `returned`, `net`. The panel writes the file from `rows` under `columns[].label`, named `fileName`.
+
+**Adjustments.** `dispatched` and `returned` are whole units to add; negative takes units off. `reason` is required (5 to 500 characters); `date` is the day the adjustment counts for, today or earlier, default today. `net` cannot be set. Refused with `409 FULFILMENT_ADJUSTMENT_INVALID` (`details.current { dispatched, returned, net }`, over all dates) when both numbers are 0, a figure would fall below 0, or more units would be returned than dispatched. An adjustment answers `id`, `productId`, `variantId`, `sku`, `name`, `packSize`, `date`, `dispatched`, `returned`, `net`, `reason`, `before` and `after` (the figures over all dates), `admin { id, name }`, `createdAt`. It changes the report only, never an order, a return or the stock, and is never changed or deleted: a second adjustment takes a wrong one back.
+
+**Permissions:** `orders.read` to read, `orders.manage` to adjust.
