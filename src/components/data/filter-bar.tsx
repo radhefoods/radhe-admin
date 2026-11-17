@@ -16,12 +16,15 @@ export function FilterBar({
   children,
   onClear,
   active,
+  clearLabel = "Clear all",
   className,
 }: {
   children: ReactNode;
   /** Shown when at least one filter is set. */
   onClear?: () => void;
   active?: boolean;
+  /** What the button that empties the filters says. */
+  clearLabel?: string;
   className?: string;
 }) {
   return (
@@ -36,7 +39,7 @@ export function FilterBar({
           onClick={onClear}
           className="h-8 rounded-md px-2 text-13 font-medium text-ink-muted transition-colors hover:bg-ink/6 hover:text-ink"
         >
-          Clear all
+          {clearLabel}
         </button>
       ) : null}
     </div>

@@ -12,6 +12,13 @@ import { useCallback, useMemo } from "react";
 export interface Param<T> {
   parse: (raw: string | null) => T;
   serialize: (value: T) => string | null;
+  /**
+   * For a parameter that is repeated in the address (`brand=TRS&brand=Heera`):
+   * reads every value and writes one entry per value. Without them the
+   * parameter stands once.
+   */
+  parseAll?: (raw: string[]) => T;
+  serializeAll?: (value: T) => string[];
 }
 
 const OBJECT_ID = /^[0-9a-f]{24}$/;
@@ -48,6 +55,19 @@ export const param = {
       raw === "true" ? true : raw === "false" ? false : undefined,
     serialize: (value) => (value === undefined ? null : String(value)),
   }),
+  /** Several texts under one name, repeated in the address; no value twice. */
+  list: (maxItems = 100, maxLength = 80): Param<string[]> => {
+    const clean = (values: readonly string[]) =>
+      [...new Set(values.map((value) => value.trim().slice(0, maxLength)))]
+        .filter(Boolean)
+        .slice(0, maxItems);
+    return {
+      parse: (raw) => clean(raw === null ? [] : [raw]),
+      serialize: (value) => clean(value)[0] ?? null,
+      parseAll: clean,
+      serializeAll: clean,
+    };
+  },
   page: (): Param<number> => ({
     parse: (raw) => {
       const value = Number(raw);
@@ -80,7 +100,9 @@ export function useUrlState<P extends Params>(
   const values = useMemo(() => {
     const result: Record<string, unknown> = {};
     for (const [key, definition] of Object.entries(params)) {
-      result[key] = definition.parse(search.get(key));
+      result[key] = definition.parseAll
+        ? definition.parseAll(search.getAll(key))
+        : definition.parse(search.get(key));
     }
     return result as Values<P>;
     // The definitions are constant; the address is what changes.
@@ -94,6 +116,12 @@ export function useUrlState<P extends Params>(
       for (const [key, value] of Object.entries(changes)) {
         const definition = params[key];
         if (!definition) continue;
+        if (definition.serializeAll) {
+          next.delete(key);
+          for (const entry of definition.serializeAll(value))
+            next.append(key, entry);
+          continue;
+        }
         const serialized = definition.serialize(value);
         if (serialized === null) next.delete(key);
         else next.set(key, serialized);

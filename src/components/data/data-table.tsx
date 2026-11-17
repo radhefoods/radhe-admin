@@ -29,6 +29,8 @@ export interface ColumnMeta {
   className?: string;
   /** What the skeleton of a loading cell is wide. */
   skeleton?: string;
+  /** The API sorts the list by this column: said to a screen reader on the header. */
+  sort?: "ascending" | "descending" | "none";
 }
 
 /** One set of features for every table of the panel. */
@@ -251,6 +253,7 @@ export function DataTable<T extends RowData>({
                     <th
                       key={header.id}
                       scope="col"
+                      aria-sort={meta?.sort}
                       className={cn(
                         // Below `lg` the frame scrolls sideways and would be what
                         // the header sticks to, down over the first row. From

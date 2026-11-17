@@ -14,6 +14,8 @@ export const routes = {
 
   orders: "/orders" as Route,
   order: (id: Id) => `/orders/${id}` as Route,
+  /** The Fulfilment & Returns tracker (33): units dispatched, returned and kept, per pack size. */
+  fulfilment: "/fulfilment" as Route,
   returns: "/returns" as Route,
   return: (id: Id) => `/returns/${id}` as Route,
   /** Problem reports after a delivery (29). */

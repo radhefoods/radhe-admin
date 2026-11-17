@@ -1,6 +1,8 @@
 import { ApiError } from "./errors";
 
-export type QueryValue = string | number | boolean | null | undefined;
+/** A list is sent as a repeated parameter: `brand=TRS&brand=Heera`. */
+export type QueryValue =
+  string | number | boolean | null | undefined | readonly string[];
 export type Query = Record<string, QueryValue>;
 
 export interface RequestOptions {
@@ -55,6 +57,10 @@ export function buildUrl(
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined || value === null || value === "") continue;
+    if (typeof value === "object") {
+      for (const entry of value) if (entry !== "") params.append(key, entry);
+      continue;
+    }
     params.set(key, String(value));
   }
   const search = params.toString();

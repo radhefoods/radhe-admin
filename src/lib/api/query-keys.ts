@@ -1,6 +1,10 @@
 import type {
   AnalyticsQuery,
   AnnouncementQuery,
+  FulfilmentAdjustmentQuery,
+  FulfilmentFilters,
+  FulfilmentOrdersQuery,
+  FulfilmentReportQuery,
   BlogPostQuery,
   CustomerQuery,
   DiscountQuery,
@@ -181,6 +185,18 @@ export const queryKeys = {
    */
   supply: {
     settings: ["supply", "settings"] as const,
+  },
+  /** The Fulfilment & Returns tracker (33): the report, its brands, the orders of a pack size, the adjustments. */
+  fulfilment: {
+    all: ["fulfilment"] as const,
+    report: (query: FulfilmentReportQuery = {}) =>
+      ["fulfilment", "report", query] as const,
+    brands: (filters: FulfilmentFilters = {}) =>
+      ["fulfilment", "brands", filters] as const,
+    variant: (variantId: Id, query: FulfilmentOrdersQuery = {}) =>
+      ["fulfilment", "variant", variantId, query] as const,
+    adjustments: (query: FulfilmentAdjustmentQuery = {}) =>
+      ["fulfilment", "adjustments", query] as const,
   },
   /** Points and rewards (30): the rules, the overview, the accounts, the ledger. */
   rewards: {

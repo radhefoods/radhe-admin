@@ -15,6 +15,7 @@ import {
   Megaphone,
   MessageSquareWarning,
   Newspaper,
+  PackageCheck,
   ReceiptText,
   ScrollText,
   Settings,
@@ -82,6 +83,13 @@ export const NAVIGATION: NavGroup[] = [
         requires: "orders.read",
         count: (a) => ({ count: a.orders.toProcess, tone: "attention" }),
         keywords: "paid processing dispatch tracking delivery",
+      },
+      {
+        label: "Fulfilment & Returns",
+        href: routes.fulfilment,
+        icon: PackageCheck,
+        requires: "orders.read",
+        keywords: "dispatched shipped returns units sold sku brand export csv",
       },
       {
         label: "Returns",

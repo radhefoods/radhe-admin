@@ -168,6 +168,8 @@ export const API_ERROR_CODES = [
   // points and rewards (30)
   "REWARDS_AMOUNT_INVALID",
   "REWARDS_SETTINGS_INVALID",
+  // fulfilment and returns tracker (33)
+  "FULFILMENT_ADJUSTMENT_INVALID",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -200,6 +202,10 @@ export interface ErrorDetails {
   ADMIN_PERMISSION_DENIED: { required: string[] };
   ADMIN_ACCOUNT_LOCKED: { retryAfterSeconds: number };
   ROLE_PERMISSION_UNKNOWN: { unknown: string[] };
+  /** The figures of the pack size over all dates (33); absent when the adjustment changes nothing. */
+  FULFILMENT_ADJUSTMENT_INVALID:
+    | { current: { dispatched: number; returned: number; net: number } }
+    | undefined;
   /** The address, and the legal page that has it (6). */
   LEGAL_SLUG_TAKEN: { slug: string; type: LegalType };
   CATEGORY_ORDER_INVALID: { expected: Id[] };

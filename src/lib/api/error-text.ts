@@ -225,6 +225,9 @@ export const ERROR_TEXT: Record<ErrorCode, string> = {
   // points and rewards
   REWARDS_AMOUNT_INVALID: "An adjustment moves at least one coin.",
   REWARDS_SETTINGS_INVALID: "The campaign must end after it starts.",
+  // fulfilment and returns tracker
+  FULFILMENT_ADJUSTMENT_INVALID:
+    "This adjustment would leave figures that cannot be true: nothing goes below zero, and no more units come back than left.",
   QUOTATION_STATUS_INVALID:
     "The quotation is not in a status that allows this. The page was loaded again.",
 };
@@ -239,6 +242,10 @@ export function errorMessage(error: unknown): string {
     return "Something went wrong in the panel. Reload the page and try again.";
   }
 
+  // The API names the reason: which figure would be wrong, with its numbers (33).
+  if (hasErrorCode(error, "FULFILMENT_ADJUSTMENT_INVALID") && error.message) {
+    return error.message;
+  }
   if (hasErrorCode(error, "ADMIN_ACCOUNT_LOCKED")) {
     const seconds = error.details?.retryAfterSeconds;
     if (typeof seconds === "number" && seconds > 0) {

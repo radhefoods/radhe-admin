@@ -39,6 +39,7 @@ import type {
   DiscountUseRecord,
 } from "./modules/discounts.ts";
 import type { FaqGroupRecord, FaqRecord } from "./modules/faq.ts";
+import type { FulfilmentAdjustmentRecord } from "./modules/fulfilment.ts";
 import type { QuotationRecord } from "./modules/quotations.ts";
 import type {
   RewardAccountRecord,
@@ -267,6 +268,8 @@ export interface Db {
   supplySettings: SupplySettings;
   /** Costs and profit (32): what one order costs besides its goods. */
   orderCosts: OrderCostSettings;
+  /** The Fulfilment & Returns tracker (33): what admins adjusted by hand. Everything else is counted from the orders and the returns. */
+  fulfilmentAdjustments: FulfilmentAdjustmentRecord[];
   /** Points and rewards (30): the rules, one account per customer, the ledger. */
   rewardsSettings: RewardsSettings;
   rewardAccounts: RewardAccountRecord[];
@@ -393,6 +396,7 @@ export function emptyDb(config: MockConfig): Db {
       otherCost: 0,
       paymentFee: { percent: 1.5, fixed: 25 },
     },
+    fulfilmentAdjustments: [],
     rewardsSettings: DEFAULT_REWARDS_SETTINGS,
     rewardAccounts: [],
     rewardTransactions: [],

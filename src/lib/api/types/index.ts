@@ -26,3 +26,4 @@ export * from "./issues";
 export * from "./rewards";
 export * from "./supply";
 export * from "./finance";
+export * from "./fulfilment";

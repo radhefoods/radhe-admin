@@ -40,6 +40,7 @@ import { newId } from "./http.ts";
 import { seedAccounts } from "./modules/accounts.ts";
 import { seedBlog } from "./modules/blog.ts";
 import { seedFaq } from "./modules/faq.ts";
+import { seedFulfilment } from "./modules/fulfilment.ts";
 import {
   discountShares,
   reserveDiscountUse,
@@ -2201,6 +2202,8 @@ export function seed(options: SeedOptions): Db {
   seedAccounts(db, now, owner, rng);
   // --- Points and rewards (30): the coins of reviews and referrals, an adjustment --
   seedRewardsFinish(db, owner, now);
+  // --- The Fulfilment & Returns tracker (33): two adjustments by hand ---------
+  seedFulfilment(db, now, owner.id);
 
   return db;
 }
